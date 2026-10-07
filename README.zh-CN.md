@@ -18,7 +18,12 @@
   <a href="HACKING.md">开发文档</a>
 </p>
 
-<!-- TODO：三栏窗口（左栏 · 终端 · 检查器）的截图或短动图。 -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/gilvt-dark.png">
+    <img src="docs/images/gilvt-light.png" alt="gilvt 同时运行六个 Agent 会话：左栏按状态分组，四个分屏分别是等待审批、执行中、出错和已完成，右栏是检查器时间线，底部的监控官命令条在回答 “What needs me right now?”" width="100%">
+  </picture>
+</p>
 
 > [!NOTE]
 > gilvt 目前是预发布版本（0.1.0），只支持 macOS。界面默认简体中文，可以在设置（`⌘,`）→「语言」里切换成

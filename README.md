@@ -18,7 +18,12 @@
   <a href="HACKING.md">Developing</a>
 </p>
 
-<!-- TODO: screenshot or short GIF of the three-column window (sidebar · terminal · inspector). -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/gilvt-dark.png">
+    <img src="docs/images/gilvt-light.png" alt="gilvt with six agent sessions: the sidebar grouped by status, four split panes (awaiting approval, running, error, done), the inspector timeline, and the Monitor command bar answering “What needs me right now?”" width="100%">
+  </picture>
+</p>
 
 > [!NOTE]
 > gilvt is pre-release software (0.1.0) and runs on macOS only. The interface defaults to Simplified

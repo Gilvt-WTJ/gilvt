@@ -57,7 +57,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 ## 5. 对外文档
 
 - [x] 英文 `README.md`（面向用户：介绍、安装、文档、隐私、关系声明）；原来的开发者文档改名为 `HACKING.md`。
-- [ ] README 顶部的截图 / 动图（三栏窗口），README 里留了 TODO 注释。
+- [x] README 顶部的截图（`docs/images/gilvt-light.png` / `gilvt-dark.png`，`<picture>` 随 GitHub 主题切换）。截图是在 GUI 沙盒里用 fake agent 摆出的场景；界面更新后需要重拍。
 - [x] 界面支持英文（`language = "en"` / 设置 →「语言」），README 顶部已说明。
 - [x] 对外文档中英双语：英文用默认文件名，中文加 `.zh-CN` 后缀，顶部互相切换（README、产品手册 md / html、PRIVACY、SECURITY、CONTRIBUTING、AI_POLICY）。改用户可见行为时两种语言一起更新。
 - [ ] HACKING.md、验收清单、设计文档目前只有中文（面向开发者，暂不翻译）。
