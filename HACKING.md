@@ -2,7 +2,7 @@
 
 面向 Agent 时代的 macOS 终端。设计文档：`docs/design/2026-09-23-agent-terminal-design.md`。
 
-**使用者请先看产品手册**（[Markdown](docs/user-guide.md)，或用浏览器打开排版版 [`docs/user-guide.html`](docs/user-guide.html)）：gilvt 是什么、怎么安装、每个功能怎么用。本文件（`HACKING.md`）面向开发者，包含构建、目录结构和各功能的实现细节；项目介绍见 [`README.md`](README.md)，贡献方式见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+**使用者请先看产品手册**（[Markdown](docs/user-guide.zh-CN.md)，或用浏览器打开排版版 [`docs/user-guide.zh-CN.html`](docs/user-guide.zh-CN.html)；英文版 [`docs/user-guide.md`](docs/user-guide.md)）：gilvt 是什么、怎么安装、每个功能怎么用。本文件（`HACKING.md`）面向开发者，包含构建、目录结构和各功能的实现细节；项目介绍见 [`README.md`](README.md)，贡献方式见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 当前进度：**M1 基础终端**（标签页、分屏、渲染与输入、配置文件）+ **M2a**（shell 集成、`gilvt` 命令行、代码 / diff Quick Look、⌘+点击路径）+ **M2b**（Markdown 渲染与 Mermaid 图表）+ **M2c**（`⌘P` 文件搜索、从访达拖入）+ **M3a**（Agent 状态感知：左栏会话总览、pane 描边与标签圆点、会话切换、系统通知）+ **M3b**（右栏检查器「过程」标签：状态卡、等待横幅、TODO、时间线、跳转到终端）+ **M3c**（会话的恢复与管理：`⌘⇧R` 会话浮层、`⌘⇧N` 新建 Agent、左栏「已结束」会话恢复、Dock 角标）+ **M3d**（Session Center 与离线 Review）+ **M3e–M3h**（全局 Agent 发现、可逆 hooks、外部终端跳转和受保护的生命周期控制）+ **M4a**（每轮产物与「本轮」diff）+ **M5a**（当前 Agent 的只读配置摘要）+ **P0**（重启恢复工作现场、git / worktree 感知、关闭确认）+ **会话整理**（归档、带附属数据的删除、清理向导、运行目录显示、会话标题）+ **左栏终端行** + **监控官 S1**（`⌘⇧O` 全局活动视图：卡片墙、命令块、补课）+ **监控官 S2 阶段 1**（✦ AI 总结：Claude / Codex 本机 CLI，默认关闭；左栏摘要行；命令输出精确捕获）+ **监控官 S2 阶段 2**（`⌘,` 设置窗口（监控官页）、`[monitor]` 写回 config.toml（`toml_edit`，保留注释）、config.toml 热重载与语法错误只读、Codex 模型列表、测试连接） + **监控官 S2 阶段 3**（只读对话：右侧对话面板、「◎ 问它」/ `A`、`@` 选会话、站会简报；`gilvt mcp` 只读 MCP 工具；测试连接加一轮对话） + **监控官 S2 阶段 4**（底部命令条（`⌘⇧M`，所有窗口、与对话面板同一条对话）） + **内置编辑器**（E1 核心、E2a 视图、E2b2 语法高亮）+ **编辑器实时预览** + Codex 子 Agent / 后台 terminal 时间线 + 主题（内置主题库、外框跟随主题、`⌘,` 设置窗口「外观」页，选中即生效并写回、手改热重载）。
 

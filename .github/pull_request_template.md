@@ -11,7 +11,7 @@
 - [ ] There is an accepted issue for this change, or it is a small obvious fix.
 - [ ] `cargo build --workspace` has no new warnings and `cargo test --workspace` passes.
 - [ ] User-visible changes have rows in `docs/compat-checklist.md` and cases under `tests/gui/cases/`.
-- [ ] Docs updated (`HACKING.md`, `docs/user-guide.md`, `docs/debug-state.md`) where behavior changed.
+- [ ] Docs updated (`HACKING.md`, `docs/user-guide.md` and `docs/user-guide.zh-CN.md`, `docs/debug-state.md`) where behavior changed.
 
 ## AI disclosure
 

@@ -1,3 +1,5 @@
+**English** | [简体中文](AI_POLICY.zh-CN.md)
+
 # AI Usage Policy
 
 gilvt is built for people who work with coding agents, and its maintainers use them too. AI-assisted

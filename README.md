@@ -1,3 +1,5 @@
+<p align="right"><b>English</b> | <a href="README.zh-CN.md">简体中文</a></p>
+
 <h1 align="center">gilvt</h1>
 
 <p align="center">
@@ -21,7 +23,7 @@
 > [!NOTE]
 > gilvt is pre-release software (0.1.0) and runs on macOS only. The interface defaults to Simplified
 > Chinese; switch to English in Settings (`⌘,`) → Language, or set `language = "en"` in
-> `~/.config/gilvt/config.toml`. The user guide and developer docs are in Chinese for now.
+> `~/.config/gilvt/config.toml`. The developer docs ([HACKING.md](HACKING.md)) are in Chinese for now.
 
 ## About
 
@@ -83,7 +85,7 @@ Then run `claude` or `codex` in a pane. The sidebar and inspector pick up the se
 
 ## Documentation
 
-- [User guide](docs/user-guide.md) (Chinese; a formatted version is in `docs/user-guide.html`)
+- [User guide](docs/user-guide.md) (a formatted edition is in `docs/user-guide.html`; open it in a browser)
 - [Developing gilvt](HACKING.md): build, layout and implementation notes (Chinese)
 - [Acceptance checklist](docs/compat-checklist.md) and [GUI tests](tests/gui/README.md)
 - [Design documents](docs/design/)

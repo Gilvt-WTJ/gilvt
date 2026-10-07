@@ -28,7 +28,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [ ] mermaid.js（MIT）的声明已在 `crates/gilvt-mermaid/assets/mermaid-LICENSE`，确认进了 App。
 - [ ] 内置字体 / 图标 / 截图的授权（图标 `assets/icon.svg` 是自制的）。
 - [x] 隐私说明：`PRIVACY.md`（读写哪些文件、监控官送出什么、通知内容），README 有摘要。
-- [ ] 手册（`docs/user-guide.md`）里加一节隐私说明并链接 `PRIVACY.md`；以后新增读写或网络行为时同步更新 `PRIVACY.md`。
+- [ ] 手册（`docs/user-guide.md` / `docs/user-guide.zh-CN.md`）里加一节隐私说明并链接 `PRIVACY.md`；以后新增读写或网络行为时同步更新 `PRIVACY.md`。
 
 ## 3. 发布流水线
 
@@ -59,7 +59,10 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [x] 英文 `README.md`（面向用户：介绍、安装、文档、隐私、关系声明）；原来的开发者文档改名为 `HACKING.md`。
 - [ ] README 顶部的截图 / 动图（三栏窗口），README 里留了 TODO 注释。
 - [x] 界面支持英文（`language = "en"` / 设置 →「语言」），README 顶部已说明。
-- [ ] 手册和 HACKING.md 视情况出英文版；考虑公开版默认语言是否跟随系统。
+- [x] 对外文档中英双语：英文用默认文件名，中文加 `.zh-CN` 后缀，顶部互相切换（README、产品手册 md / html、PRIVACY、SECURITY、CONTRIBUTING、AI_POLICY）。改用户可见行为时两种语言一起更新。
+- [ ] HACKING.md、验收清单、设计文档目前只有中文（面向开发者，暂不翻译）。
+- [ ] 补齐英文界面里仍写死中文的文案（翻译手册时发现约 20 处：编辑器「已更新」、「复制路径:行号」、配置来源层、监控官对话与测试连接的提示、主题名的「你是不是想用」等）。
+- [ ] 考虑公开版默认语言是否跟随系统。
 - [x] `CONTRIBUTING.md`、`AI_POLICY.md`、`SECURITY.md`、`PRIVACY.md`、Issue 模板（bug / 功能）、PR 模板、`AGENTS.md`（指向 `CLAUDE.md` 的符号链接）。
 - [ ] `CODE_OF_CONDUCT.md`（可选；Ghostty 没有，Zed 有）。
 - [x] `CHANGELOG.md`（Keep a Changelog + SemVer）。发版时把 `[Unreleased]` 改成版本号与日期。

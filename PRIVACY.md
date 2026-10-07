@@ -1,3 +1,5 @@
+**English** | [简体中文](PRIVACY.zh-CN.md)
+
 # Privacy
 
 gilvt has no telemetry, analytics, crash upload or update check. It makes no network requests of its own.

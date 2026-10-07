@@ -1,3 +1,5 @@
+**English** | [简体中文](CONTRIBUTING.zh-CN.md)
+
 # Contributing to gilvt
 
 Thanks for your interest. gilvt is maintained by one person in their spare time, so the process below is
@@ -53,6 +55,8 @@ Use `cargo build --workspace` rather than `cargo run -p gilvt-app`: the `gilvt` 
   is not part of CI. Say in the pull request which cases you ran.
 - New agent behavior: update the real-format fixtures first, then the fake agent scenarios in
   `crates/gilvt-fake-agent/scenarios/`.
+- When user-visible behavior changes, update both user guides together: `docs/user-guide.md` (English),
+  `docs/user-guide.zh-CN.md` (Chinese) and their `.html` editions.
 
 ### Commits and pull requests
 
