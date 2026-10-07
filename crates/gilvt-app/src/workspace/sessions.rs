@@ -160,8 +160,16 @@ impl Workspace {
         // foreground poll has classified the pane).
         let idle = cx.global::<Agents>().pane_is_idle_shell(p.pane);
         if !resume_allowed(idle, t.read(cx).launch_pending()) {
-            let name = if p.name.is_empty() { p.key.1.clone() } else { p.name.clone() };
-            self.error = Some(format!("该 pane 正在运行其他程序，无法恢复：{name}"));
+            let name = if p.name.is_empty() {
+                p.key.1.clone()
+            } else {
+                p.name.clone()
+            };
+            self.error = Some(if crate::i18n::current() == crate::i18n::Language::English {
+                format!("This pane is running another program and cannot resume: {name}")
+            } else {
+                format!("该 pane 正在运行其他程序，无法恢复：{name}")
+            });
             cx.notify();
             return;
         }

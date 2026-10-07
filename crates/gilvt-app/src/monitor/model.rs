@@ -28,13 +28,13 @@ impl Group {
 
     pub fn title(self) -> &'static str {
         match self {
-            Group::NeedsYou => "需要你",
-            Group::Error => "出错",
-            Group::Running => "运行中",
-            Group::Done => "完成未看",
-            Group::Idle => "空闲",
-            Group::Terminals => "终端",
-            Group::Ended => "已结束",
+            Group::NeedsYou => crate::i18n::text("需要你", "Needs you"),
+            Group::Error => crate::i18n::text("出错", "Errors"),
+            Group::Running => crate::i18n::text("运行中", "Running"),
+            Group::Done => crate::i18n::text("完成未看", "Done, unseen"),
+            Group::Idle => crate::i18n::text("空闲", "Idle"),
+            Group::Terminals => crate::i18n::text("终端", "Terminals"),
+            Group::Ended => crate::i18n::text("已结束", "Ended"),
         }
     }
 
@@ -138,9 +138,12 @@ pub fn summary_slot(view: Option<Arc<SummaryView>>, current: Option<u64>, action
 /// 「刚刚」 under a minute (or when unknown), else 「3 分钟前」.
 fn age(at: Option<SystemTime>, wall: SystemTime) -> String {
     match at.and_then(|t| wall.duration_since(t).ok()) {
-        Some(d) if d < Duration::from_secs(60) => "刚刚".into(),
+        Some(d) if d < Duration::from_secs(60) => crate::i18n::text("刚刚", "just now").into(),
+        Some(d) if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("{} ago", duration_label(d))
+        }
         Some(d) => format!("{}前", duration_label(d)),
-        None => "刚刚".into(),
+        None => crate::i18n::text("刚刚", "just now").into(),
     }
 }
 
@@ -148,24 +151,70 @@ fn age(at: Option<SystemTime>, wall: SystemTime) -> String {
 pub fn summary_line(slot: &SummarySlot, terminal: bool, wall: SystemTime) -> Option<SummaryLine> {
     let (v, stale, actionable) = match slot {
         SummarySlot::Hidden => return None,
-        SummarySlot::Empty => return Some(SummaryLine { state: "none", header: "✦ 生成总结".into(), goal: None, recent: None, clickable: true, actionable: true }),
-        SummarySlot::View { view, stale, actionable } => (view, *stale, *actionable),
+        SummarySlot::Empty => {
+            return Some(SummaryLine {
+                state: "none",
+                header: crate::i18n::text("✦ 生成总结", "✦ Generate Summary").into(),
+                goal: None,
+                recent: None,
+                clickable: true,
+                actionable: true,
+            })
+        }
+        SummarySlot::View {
+            view,
+            stale,
+            actionable,
+        } => (view, *stale, *actionable),
     };
     let covers = v.covers.map(|c| c.label());
     let goal = v.summary.as_ref().and_then(|s| s.goal.clone()).filter(|_| !terminal);
     let recent = v.summary.as_ref().map(|s| s.recent.clone()).filter(|r| !r.is_empty());
     let join = |parts: Vec<Option<String>>| parts.into_iter().flatten().collect::<Vec<_>>().join(" · ");
     let (state, header, clickable) = match &v.state {
-        SumState::Pending if v.summary.is_none() => ("pending", "✦ AI 总结 · 生成中…".to_string(), false),
-        SumState::Pending => ("pending", join(vec![Some("✦ AI 总结 · 更新中…".into()), Some(format!("上次 {}", age(v.generated_at, wall))), covers]), false),
+        SumState::Pending if v.summary.is_none() => (
+            "pending",
+            crate::i18n::text("✦ AI 总结 · 生成中…", "✦ AI Summary · Generating…").to_string(),
+            false,
+        ),
+        SumState::Pending => {
+            let previous = if crate::i18n::current() == crate::i18n::Language::English {
+                format!("previous {}", age(v.generated_at, wall))
+            } else {
+                format!("上次 {}", age(v.generated_at, wall))
+            };
+            (
+                "pending",
+                join(vec![
+                    Some(
+                        crate::i18n::text("✦ AI 总结 · 更新中…", "✦ AI Summary · Updating…").into(),
+                    ),
+                    Some(previous),
+                    covers,
+                ]),
+                false,
+            )
+        }
         SumState::Ready => {
-            let mut h = join(vec![Some("✦ AI 总结".into()), Some(age(v.generated_at, wall)), covers]);
+            let mut h = join(vec![
+                Some(crate::i18n::text("✦ AI 总结", "✦ AI Summary").into()),
+                Some(age(v.generated_at, wall)),
+                covers,
+            ]);
             if stale {
-                h.push_str(" · 有新进展");
+                h.push_str(crate::i18n::text(" · 有新进展", " · new activity"));
             }
             (if stale { "stale" } else { "ready" }, h, false)
         }
+        SumState::Failed(m) if crate::i18n::current() == crate::i18n::Language::English => {
+            ("failed", format!("✦ Summary failed: {m} · Retry"), true)
+        }
         SumState::Failed(m) => ("failed", format!("✦ 总结失败：{m} · 重试"), true),
+        SumState::Paused(m) if crate::i18n::current() == crate::i18n::Language::English => (
+            "paused",
+            format!("✦ Automatic summaries paused: {m} · Retry"),
+            true,
+        ),
         SumState::Paused(m) => ("paused", format!("✦ 已暂停自动总结：{m} · 重试"), true),
     };
     Some(SummaryLine { state, header, goal, recent, clickable: clickable && actionable, actionable })

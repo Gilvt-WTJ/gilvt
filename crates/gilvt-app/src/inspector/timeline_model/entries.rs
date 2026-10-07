@@ -22,9 +22,27 @@ pub fn local_clock(t: SystemTime, seconds: bool) -> String {
 /// A history turn's line: 「第 2 轮 · 重构路由注册 · 9 步 · 14:10 · 2m03s ✓」 (the view adds ▸ / ▾); `started`
 /// is when the turn started (left out when unknown).
 pub fn history_label(turn: &Turn, started: Option<&str>) -> String {
-    let prompt = turn.prompt.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("（无提示词）");
+    let prompt = turn
+        .prompt
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or(crate::i18n::text("（无提示词）", "(no prompt)"));
     let prompt = gilvt_agent::truncate_chars(prompt, 40);
-    let mut parts = vec![format!("第 {} 轮", turn.index), prompt, format!("{} 步", turn.steps)];
+    let english = crate::i18n::current() == crate::i18n::Language::English;
+    let mut parts = vec![
+        if english {
+            format!("Turn {}", turn.index)
+        } else {
+            format!("第 {} 轮", turn.index)
+        },
+        prompt,
+        if english {
+            format!("{} steps", turn.steps)
+        } else {
+            format!("{} 步", turn.steps)
+        },
+    ];
     parts.extend(started.map(str::to_string));
     let took = match (turn.started, turn.ended) {
         (Some(a), Some(b)) => b.duration_since(a).ok().map(elapsed_label),

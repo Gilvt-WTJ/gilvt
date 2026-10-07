@@ -11,7 +11,9 @@ use gpui::{
     UTF16Selection, Window,
 };
 
-use super::new_agent_model::{hints, more_line, permission_options, Field, Pick, FOLLOW};
+use super::new_agent_model::{
+    follow_label, hints, more_line, permission_label, permission_options, Field, Pick,
+};
 use super::new_agent_view::NewAgentView;
 use super::sessions_render::Colors;
 use super::Location;
@@ -114,8 +116,26 @@ impl NewAgentView {
                     .border_1()
                     .border_color(k.menu_border)
                     .overflow_hidden()
-                    .child(segment("agent-claude", AgentKind::Claude, "C", "Claude", (k.claude, gpui::white())))
-                    .child(segment("agent-codex", AgentKind::Codex, "X", "Codex", (k.codex, k.codex_text))),
+                    .child(segment(
+                        "agent-claude",
+                        AgentKind::Claude,
+                        "C",
+                        "Claude",
+                        (k.claude, gpui::white()),
+                    ))
+                    .child(segment(
+                        "agent-codex",
+                        AgentKind::Codex,
+                        "X",
+                        "Codex",
+                        (k.codex, k.codex_text),
+                    )),
+            )
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(k.muted)
+                    .child(crate::i18n::text("⌘1 / ⌘2 切换", "⌘1 / ⌘2 switch")),
             )
             .child(div().text_size(px(11.)).text_color(k.muted).child("⌘1 / ⌘2 切换"))
     }
@@ -126,16 +146,17 @@ impl NewAgentView {
         let content = self
             .line(self.form.dir.clone(), focused, k)
             .children(note.map(|n| div().ml(px(4.)).text_color(k.muted).child(n)));
-        self.row("目录", Some(Field::Dir), k).child(
-            self.text_box(Field::Dir, k, cx)
-                .id("new-agent-dir")
-                .flex_1()
-                .min_w(px(0.))
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .child(content)
-                .on_click(cx.listener(|v, _, _, cx| v.edit(|f| f.focus(Field::Dir), cx))),
-        )
+        self.row(crate::i18n::text("目录", "Directory"), Some(Field::Dir), k)
+            .child(
+                self.text_box(Field::Dir, k, cx)
+                    .id("new-agent-dir")
+                    .flex_1()
+                    .min_w(px(0.))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(content)
+                    .on_click(cx.listener(|v, _, _, cx| v.edit(|f| f.focus(Field::Dir), cx))),
+            )
     }
 
     /// The directories an ambiguous Tab matched, under the 目录 field.
@@ -153,13 +174,26 @@ impl NewAgentView {
     fn prompt_row(&self, k: Colors, cx: &mut Context<Self>) -> Div {
         let focused = self.form.field == Field::Prompt;
         let body = if self.form.prompt.is_empty() && self.marked.is_none() {
-            div().child(self.placeholder("可以留空，只启动 Agent", focused, k))
+            div().child(self.placeholder(
+                crate::i18n::text(
+                    "可以留空，只启动 Agent",
+                    "Optional; starts the Agent without a prompt",
+                ),
+                focused,
+                k,
+            ))
         } else {
             let lines: Vec<&str> = self.form.prompt.split('\n').collect();
             let last = lines.len() - 1;
             div().flex().flex_col().children(lines.into_iter().enumerate().map(|(i, l)| self.line(l.to_string(), focused && i == last, k)))
         };
-        self.row("初始任务", Some(Field::Prompt), k).items_start().child(
+        self.row(
+            crate::i18n::text("初始任务", "Initial task"),
+            Some(Field::Prompt),
+            k,
+        )
+        .items_start()
+        .child(
             self.text_box(Field::Prompt, k, cx)
                 .id("new-agent-prompt")
                 .flex_1()
@@ -178,8 +212,18 @@ impl NewAgentView {
                 .id("new-agent-worktree")
                 .px_3()
                 .py(px(4.))
-                .text_color(if self.form.worktree { k.accent } else { k.muted })
-                .child(format!("{mark} 在新 worktree 中运行（⌥W）"))
+                .text_color(if self.form.worktree {
+                    k.accent
+                } else {
+                    k.muted
+                })
+                .child(
+                    if crate::i18n::current() == crate::i18n::Language::English {
+                        format!("{mark} Run in a new worktree (⌥W)")
+                    } else {
+                        format!("{mark} 在新 worktree 中运行（⌥W）")
+                    },
+                )
                 .on_click(cx.listener(|v, _, _, cx| v.edit(|f| f.toggle_worktree(), cx)))
         })
     }
@@ -232,10 +276,19 @@ impl NewAgentView {
 
     fn model_row(&self, k: Colors, cx: &mut Context<Self>) -> Div {
         let form = self.form.current();
-        let mut row = self.row("模型", Some(Field::Model), k).relative().children(rects::recorder(RectId::NewAgentField(Field::Model as usize))).flex_wrap().child(
-            self.chip("model-follow", FOLLOW, form.pick == Pick::Follow, k)
-                .on_click(cx.listener(|v, _, _, cx| v.edit(|f| f.pick_model(Pick::Follow), cx))),
-        );
+        let mut row = self
+            .row(crate::i18n::text("模型", "Model"), Some(Field::Model), k)
+            .relative()
+            .children(rects::recorder(RectId::NewAgentField(
+                Field::Model as usize,
+            )))
+            .flex_wrap()
+            .child(
+                self.chip("model-follow", follow_label(), form.pick == Pick::Follow, k)
+                    .on_click(
+                        cx.listener(|v, _, _, cx| v.edit(|f| f.pick_model(Pick::Follow), cx)),
+                    ),
+            );
         for (i, preset) in form.presets.iter().enumerate() {
             let pick = Pick::Preset(preset.clone());
             let on = form.pick == pick;
@@ -248,7 +301,7 @@ impl NewAgentView {
         let custom = form.pick == Pick::Custom;
         // The caret sits here while the row has the keys: typing there picks the typed name.
         let text = if form.custom.is_empty() && !(focused && self.marked.is_some()) {
-            self.placeholder("自定义", focused, k)
+            self.placeholder(crate::i18n::text("自定义", "Custom"), focused, k)
         } else {
             self.line(form.custom.clone(), focused, k)
         };
@@ -272,10 +325,19 @@ impl NewAgentView {
 
     fn permission_row(&self, k: Colors, cx: &mut Context<Self>) -> Div {
         let current = self.form.current().permission;
-        let mut row =
-            self.row("权限模式", Some(Field::Permission), k).relative().children(rects::recorder(RectId::NewAgentField(Field::Permission as usize))).flex_wrap();
+        let mut row = self
+            .row(
+                crate::i18n::text("权限模式", "Permission mode"),
+                Some(Field::Permission),
+                k,
+            )
+            .relative()
+            .children(rects::recorder(RectId::NewAgentField(
+                Field::Permission as usize,
+            )))
+            .flex_wrap();
         for (i, option) in permission_options(self.form.agent).into_iter().enumerate() {
-            let label = option.map_or(FOLLOW, |p| p.label());
+            let label = option.map_or_else(follow_label, permission_label);
             row = row.child(
                 self.chip(("permission", i), label, option == current, k)
                     .on_click(cx.listener(move |v, _, _, cx| v.edit(|f| f.pick_permission(option), cx))),
@@ -336,7 +398,15 @@ impl Render for NewAgentView {
             .bg(hsla(TerminalView::palette(window, cx).background))
             .text_color(k.text)
             .text_size(px(12.5))
-            .child(div().px_3().pt(px(9.)).pb(px(4.)).text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).child("新建 Agent"))
+            .child(
+                div()
+                    .px_3()
+                    .pt(px(9.))
+                    .pb(px(4.))
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(crate::i18n::text("新建 Agent", "New Agent")),
+            )
             .child(self.agent_row(k, cx))
             .child(self.dir_row(k, cx))
             .children(self.candidates(k))

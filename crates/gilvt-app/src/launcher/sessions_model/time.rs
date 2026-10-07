@@ -48,12 +48,18 @@ fn day_number(t: &LocalTime) -> i64 {
 pub fn when_label(t: LocalTime, now: LocalTime, ago: Duration) -> String {
     let secs = ago.as_secs();
     let days = day_number(&now) - day_number(&t);
+    let english = crate::i18n::current() == crate::i18n::Language::English;
     match () {
-        _ if secs < 60 => "刚刚".into(),
+        _ if secs < 60 => crate::i18n::text("刚刚", "Just now").into(),
+        _ if secs < 3600 && english => format!("{}m ago", secs / 60),
         _ if secs < 3600 => format!("{} 分钟前", secs / 60),
+        _ if days <= 0 && english => format!("{}h ago", secs / 3600),
         _ if days <= 0 => format!("{} 小时前", secs / 3600),
+        _ if days == 1 && english => format!("Yesterday {:02}:{:02}", t.hour, t.minute),
         _ if days == 1 => format!("昨天 {:02}:{:02}", t.hour, t.minute),
+        _ if t.year == now.year && english => format!("{} {}", month_name(t.month), t.day),
         _ if t.year == now.year => format!("{} 月 {} 日", t.month, t.day),
+        _ if english => format!("{} {}, {}", month_name(t.month), t.day, t.year),
         _ => format!("{} 年 {} 月 {} 日", t.year, t.month, t.day),
     }
 }
@@ -62,13 +68,27 @@ pub fn when_label(t: LocalTime, now: LocalTime, ago: Duration) -> String {
 /// with the day in front: 昨天 14:30, 9 月 21 日 14:30 (this year), 2025 年 12 月 30 日 14:30.
 pub fn clock_label(t: LocalTime, now: LocalTime, seconds: bool) -> String {
     let hm = format!("{:02}:{:02}", t.hour, t.minute);
+    let english = crate::i18n::current() == crate::i18n::Language::English;
     match day_number(&now) - day_number(&t) {
         days if days <= 0 && seconds => format!("{hm}:{:02}", t.second),
         days if days <= 0 => hm,
+        1 if english => format!("Yesterday {hm}"),
         1 => format!("昨天 {hm}"),
+        _ if t.year == now.year && english => format!("{} {} {hm}", month_name(t.month), t.day),
         _ if t.year == now.year => format!("{} 月 {} 日 {hm}", t.month, t.day),
+        _ if english => format!("{} {}, {} {hm}", month_name(t.month), t.day, t.year),
         _ => format!("{} 年 {} 月 {} 日 {hm}", t.year, t.month, t.day),
     }
+}
+
+fn month_name(month: u32) -> &'static str {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    MONTHS
+        .get(month.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or("")
 }
 
 /// Bytes as Finder counts them (1 MB = 10⁶ B): 「0.4 MB」, 「18 MB」, 「1.6 GB」.

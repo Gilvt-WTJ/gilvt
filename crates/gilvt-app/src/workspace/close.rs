@@ -225,7 +225,14 @@ impl Workspace {
         let dirty: Vec<(PaneId, String)> = self
             .dirty_editors(cx)
             .into_iter()
-            .map(|(id, path)| (id, path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "未命名".into())))
+            .map(|(id, path)| {
+                (
+                    id,
+                    path.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| crate::i18n::text("未命名", "Untitled").into()),
+                )
+            })
             .collect();
         AtStake { items, dirty: dirty_in_scope(&dirty, &panes) }
     }

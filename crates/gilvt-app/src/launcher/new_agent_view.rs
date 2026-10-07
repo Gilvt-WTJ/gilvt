@@ -172,7 +172,7 @@ impl NewAgentView {
     pub(super) fn where_word(&self, location: Location, cx: &App) -> &'static str {
         match self.workspace.upgrade() {
             Some(ws) => ws.read(cx).placement(location, cx).word(),
-            None => "新标签",
+            None => crate::i18n::text("新标签", "New tab"),
         }
     }
 
@@ -198,7 +198,10 @@ impl NewAgentView {
     /// failure is shown in the panel, which stays open; no agent starts.
     fn run_in_new_worktree(&mut self, location: Location, repo: gilvt_agent::GitInfo, dir: PathBuf, launch: String, cx: &mut Context<Self>) {
         let task = self.form.prompt.clone();
-        self.busy = Some("正在创建 worktree…");
+        self.busy = Some(crate::i18n::text(
+            "正在创建 worktree…",
+            "Creating worktree…",
+        ));
         cx.notify();
         cx.spawn(async move |this, cx| {
             let made = cx

@@ -501,6 +501,15 @@ Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。
 | O11 | 不重启，用 `sh` 改 `theme`（`"Nord"`、拼错的 `"Nrod"`），再加 `[colors]` | `theme.name` 随之变化，「外观」页跟着变；拼错时错误横幅并回退；`[colors]` 立即叠加 | [O11](../tests/gui/cases/O/O11.md) |
 | O12 | `theme = "Atlas Ragnarok"`（`attention` 状态色会被回退的主题），有一个等审批的会话 | 「需要你」黄色描边、左栏状态文字都清晰可辨 | [O12](../tests/gui/cases/O/O12.md) |
 
+## S. 界面语言
+
+`language = "zh-CN" | "en"` 控制 gilvt 自身界面语言；默认简体中文，终端内容不参与翻译。设置窗口「文A 语言」页的选择立即应用到所有窗口并写回 `config.toml`，手改配置也会热重载。
+
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| S1 | 用 `language = "en"` 启动并打开设置窗口 | DebugState 为 `en`；设置页导航、外观页和监控官页显示英文；侧栏与检查器的主要界面文案显示英文 | [S1](../tests/gui/cases/S/S1.md) |
+| S2 | 在「语言」页点击 English，再点「简体中文」 | 每次选择都立即重绘所有窗口并写回 `language`；切回中文后原有界面文案恢复 | [S2](../tests/gui/cases/S/S2.md) |
+
 ## 已知限制（M1）
 
 - Kitty 键盘协议只发送按下 / 重复事件，不发送按键抬起事件。

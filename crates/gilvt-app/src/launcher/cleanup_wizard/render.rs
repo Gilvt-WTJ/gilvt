@@ -117,7 +117,10 @@ impl CleanupWizard {
                 };
                 let mut subtitle = format!("{} · {} 轮 · {}", r.dir, r.turns, size_label(h.bytes));
                 if h.pinned {
-                    subtitle.push_str(" · 置顶，默认不选");
+                    subtitle.push_str(crate::i18n::text(
+                        " · 置顶，默认不选",
+                        " · pinned, not selected by default",
+                    ));
                 }
                 let tag = |text: &'static str, color| {
                     div()
@@ -155,8 +158,15 @@ impl CleanupWizard {
                                         .child(subtitle),
                                 ),
                         )
-                        .children(r.dir_missing.then(|| tag("目录已不存在", k.warn)))
-                        .children(h.unreviewed.then(|| tag("尚未 Review", k.accent)))
+                        .children(r.dir_missing.then(|| {
+                            tag(
+                                crate::i18n::text("目录已不存在", "Directory missing"),
+                                k.warn,
+                            )
+                        }))
+                        .children(h.unreviewed.then(|| {
+                            tag(crate::i18n::text("尚未 Review", "Not reviewed"), k.accent)
+                        }))
                         .child(
                             div()
                                 .flex_none()
@@ -185,10 +195,10 @@ impl CleanupWizard {
                 .into_any_element()
         };
         let Some(outcome) = self.current() else {
-            return empty("计算中…");
+            return empty(crate::i18n::text("计算中…", "Calculating…"));
         };
         if outcome.hits.is_empty() {
-            return empty("没有命中的会话");
+            return empty(crate::i18n::text("没有命中的会话", "No matching sessions"));
         }
         let n = outcome.hits.len();
         div()
@@ -233,7 +243,7 @@ impl CleanupWizard {
                     button(
                         "cleanup-confirm-cancel".into(),
                         RectId::CleanupConfirmButton(0),
-                        "取消".into(),
+                        crate::i18n::text("取消", "Cancel").into(),
                     )
                     .border_color(k.rule)
                     .on_click(cx.listener(|w, _, _, cx| w.cancel_confirm(cx))),
@@ -242,7 +252,7 @@ impl CleanupWizard {
                     button(
                         "cleanup-confirm-trash".into(),
                         RectId::CleanupConfirmButton(1),
-                        "移到废纸篓".into(),
+                        crate::i18n::text("移到废纸篓", "Move to Trash").into(),
                     )
                     .border_color(k.danger)
                     .text_color(k.danger)
@@ -304,12 +314,19 @@ impl Render for CleanupWizard {
             .flex()
             .items_center()
             .gap_2()
-            .child(div().font_weight(FontWeight::SEMIBOLD).child("清理…"))
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(crate::i18n::text("清理…", "Clean Up…")),
+            )
             .child(
                 div()
                     .text_size(px(11.))
                     .text_color(k.muted)
-                    .child("⌘⇧K · Esc 返回 · →/Tab 预览 · Space 勾选"),
+                    .child(crate::i18n::text(
+                        "⌘⇧K · Esc 返回 · →/Tab 预览 · Space 勾选",
+                        "⇧⌘K · Esc back · →/Tab preview · Space select",
+                    )),
             );
         let root = div()
             .id("cleanup-wizard")

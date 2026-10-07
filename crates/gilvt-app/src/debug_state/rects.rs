@@ -206,6 +206,8 @@ pub enum RectId {
     ThemeSearch,
     /// Settings window: page n of the nav column (`settings_window::Page::index`).
     SettingsNav(usize),
+    /// Settings window: language choice n (`i18n::Language::ALL` order).
+    SettingsLanguage(usize),
 }
 
 /// The buttons of the Session Center's review (header, page edges, action bar and snooze menu).

@@ -121,6 +121,12 @@ impl ConfigFile {
                 if previous.as_ref().is_some_and(|p| p.theme != settings.theme) {
                     self.unsaved.theme = None;
                 }
+                if previous
+                    .as_ref()
+                    .is_some_and(|p| p.language != settings.language)
+                {
+                    self.unsaved.language = None;
+                }
                 if self.unsaved.is_empty() {
                     self.write_error = None;
                 }
@@ -155,6 +161,7 @@ pub fn merge_file_change(previous: Option<&Settings>, new: Settings, memory: &Se
     }
     // Every field: a new one that is missing here does not compile.
     merged!(
+        language,
         font_family,
         font_size,
         line_height,
@@ -323,7 +330,13 @@ fn take_step(step: Step, cx: &mut App) {
             let all: Vec<String> = warning.into_iter().chain(theme_errors).collect();
             (!all.is_empty()).then(|| all.join("；"))
         }
-        Step::Report(e) => Some(format!("{e}（沿用上一次有效的设置）")),
+        Step::Report(e) => Some(
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("{e} (continuing with the last valid settings)")
+            } else {
+                format!("{e}（沿用上一次有效的设置）")
+            },
+        ),
     };
     if let Some(message) = banner {
         show_banner(message, cx);
@@ -345,9 +358,14 @@ pub fn apply_settings(new: Settings, cx: &mut App) -> Vec<String> {
     let old = cx.global::<AppSettings>().0.monitor.clone();
     let monitor = new.monitor.clone();
     let prev = &cx.global::<AppSettings>().0;
+    let language_changed = prev.language != new.language;
     let theme_changed = prev.theme != new.theme || prev.colors != new.colors;
     let (selection, overrides) = (new.theme.selection(), new.colors.overrides());
     cx.update_global::<AppSettings, _>(|s, _| s.0 = new);
+    if language_changed {
+        crate::i18n::set_current(cx.global::<AppSettings>().0.language);
+        cx.set_menus(crate::actions::menus(cx.global::<AppSettings>().0.language));
+    }
     let mut theme_errors = Vec::new();
     if theme_changed && cx.has_global::<crate::theme::ThemeState>() {
         cx.update_global::<crate::theme::ThemeState, _>(|t, _| t.reconfigure(selection, overrides));
@@ -361,6 +379,30 @@ pub fn apply_settings(new: Settings, cx: &mut App) -> Vec<String> {
     theme_errors
 }
 
+/// Changes the application language immediately and writes the top-level `language` key.
+pub fn set_language(language: crate::i18n::Language, cx: &mut App) -> Result<(), String> {
+    if readonly(cx) {
+        return Err(crate::i18n::text(
+            "config.toml 有语法错误，修好之前不能修改",
+            "config.toml has a syntax error and cannot be changed until it is fixed",
+        )
+        .into());
+    }
+    if cx.global::<AppSettings>().0.language == language {
+        return Ok(());
+    }
+    let mut settings = cx.global::<AppSettings>().0.clone();
+    settings.language = language;
+    apply_settings(settings, cx);
+    let change = Changes {
+        language: Some(language),
+        ..Changes::default()
+    };
+    let pending = cx.global::<ConfigFile>().unsaved.then(&change);
+    write(pending, cx);
+    Ok(())
+}
+
 fn refresh_all(cx: &mut App) {
     for handle in cx.windows() {
         let _ = handle.update(cx, |_, window, _| window.refresh());
@@ -372,7 +414,11 @@ fn refresh_all(cx: &mut App) {
 /// does not parse (`Err` with the reason). A failed write keeps the change in memory and is kept in `write_error`.
 pub fn set_monitor(edits: Vec<Edit>, cx: &mut App) -> Result<(), String> {
     if readonly(cx) {
-        return Err("config.toml 有语法错误，修好之前不能修改".into());
+        return Err(crate::i18n::text(
+            "config.toml 有语法错误，修好之前不能修改",
+            "config.toml has a syntax error and cannot be changed until it is fixed",
+        )
+        .into());
     }
     if edits.is_empty() {
         return Ok(());
@@ -419,7 +465,11 @@ fn write(pending: Changes, cx: &mut App) {
 /// does not parse (`Err` with the reason), like [`set_monitor`]. A failed write keeps the theme in memory.
 pub fn set_theme(sel: Selection, cx: &mut App) -> Result<(), String> {
     if readonly(cx) {
-        return Err("config.toml 有语法错误，修好之前不能修改".into());
+        return Err(crate::i18n::text(
+            "config.toml 有语法错误，修好之前不能修改",
+            "config.toml has a syntax error and cannot be changed until it is fixed",
+        )
+        .into());
     }
     if cx.try_global::<crate::theme::ThemeState>().is_some_and(|t| *t.selection() == sel) {
         return Ok(());
@@ -563,6 +613,23 @@ mod tests {
     }
 
     #[test]
+    fn merge_applies_only_a_language_changed_on_disk() {
+        let prev = Settings::default();
+        let new = Settings {
+            language: crate::i18n::Language::English,
+            ..prev.clone()
+        };
+        let memory = Settings {
+            font_size: 20.0,
+            ..prev.clone()
+        };
+
+        let out = merge_file_change(Some(&prev), new, &memory);
+        assert_eq!(out.language, crate::i18n::Language::English);
+        assert_eq!(out.font_size, 20.0, "an unrelated in-memory zoom survives");
+    }
+
+    #[test]
     fn a_warning_is_shown_only_when_it_changes() {
         let mut f = ConfigFile::new(PathBuf::from("/c/config.toml"));
         let bad = "[monitor]\nsummary_interval = \"x\"\n";
@@ -604,6 +671,27 @@ mod tests {
         assert!(matches!(f.observe(Ok("font_size = 14\n[monitor]\nenabled = false\nprovider = \"codex\"\n".into())), Step::Apply { .. }));
         assert_eq!(f.write_error, None, "the file's [monitor] wins over the unsaved change");
         assert!(f.unsaved.is_empty());
+    }
+
+    #[test]
+    fn a_file_language_change_clears_an_unsaved_language() {
+        let mut f = ConfigFile::new(PathBuf::from("/c/config.toml"));
+        assert!(matches!(
+            f.observe(Ok("language = \"zh-CN\"\n".into())),
+            Step::Apply { .. }
+        ));
+        f.unsaved.language = Some(crate::i18n::Language::English);
+        f.write_error = Some("write failed".into());
+
+        assert!(matches!(
+            f.observe(Ok("language = \"en\"\n".into())),
+            Step::Apply { .. }
+        ));
+        assert_eq!(f.unsaved.language, None);
+        assert_eq!(
+            f.write_error, None,
+            "the value from disk wins and clears the stale write error"
+        );
     }
 
     // The theme (the 「外观」 page, hot reload).

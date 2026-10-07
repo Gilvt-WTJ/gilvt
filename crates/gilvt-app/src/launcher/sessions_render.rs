@@ -74,7 +74,12 @@ impl SessionsView {
         let focus = self.focus_handle.clone();
         let caret = div().flex_none().w(px(1.5)).h(px(16.)).bg(k.accent);
         let text = if self.query.is_empty() && self.marked.is_none() {
-            div().flex().items_center().child(caret.mr(px(4.))).child(div().text_color(k.muted).child("搜索会话（标题、首条提示词、项目）"))
+            div().flex().items_center().child(caret.mr(px(4.))).child(
+                div().text_color(k.muted).child(crate::i18n::text(
+                    "搜索会话（标题、首条提示词、项目）",
+                    "Search sessions (title, first prompt, project)",
+                )),
+            )
         } else {
             div().flex().items_center().child(self.query.clone()).children(self.marked.clone().map(|m| div().underline().child(m))).child(caret)
         };
@@ -115,20 +120,52 @@ impl SessionsView {
                 .absolute()
                 .size_full(),
             )
-            .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().child(text))
-            .when(refreshing, |d| d.child(div().flex_none().text_size(px(11.)).text_color(k.muted).child("刷新中…")))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(text),
+            )
+            .when(refreshing, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.))
+                        .text_color(k.muted)
+                        .child(crate::i18n::text("刷新中…", "Refreshing…")),
+                )
+            })
             .children(project)
             .child(
-                chip("chip-all", 1, "全部项目".into(), scope == Scope::All)
-                    .on_click(cx.listener(|v, _, _, cx| v.set_filters(|f| f.scope = Scope::All, cx))),
+                chip(
+                    "chip-all",
+                    1,
+                    crate::i18n::text("全部项目", "All projects").into(),
+                    scope == Scope::All,
+                )
+                .on_click(cx.listener(|v, _, _, cx| v.set_filters(|f| f.scope = Scope::All, cx))),
             )
             .child(
-                chip("chip-stale", 2, "≥ 7 天未活动".into(), self.filters.stale)
-                    .on_click(cx.listener(|v, _, _, cx| v.set_filters(|f| f.stale = !f.stale, cx))),
+                chip(
+                    "chip-stale",
+                    2,
+                    crate::i18n::text("≥ 7 天未活动", "Inactive ≥ 7 days").into(),
+                    self.filters.stale,
+                )
+                .on_click(cx.listener(|v, _, _, cx| v.set_filters(|f| f.stale = !f.stale, cx))),
             )
             .child(
-                chip("chip-archived", 3, "已归档".into(), self.filters.archived)
-                    .on_click(cx.listener(|v, _, _, cx| v.set_filters(|f| f.archived = !f.archived, cx))),
+                chip(
+                    "chip-archived",
+                    3,
+                    crate::i18n::text("已归档", "Archived").into(),
+                    self.filters.archived,
+                )
+                .on_click(
+                    cx.listener(|v, _, _, cx| v.set_filters(|f| f.archived = !f.archived, cx)),
+                ),
             )
     }
 
@@ -188,9 +225,23 @@ impl SessionsView {
                         .child(r.subtitle()),
                 ),
         };
-        let missing = r.dir_missing.then(|| div().flex_none().text_size(px(10.)).text_color(k.warn).child("目录已不存在"));
-        let archived = r.archived.then(|| div().flex_none().text_size(px(10.)).text_color(k.muted).child("已归档"));
-        let right = div().text_color(if r.live.is_some() { k.accent } else { k.muted }).child(r.right());
+        let missing = r.dir_missing.then(|| {
+            div()
+                .flex_none()
+                .text_size(px(10.))
+                .text_color(k.warn)
+                .child(crate::i18n::text("目录已不存在", "Directory missing"))
+        });
+        let archived = r.archived.then(|| {
+            div()
+                .flex_none()
+                .text_size(px(10.))
+                .text_color(k.muted)
+                .child(crate::i18n::text("已归档", "Archived"))
+        });
+        let right = div()
+            .text_color(if r.live.is_some() { k.accent } else { k.muted })
+            .child(r.right());
         div()
             .id(("session-row", i))
             .relative()
@@ -308,12 +359,20 @@ impl SessionsView {
             return base
                 .gap_2()
                 .child(div().flex_1().min_w(px(0.)).child(confirm.text.clone()))
-                .child(button("confirm-cancel", 0, "取消").border_color(k.rule).on_click(cx.listener(|v, _, _, cx| v.cancel_confirm(cx))))
                 .child(
-                    button("confirm-trash", 1, "移到废纸篓")
-                        .border_color(k.danger)
-                        .text_color(k.danger)
-                        .on_click(cx.listener(|v, _, _, cx| v.trash_confirmed(cx))),
+                    button("confirm-cancel", 0, crate::i18n::text("取消", "Cancel"))
+                        .border_color(k.rule)
+                        .on_click(cx.listener(|v, _, _, cx| v.cancel_confirm(cx))),
+                )
+                .child(
+                    button(
+                        "confirm-trash",
+                        1,
+                        crate::i18n::text("移到废纸篓", "Move to Trash"),
+                    )
+                    .border_color(k.danger)
+                    .text_color(k.danger)
+                    .on_click(cx.listener(|v, _, _, cx| v.trash_confirmed(cx))),
                 )
                 .into_any_element();
         }
@@ -324,12 +383,18 @@ impl SessionsView {
             .gap_x_3()
             .text_size(px(11.))
             .text_color(k.muted)
-            .child(hint("↩", "恢复（空闲 shell 里就地，否则新标签）"))
-            .child(hint("⌘↩", "右侧"))
-            .child(hint("⌘⇧↩", "下方"))
-            .child(hint("⌘R", "重命名"))
-            .child(hint("⌘⌫", "移到废纸篓"))
-            .child(div().child("右键：更多"))
+            .child(hint(
+                "↩",
+                crate::i18n::text(
+                    "恢复（空闲 shell 里就地，否则新标签）",
+                    "Resume (in idle shell, otherwise new tab)",
+                ),
+            ))
+            .child(hint("⌘↩", crate::i18n::text("右侧", "Right")))
+            .child(hint("⌘⇧↩", crate::i18n::text("下方", "Below")))
+            .child(hint("⌘R", crate::i18n::text("重命名", "Rename")))
+            .child(hint("⌘⌫", crate::i18n::text("移到废纸篓", "Move to Trash")))
+            .child(div().child(crate::i18n::text("右键：更多", "Right-click: more")))
             .child(
                 div()
                     .id("sessions-cleanup")

@@ -42,7 +42,7 @@ pub struct OpenMenu {
 /// The label of an encoding in the menu: its status-bar name, except the BOM variant of UTF-8.
 fn encoding_label(e: Encoding) -> String {
     match e {
-        Encoding::Utf8Bom => "UTF-8（带 BOM）".into(),
+        Encoding::Utf8Bom => crate::i18n::text("UTF-8（带 BOM）", "UTF-8 (with BOM)").into(),
         e => e.name().into(),
     }
 }
@@ -68,7 +68,7 @@ pub fn encoding_menu(current: Encoding, explicit: bool, read_only: bool, lossy: 
     let encoding = explicit.then_some(current);
     items.push(if read_only {
         MenuItem {
-            label: "以可编辑方式打开".into(),
+            label: crate::i18n::text("以可编辑方式打开", "Open as Editable").into(),
             checked: false,
             enabled: writable && !lossy,
             action: MenuAction::Encoding(OpenOptions { encoding, read_only: false }),
@@ -76,7 +76,7 @@ pub fn encoding_menu(current: Encoding, explicit: bool, read_only: bool, lossy: 
         }
     } else {
         MenuItem {
-            label: "以只读方式打开".into(),
+            label: crate::i18n::text("以只读方式打开", "Open as Read Only").into(),
             checked: false,
             enabled: true,
             action: MenuAction::Encoding(OpenOptions { encoding, read_only: true }),
@@ -115,7 +115,11 @@ pub(crate) fn line_ending_choice_changes_anything(current: LineEnding, mixed: bo
 
 /// The flash after a line ending was chosen.
 pub(crate) fn line_ending_flash(le: LineEnding) -> String {
-    format!("保存时使用 {}", le.name())
+    if crate::i18n::current() == crate::i18n::Language::English {
+        format!("Use {} when saving", le.name())
+    } else {
+        format!("保存时使用 {}", le.name())
+    }
 }
 
 /// Whether `path` can be written, without changing it (opening for append neither truncates nor touches it).

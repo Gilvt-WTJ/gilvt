@@ -208,9 +208,30 @@ impl AppearancePage {
                     .when(ix != self.model.selected() && !readonly, |row| row.hover(|row| row.bg(hover_bg)))
                     .when(!readonly, |row| row.cursor_pointer().on_click(cx.listener(move |page, _: &ClickEvent, window, cx| page.choose(ix, window, cx))))
                     .when(readonly, |row| row.opacity(0.5))
-                    .child(div().flex_none().size(px(10.)).rounded_full().border_1().border_color(k.field_border).bg(hsla(e.background)))
-                    .child(div().flex_1().min_w(px(0.)).overflow_hidden().whitespace_nowrap().child(e.name.clone()))
-                    .children(e.user.then(|| div().flex_none().text_size(px(10.5)).text_color(k.muted).child("用户")))
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(10.))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(k.field_border)
+                            .bg(hsla(e.background)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .child(e.name.clone()),
+                    )
+                    .children(e.user.then(|| {
+                        div()
+                            .flex_none()
+                            .text_size(px(10.5))
+                            .text_color(k.muted)
+                            .child(crate::i18n::text("用户", "User"))
+                    }))
                     .children(current.then(|| div().flex_none().text_color(k.accent).child("✓")))
                     .into_any_element()
             })
@@ -256,10 +277,23 @@ impl AppearancePage {
                     .rounded(px(5.))
                     .bg(hsla(ui.panel))
                     .text_size(px(11.))
-                    .child(div().text_color(hsla(ui.attention.fg)).child(status("需要你", ui.attention.ring)))
-                    .child(div().text_color(hsla(ui.error.fg)).child(status("出错", ui.error.ring)))
-                    .child(div().text_color(hsla(ui.running.fg)).child(status("执行中", ui.running.ring)))
-                    .child(div().text_color(hsla(ui.done.fg)).child(status("完成未看", ui.done.ring))),
+                    .child(div().text_color(hsla(ui.attention.fg)).child(status(
+                        crate::i18n::text("需要你", "Needs you"),
+                        ui.attention.ring,
+                    )))
+                    .child(
+                        div()
+                            .text_color(hsla(ui.error.fg))
+                            .child(status(crate::i18n::text("出错", "Error"), ui.error.ring)),
+                    )
+                    .child(div().text_color(hsla(ui.running.fg)).child(status(
+                        crate::i18n::text("执行中", "Running"),
+                        ui.running.ring,
+                    )))
+                    .child(div().text_color(hsla(ui.done.fg)).child(status(
+                        crate::i18n::text("完成未看", "Done, unseen"),
+                        ui.done.ring,
+                    ))),
             )
             .into_any_element()
     }
@@ -292,7 +326,11 @@ impl AppearancePage {
                 .size_full(),
             );
         let row = if self.model.query().is_empty() && self.marked.is_none() {
-            row.child(caret.mr(px(4.))).child(div().text_color(k.muted).child("搜索主题"))
+            row.child(caret.mr(px(4.))).child(
+                div()
+                    .text_color(k.muted)
+                    .child(crate::i18n::text("搜索主题", "Search themes")),
+            )
         } else {
             row.child(self.model.query().to_string()).children(self.marked.clone().map(|m| div().underline().child(m))).child(caret)
         };
@@ -407,15 +445,59 @@ impl Render for AppearancePage {
         let k = Colors::new(&theme);
         let readonly = config_file::readonly(cx);
         let path = cx.global::<ConfigFile>().path.clone();
-        let filters = [(Filter::All, "filter-all", "全部".to_string()), (Filter::Dark, "filter-dark", "深色".into()), (Filter::Light, "filter-light", "浅色".into())];
-        let modes = [(Mode::Fixed, "mode-fixed", "固定".to_string()), (Mode::System, "mode-system", "跟随系统".into())];
+        let filters = [
+            (
+                Filter::All,
+                "filter-all",
+                crate::i18n::text("全部", "All").to_string(),
+            ),
+            (
+                Filter::Dark,
+                "filter-dark",
+                crate::i18n::text("深色", "Dark").into(),
+            ),
+            (
+                Filter::Light,
+                "filter-light",
+                crate::i18n::text("浅色", "Light").into(),
+            ),
+        ];
+        let modes = [
+            (
+                Mode::Fixed,
+                "mode-fixed",
+                crate::i18n::text("固定", "Fixed").to_string(),
+            ),
+            (
+                Mode::System,
+                "mode-system",
+                crate::i18n::text("跟随系统", "Follow System").into(),
+            ),
+        ];
         let (light, dark) = self.model.slot_names();
-        let slots = [(Slot::Light, "slot-light", format!("浅色：{light}")), (Slot::Dark, "slot-dark", format!("深色：{dark}"))];
+        let slots = if crate::i18n::current() == crate::i18n::Language::English {
+            [
+                (Slot::Light, "slot-light", format!("Light: {light}")),
+                (Slot::Dark, "slot-dark", format!("Dark: {dark}")),
+            ]
+        } else {
+            [
+                (Slot::Light, "slot-light", format!("浅色：{light}")),
+                (Slot::Dark, "slot-dark", format!("深色：{dark}")),
+            ]
+        };
         let filter_seg = self.segmented(&filters, self.model.filter(), false, &k, cx, set_filter);
         let mode_seg = self.segmented(&modes, self.model.mode(), readonly, &k, cx, set_mode);
         let slot_seg = (self.model.mode() == Mode::System).then(|| self.segmented(&slots, self.model.slot(), false, &k, cx, set_slot));
         let list = if self.model.row_count() == 0 {
-            div().h(px(ROW_HEIGHT * 2.)).flex().items_center().justify_center().text_color(k.muted).child("无匹配").into_any_element()
+            div()
+                .h(px(ROW_HEIGHT * 2.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(k.muted)
+                .child(crate::i18n::text("无匹配", "No matches"))
+                .into_any_element()
         } else {
             gpui::uniform_list("theme-rows", self.model.row_count(), cx.processor(Self::render_rows))
                 .track_scroll(self.scroll.clone())
@@ -443,9 +525,9 @@ impl Render for AppearancePage {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(div().text_size(px(10.5)).text_color(k.muted).child("主题"))
+            .child(div().text_size(px(10.5)).text_color(k.muted).child(crate::i18n::text("主题", "Theme")))
             .child(div().flex().flex_wrap().items_center().gap(px(8.)).child(self.search_box(focused, &k, cx)).child(filter_seg).child(mode_seg))
-            .children(slot_seg.map(|s| div().flex().items_center().gap(px(8.)).child(div().text_size(px(10.5)).text_color(k.muted).child("正在编辑")).child(s)))
+            .children(slot_seg.map(|s| div().flex().items_center().gap(px(8.)).child(div().text_size(px(10.5)).text_color(k.muted).child(crate::i18n::text("正在编辑", "Editing"))).child(s)))
             .child(
                 div()
                     .flex()
@@ -454,12 +536,23 @@ impl Render for AppearancePage {
                     .child(preview),
             )
             .children(self.notice.clone().map(|n| div().text_size(px(11.)).text_color(k.error.2).child(n)))
-            .children((overrides > 0).then(|| div().text_size(px(10.5)).text_color(k.muted).child(format!("配置中有 {overrides} 项 [colors] 颜色覆盖，已叠加在所选主题上"))))
+            .children((overrides > 0).then(|| {
+                let text = if crate::i18n::current() == crate::i18n::Language::English {
+                    format!("{overrides} [colors] override(s) are applied on top of the selected theme")
+                } else {
+                    format!("配置中有 {overrides} 项 [colors] 颜色覆盖，已叠加在所选主题上")
+                };
+                div().text_size(px(10.5)).text_color(k.muted).child(text)
+            }))
             .child(
                 div()
                     .text_size(px(10.5))
                     .text_color(k.muted)
-                    .child(format!("选中即生效（所有窗口），并写入 {} 的 theme 键，保留你的注释和格式", path.display())),
+                    .child(if crate::i18n::current() == crate::i18n::Language::English {
+                        format!("Selections apply immediately to all windows and update the theme key in {}, preserving comments and formatting", path.display())
+                    } else {
+                        format!("选中即生效（所有窗口），并写入 {} 的 theme 键，保留你的注释和格式", path.display())
+                    }),
             )
     }
 }

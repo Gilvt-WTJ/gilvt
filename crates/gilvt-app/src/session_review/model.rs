@@ -236,6 +236,13 @@ pub fn open_page_for(mode: Mode, reviewed_through: Option<&TurnCursor>, stale: b
 /// What to tell the user when saving a review change failed. Only a real I/O error is a "save failure";
 /// the store reports a rewritten transcript as `InvalidInput` and a stale saved position as `InvalidData`.
 pub fn save_notice(kind: std::io::ErrorKind, what: &str, detail: &str) -> String {
+    if crate::i18n::current() == crate::i18n::Language::English {
+        return match kind {
+            std::io::ErrorKind::InvalidInput => format!("Did not {what}: the session record changed during review. Reopen it and try again."),
+            std::io::ErrorKind::InvalidData => format!("Did not {what}: the saved review position is stale. Choose \"Start from Here\" or \"Review All Visible History\"."),
+            _ => format!("Save failed; did not {what}: {detail}"),
+        };
+    }
     match kind {
         std::io::ErrorKind::InvalidInput => format!(
             "没有{what}：这个会话的记录在 Review 期间被改写了，请重新打开它"

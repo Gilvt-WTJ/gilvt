@@ -4,10 +4,14 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::form::{self, CodexModels, FieldId, Notice, TestState};
-use crate::debug_state::rects::{in_frame, Rect4, RectId};
 use super::Page;
-use crate::debug_state::{AppearanceState, SettingsField, SettingsOption, SettingsOther, SettingsPage, SettingsState, SettingsTest};
-use crate::settings::MonitorSettings;
+use crate::debug_state::rects::{in_frame, Rect4, RectId};
+use crate::debug_state::{
+    AppearanceState, SettingsField, SettingsLanguage, SettingsOption, SettingsOther, SettingsPage,
+    SettingsState, SettingsTest,
+};
+use crate::i18n::Language;
+use crate::settings::Settings;
 
 /// What the window holds, without gpui handles.
 pub struct PageState {
@@ -29,9 +33,17 @@ pub struct FileView<'a> {
     pub path: &'a Path,
 }
 
-pub fn build(page: &PageState, m: &MonitorSettings, file: FileView, id: Option<u64>, key: bool, titlebar: f32, rects: &HashMap<RectId, Rect4>) -> SettingsState {
+pub fn build(
+    page: &PageState,
+    settings: &Settings,
+    file: FileView,
+    id: Option<u64>,
+    key: bool,
+    titlebar: f32,
+    rects: &HashMap<RectId, Rect4>,
+) -> SettingsState {
     let at = |r: RectId| rects.get(&r).map(|x| in_frame(*x, titlebar));
-    let fields = form::fields(m, &page.codex)
+    let fields = form::fields(&settings.monitor, &page.codex)
         .into_iter()
         .map(|f| {
             let i = f.id.index();
@@ -55,6 +67,17 @@ pub fn build(page: &PageState, m: &MonitorSettings, file: FileView, id: Option<u
         id,
         key,
         page: page.page.id(),
+        language: settings.language.id(),
+        languages: Language::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, language)| SettingsLanguage {
+                id: language.id(),
+                label: language.label(),
+                selected: *language == settings.language,
+                rect: at(RectId::SettingsLanguage(i)),
+            })
+            .collect(),
         readonly: file.error.is_some(),
         error: file.error.map(str::to_string),
         write_error: file.write_error.map(str::to_string),
@@ -64,7 +87,15 @@ pub fn build(page: &PageState, m: &MonitorSettings, file: FileView, id: Option<u
         notice: page.notice.as_ref().map(|n| n.text.clone()),
         notice_error: page.notice.as_ref().is_some_and(|n| n.error),
         test,
-        pages: Page::ALL.iter().map(|&p| SettingsPage { id: p.id(), label: p.label(), selected: p == page.page, rect: at(RectId::SettingsNav(p.index())) }).collect(),
+        pages: Page::ALL
+            .iter()
+            .map(|&p| SettingsPage {
+                id: p.id(),
+                label: p.label(settings.language),
+                selected: p == page.page,
+                rect: at(RectId::SettingsNav(p.index())),
+            })
+            .collect(),
         appearance: page.appearance.clone(),
     }
 }
@@ -72,6 +103,14 @@ pub fn build(page: &PageState, m: &MonitorSettings, file: FileView, id: Option<u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::MonitorSettings;
+
+    fn settings(monitor: MonitorSettings) -> Settings {
+        Settings {
+            monitor,
+            ..Settings::default()
+        }
+    }
 
     fn appearance() -> AppearanceState {
         use super::super::appearance_model::PickerModel;
@@ -92,10 +131,27 @@ mod tests {
         let mut m = MonitorSettings::default();
         m.model = "sonnet".into();
         let mut rects = HashMap::new();
-        rects.insert(RectId::SettingsField(FieldId::Model.index()), [200.0, 100.0, 180.0, 22.0]);
-        rects.insert(RectId::SettingsOption(FieldId::Provider.index(), 1), [260.0, 70.0, 50.0, 20.0]);
-        let s = build(&page(), &m, file(None), Some(42), true, 28.0, &rects);
-        assert_eq!((s.id, s.key, s.page, s.readonly), (Some(42), true, "monitor", false));
+        rects.insert(
+            RectId::SettingsField(FieldId::Model.index()),
+            [200.0, 100.0, 180.0, 22.0],
+        );
+        rects.insert(
+            RectId::SettingsOption(FieldId::Provider.index(), 1),
+            [260.0, 70.0, 50.0, 20.0],
+        );
+        let s = build(
+            &page(),
+            &settings(m),
+            file(None),
+            Some(42),
+            true,
+            28.0,
+            &rects,
+        );
+        assert_eq!(
+            (s.id, s.key, s.page, s.readonly),
+            (Some(42), true, "monitor", false)
+        );
         assert_eq!(s.config_path, "/h/.config/gilvt/config.toml");
         let model = s.fields.iter().find(|f| f.id == "model").unwrap();
         assert_eq!(model.value, serde_json::json!("sonnet"));
@@ -114,14 +170,90 @@ mod tests {
         let mut p = page();
         p.page = Page::Appearance;
         let rects = HashMap::from([(RectId::SettingsNav(1), [8.0, 40.0, 134.0, 24.0])]);
-        let s = build(&p, &MonitorSettings::default(), file(None), None, true, 28.0, &rects);
+        let s = build(
+            &p,
+            &settings(MonitorSettings::default()),
+            file(None),
+            None,
+            true,
+            28.0,
+            &rects,
+        );
         assert_eq!(s.page, "appearance");
-        let pages: Vec<_> = s.pages.iter().map(|p| (p.id, p.label, p.selected, p.rect)).collect();
-        assert_eq!(pages, [("appearance", "◐ 外观", true, None), ("monitor", "◎ 监控官", false, Some([8.0, 68.0, 134.0, 24.0]))]);
+        assert_eq!(s.language, "zh-CN");
+        assert_eq!(
+            s.languages
+                .iter()
+                .map(|l| (l.id, l.selected))
+                .collect::<Vec<_>>(),
+            [("zh-CN", true), ("en", false)]
+        );
+        let pages: Vec<_> = s
+            .pages
+            .iter()
+            .map(|p| (p.id, p.label, p.selected, p.rect))
+            .collect();
+        assert_eq!(
+            pages,
+            [
+                ("appearance", "◐ 外观", true, None),
+                (
+                    "language",
+                    "文A 语言",
+                    false,
+                    Some([8.0, 68.0, 134.0, 24.0])
+                ),
+                ("monitor", "◎ 监控官", false, None),
+            ]
+        );
         let json = serde_json::to_value(&s).unwrap();
         assert_eq!(json["appearance"]["mode"], "system");
         assert_eq!(json["appearance"]["rows"], serde_json::json!([]));
         assert_eq!(json["write_error"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn english_language_page_has_stable_ids_labels_and_rects() {
+        let mut p = page();
+        p.page = Page::Language;
+        let mut settings = settings(MonitorSettings::default());
+        settings.language = Language::English;
+        let rects = HashMap::from([
+            (RectId::SettingsLanguage(0), [170.0, 60.0, 500.0, 40.0]),
+            (RectId::SettingsLanguage(1), [170.0, 108.0, 500.0, 40.0]),
+        ]);
+
+        let state = build(&p, &settings, file(None), None, true, 28.0, &rects);
+        assert_eq!(state.page, "language");
+        assert_eq!(state.language, "en");
+        assert_eq!(
+            state
+                .pages
+                .iter()
+                .map(|page| (page.id, page.label))
+                .collect::<Vec<_>>(),
+            [
+                ("appearance", "◐ Appearance"),
+                ("language", "文A Language"),
+                ("monitor", "◎ Monitor")
+            ]
+        );
+        assert_eq!(
+            state
+                .languages
+                .iter()
+                .map(|language| (
+                    language.id,
+                    language.label,
+                    language.selected,
+                    language.rect
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("zh-CN", "简体中文", false, Some([170.0, 88.0, 500.0, 40.0])),
+                ("en", "English", true, Some([170.0, 136.0, 500.0, 40.0])),
+            ]
+        );
     }
 
     #[test]
@@ -132,7 +264,15 @@ mod tests {
         p.notice = Some(Notice { error: true, text: "模型不存在或无权使用（…）".into() });
         p.test = TestState::Done { ok: false, text: "✗ 未找到 claude，请在设置里指定 CLI 路径".into() };
         let rects = HashMap::from([(RectId::SettingsOther, [10.0, 10.0, 200.0, 18.0])]);
-        let s = build(&p, &MonitorSettings::default(), file(Some("/h/config.toml: expected `=`")), None, false, 0.0, &rects);
+        let s = build(
+            &p,
+            &settings(MonitorSettings::default()),
+            file(Some("/h/config.toml: expected `=`")),
+            None,
+            false,
+            0.0,
+            &rects,
+        );
         assert!(s.readonly);
         assert_eq!(s.error.as_deref(), Some("/h/config.toml: expected `=`"));
         assert!(s.fields.iter().find(|f| f.id == "summary_model").unwrap().open);

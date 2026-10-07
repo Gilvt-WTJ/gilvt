@@ -85,7 +85,11 @@ impl Workspace {
         ws.active = restored_active(snap, ws.tabs.len());
         ws.focus_active(window, cx);
         if let Some(first) = fell_back.first() {
-            ws.error = Some(format!("目录 {} 已不存在，该 pane 改在主目录启动", first.display()));
+            ws.error = Some(if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Directory {} no longer exists; the pane was started in the home directory", first.display())
+            } else {
+                format!("目录 {} 已不存在，该 pane 改在主目录启动", first.display())
+            });
         }
         ws
     }

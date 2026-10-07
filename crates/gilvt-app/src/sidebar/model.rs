@@ -206,7 +206,11 @@ pub fn status_group(s: &Session) -> usize {
 /// "40 秒", "2 分钟", "3 小时".
 pub fn duration_label(d: Duration) -> String {
     let s = d.as_secs();
+    let english = crate::i18n::current() == crate::i18n::Language::English;
     match s {
+        0..60 if english => format!("{s}s"),
+        60..3600 if english => format!("{}m", s / 60),
+        _ if english => format!("{}h", s / 3600),
         0..60 => format!("{s} 秒"),
         60..3600 => format!("{} 分钟", s / 60),
         _ => format!("{} 小时", s / 3600),
@@ -225,19 +229,38 @@ pub fn location_text(tab_title: &str, position: &str, window: Option<&str>) -> S
 
 /// 状态 + 当前动作.
 pub fn status_line(s: &Session) -> (Tone, String) {
+    let t = crate::i18n::text;
     match &s.status {
-        Status::NeedsApproval { action } => (Tone::Waiting, join("⏳ 等待审批", action)),
-        Status::Asking { question } => (Tone::Waiting, join("? 在问你", question)),
-        Status::Error { message } => (Tone::Error, join("✕ 出错", message)),
-        Status::Ended => (Tone::Muted, "已结束".into()),
-        _ if s.background_tasks > 0 => (Tone::Running, format!("● 后台任务运行中 · {} 个后台任务", s.background_tasks)),
-        Status::Thinking => (Tone::Running, "● 思考中".into()),
-        Status::Tool { label } => (Tone::Running, join("● 执行中", label)),
-        Status::Idle if s.unseen_done => {
-            let took = s.last_turn.map(|d| format!("用时 {}", duration_label(d))).unwrap_or_default();
-            (Tone::Done, join("✓ 完成未看", &took))
+        Status::NeedsApproval { action } => (
+            Tone::Waiting,
+            join(t("⏳ 等待审批", "⏳ Awaiting approval"), action),
+        ),
+        Status::Asking { question } => {
+            (Tone::Waiting, join(t("? 在问你", "? Asking you"), question))
         }
-        Status::Idle => (Tone::Muted, "空闲 · 等你输入".into()),
+        Status::Error { message } => (Tone::Error, join(t("✕ 出错", "✕ Error"), message)),
+        Status::Ended => (Tone::Muted, t("已结束", "Ended").into()),
+        _ if s.background_tasks > 0 => {
+            let text = if crate::i18n::current() == crate::i18n::Language::English {
+                format!("● Background tasks running · {} tasks", s.background_tasks)
+            } else {
+                format!("● 后台任务运行中 · {} 个后台任务", s.background_tasks)
+            };
+            (Tone::Running, text)
+        }
+        Status::Thinking => (Tone::Running, t("● 思考中", "● Thinking").into()),
+        Status::Tool { label } => (Tone::Running, join(t("● 执行中", "● Running"), label)),
+        Status::Idle if s.unseen_done => {
+            let took = s
+                .last_turn
+                .map(|d| format!("{} {}", t("用时", "took"), duration_label(d)))
+                .unwrap_or_default();
+            (Tone::Done, join(t("✓ 完成未看", "✓ Done, unseen"), &took))
+        }
+        Status::Idle => (
+            Tone::Muted,
+            t("空闲 · 等你输入", "Idle · waiting for input").into(),
+        ),
     }
 }
 
@@ -250,7 +273,9 @@ fn join(head: &str, detail: &str) -> String {
 fn time_label(s: &Session, now: Instant, clock: &dyn Fn(Instant) -> String) -> String {
     match (&s.status, s.waiting_since) {
         (st, Some(since)) if st.needs_you() => duration_label(now.saturating_duration_since(since)),
-        (st, _) if st.is_running() || (s.is_live() && s.background_tasks > 0) => "执行中".into(),
+        (st, _) if st.is_running() || (s.is_live() && s.background_tasks > 0) => {
+            crate::i18n::text("执行中", "Running").into()
+        }
         _ => clock(s.updated),
     }
 }
@@ -261,7 +286,7 @@ pub fn row_name(item: &Item) -> String {
     let s = item.session;
     match &item.agent_title {
         Some(title) if !s.renamed => title.clone(),
-        _ if s.name.is_empty() => "新会话".into(),
+        _ if s.name.is_empty() => crate::i18n::text("新会话", "New session").into(),
         _ => s.name.clone(),
     }
 }
@@ -346,17 +371,25 @@ pub fn with_summaries(mut model: Model, f: impl Fn(&Row) -> Option<String>) -> M
 /// A terminal row's name: its pane title on one line, else 终端.
 pub fn terminal_name(title: &str) -> String {
     let one_line = title.split_whitespace().collect::<Vec<_>>().join(" ");
-    if one_line.is_empty() { "终端".into() } else { one_line }
+    if one_line.is_empty() {
+        crate::i18n::text("终端", "Terminal").into()
+    } else {
+        one_line
+    }
 }
 
 /// A terminal's project: the one resolved from its directory, else 终端 (no directory known).
 pub fn terminal_project(project: Option<String>) -> String {
-    project.unwrap_or_else(|| "终端".into())
+    project.unwrap_or_else(|| crate::i18n::text("终端", "Terminal").into())
 }
 
 /// The header: 「会话 · N」, plus 「 · 终端 M」 when terminals are listed.
 pub fn header_text(m: &Model) -> String {
-    if m.terminals == 0 {
+    if crate::i18n::current() == crate::i18n::Language::English && m.terminals == 0 {
+        format!("Sessions · {}", m.live)
+    } else if crate::i18n::current() == crate::i18n::Language::English {
+        format!("Sessions · {} · Terminals {}", m.live, m.terminals)
+    } else if m.terminals == 0 {
         format!("会话 · {}", m.live)
     } else {
         format!("会话 · {} · 终端 {}", m.live, m.terminals)
@@ -383,7 +416,11 @@ pub fn build(items: &[Item], terminals: &[TerminalItem], view: &SidebarState, no
         sections.push(Section {
             kind: SectionKind::NeedsYou,
             id: "needs_you".into(),
-            title: format!("需要你 · {}", waiting.len()),
+            title: if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Needs you · {}", waiting.len())
+            } else {
+                format!("需要你 · {}", waiting.len())
+            },
             note: String::new(),
             collapsed: false,
             default_collapsed: false,
@@ -409,8 +446,23 @@ pub fn build(items: &[Item], terminals: &[TerminalItem], view: &SidebarState, no
             }
         }
         Grouping::Status => {
-            for (n, title) in STATUS_GROUPS.iter().enumerate() {
-                let members: Vec<&Item> = live.iter().copied().filter(|i| status_group(i.session) == n).collect();
+            let titles = if crate::i18n::current() == crate::i18n::Language::English {
+                [
+                    "Needs attention",
+                    "Errors",
+                    "Running",
+                    "Done, unseen",
+                    "Idle",
+                ]
+            } else {
+                STATUS_GROUPS
+            };
+            for (n, title) in titles.iter().enumerate() {
+                let members: Vec<&Item> = live
+                    .iter()
+                    .copied()
+                    .filter(|i| status_group(i.session) == n)
+                    .collect();
                 if !members.is_empty() {
                     groups.push((format!("status:{n}"), title.to_string(), members, Vec::new()));
                 }
@@ -423,6 +475,12 @@ pub fn build(items: &[Item], terminals: &[TerminalItem], view: &SidebarState, no
         let collapsed = view.collapsed(&id, idle);
         let note = match (collapsed, idle) {
             (false, _) => String::new(),
+            (true, true) if crate::i18n::current() == crate::i18n::Language::English => {
+                format!("{} idle, collapsed", members.len())
+            }
+            (true, false) if crate::i18n::current() == crate::i18n::Language::English => {
+                format!("{} sessions, collapsed", members.len() + terms.len())
+            }
             (true, true) => format!("{} 个空闲，已折叠", members.len()),
             (true, false) => format!("{} 个会话，已折叠", members.len() + terms.len()),
         };
@@ -436,8 +494,18 @@ pub fn build(items: &[Item], terminals: &[TerminalItem], view: &SidebarState, no
         sections.push(Section {
             kind: SectionKind::Terminals,
             id: "terminals".into(),
-            title: format!("终端 · {}", terminals.len()),
-            note: if collapsed { format!("{} 个，已折叠", terminals.len()) } else { String::new() },
+            title: if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Terminals · {}", terminals.len())
+            } else {
+                format!("终端 · {}", terminals.len())
+            },
+            note: if collapsed && crate::i18n::current() == crate::i18n::Language::English {
+                format!("{}, collapsed", terminals.len())
+            } else if collapsed {
+                format!("{} 个，已折叠", terminals.len())
+            } else {
+                String::new()
+            },
             collapsed,
             default_collapsed: true,
             rows: terminals.iter().map(terminal_row).collect(),
@@ -450,7 +518,11 @@ pub fn build(items: &[Item], terminals: &[TerminalItem], view: &SidebarState, no
         sections.push(Section {
             kind: SectionKind::Ended,
             id: "ended".into(),
-            title: format!("已结束 · {}", ended.len()),
+            title: if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Ended · {}", ended.len())
+            } else {
+                format!("已结束 · {}", ended.len())
+            },
             note: String::new(),
             collapsed: !view.ended_open,
             default_collapsed: true,
@@ -468,13 +540,21 @@ pub fn pending_rows(pending: &[crate::agents::PendingResume]) -> Vec<Row> {
             key: Some(p.key.clone()),
             kind: RowKind::Agent,
             pane: Some(p.pane),
-            letter: if p.key.0 == AgentKind::Claude { 'C' } else { 'X' },
-            name: if p.name.is_empty() { "（未命名）".into() } else { p.name.clone() },
+            letter: if p.key.0 == AgentKind::Claude {
+                'C'
+            } else {
+                'X'
+            },
+            name: if p.name.is_empty() {
+                crate::i18n::text("（未命名）", "Untitled").into()
+            } else {
+                p.name.clone()
+            },
             muted: false,
             lite: false,
             time: String::new(),
             tone: Tone::Muted,
-            status: "待恢复".into(),
+            status: crate::i18n::text("待恢复", "Pending resume").into(),
             location: String::new(),
             git: String::new(),
             context: None,
@@ -500,7 +580,11 @@ pub fn with_pending(mut model: Model, pending: &[crate::agents::PendingResume]) 
         Section {
             kind: SectionKind::Pending,
             id: "pending".into(),
-            title: format!("待恢复 · {}", pending.len()),
+            title: if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Pending resume · {}", pending.len())
+            } else {
+                format!("待恢复 · {}", pending.len())
+            },
             note: String::new(),
             collapsed: false,
             default_collapsed: false,

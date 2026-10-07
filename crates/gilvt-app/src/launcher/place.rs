@@ -49,10 +49,10 @@ impl Placement {
     /// The ⌘⇧N preview's 「将在<…>执行：」 word.
     pub fn word(self) -> &'static str {
         match self {
-            Placement::InPlace(_) => "当前 pane",
-            Placement::NewTab => "新标签",
-            Placement::Split(Axis::Row) => "右侧",
-            Placement::Split(Axis::Column) => "下方",
+            Placement::InPlace(_) => crate::i18n::text("当前 pane", "Current pane"),
+            Placement::NewTab => crate::i18n::text("新标签", "New tab"),
+            Placement::Split(Axis::Row) => crate::i18n::text("右侧", "Right"),
+            Placement::Split(Axis::Column) => crate::i18n::text("下方", "Below"),
         }
     }
 }

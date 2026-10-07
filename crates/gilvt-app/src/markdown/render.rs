@@ -444,13 +444,29 @@ impl Builder<'_> {
                     .bg(c.tag_bg)
                     .text_size(s.scaled(12.0))
                     .text_color(c.muted)
-                    .child("正在渲染图表…");
+                    .child(crate::i18n::text("正在渲染图表…", "Rendering diagram…"));
                 return frame.child(skeleton).child(label).into_any_element();
             }
             // Monospace: mermaid points at the error with a caret under the source line.
-            Some(Shown::Error(message)) => div().text_size(s.code).child(self.mono_text(&format!("⚠ {message}"), red)),
-            Some(Shown::RemoteImage) => div().text_size(size).text_color(red).child("⚠ 图中含远程图片（未加载）"),
-            Some(Shown::Failed) => div().text_size(size).text_color(red).child("⚠ 图表渲染失败"),
+            Some(Shown::Error(message)) => div()
+                .text_size(s.code)
+                .child(self.mono_text(&format!("⚠ {message}"), red)),
+            Some(Shown::RemoteImage) => {
+                div()
+                    .text_size(size)
+                    .text_color(red)
+                    .child(crate::i18n::text(
+                        "⚠ 图中含远程图片（未加载）",
+                        "⚠ Diagram contains remote images (not loaded)",
+                    ))
+            }
+            Some(Shown::Failed) => div()
+                .text_size(size)
+                .text_color(red)
+                .child(crate::i18n::text(
+                    "⚠ 图表渲染失败",
+                    "⚠ Diagram rendering failed",
+                )),
         };
         let gap = self.s().scaled(6.0);
         let body = self.code_text(source, None);

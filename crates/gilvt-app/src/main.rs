@@ -6,6 +6,7 @@ mod drop;
 mod editor;
 mod external_navigation;
 mod finder;
+mod i18n;
 mod inspector;
 mod ipc_bridge;
 mod launch;
@@ -75,6 +76,8 @@ fn main() {
     debug_state::init_from_env();
     let (settings, error) = Settings::load(&Settings::default_path());
     Application::new().run(move |cx: &mut App| {
+        let language = settings.language;
+        i18n::set_current(language);
         let state_dir = agents::state_dir();
         cx.set_global(state_dir.as_deref().map(UiPrefs::load).unwrap_or_default());
         notify::init(cx);
@@ -100,7 +103,7 @@ fn main() {
         cx.set_global(Mermaid::new(Cache::default_dir()));
         cx.set_global(Listings::default());
         actions::bind_keys(cx);
-        cx.set_menus(actions::menus());
+        cx.set_menus(actions::menus(language));
         // Deferred: during dispatch the active window is leased and could not be asked about its agents.
         cx.on_action(|_: &Quit, cx| cx.defer(workspace::quit_requested));
         cx.on_action(|_: &NewWindow, cx| open_window(None, None, cx));

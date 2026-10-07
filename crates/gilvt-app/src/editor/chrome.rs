@@ -38,9 +38,18 @@ const HEADER_FIXED_CHARS: usize = 22;
 
 /// `第 N 行，第 M 列` (1-based) plus ` · 已选 K 字符` when something is selected.
 pub(crate) fn cursor_label(line: usize, col: usize, selected_chars: usize) -> String {
-    let mut s = format!("第 {} 行，第 {} 列", line + 1, col + 1);
+    let english = crate::i18n::current() == crate::i18n::Language::English;
+    let mut s = if english {
+        format!("Line {}, Column {}", line + 1, col + 1)
+    } else {
+        format!("第 {} 行，第 {} 列", line + 1, col + 1)
+    };
     if selected_chars > 0 {
-        s.push_str(&format!(" · 已选 {selected_chars} 字符"));
+        if english {
+            s.push_str(&format!(" · {selected_chars} characters selected"));
+        } else {
+            s.push_str(&format!(" · 已选 {selected_chars} 字符"));
+        }
     }
     s
 }
@@ -52,21 +61,56 @@ pub(crate) fn status_left(cursor: String, flash: Option<&str>) -> String {
 
 /// The status bar's line-ending segment: the ending the next save writes, marked when the file had several.
 pub(crate) fn line_ending_label(le: LineEnding, mixed: bool) -> String {
-    if mixed { format!("{} · 混合", le.name()) } else { le.name().to_owned() }
+    if mixed {
+        if crate::i18n::current() == crate::i18n::Language::English {
+            format!("{} · Mixed", le.name())
+        } else {
+            format!("{} · 混合", le.name())
+        }
+    } else {
+        le.name().to_owned()
+    }
 }
 
 /// The hover text of a mixed line-ending segment.
 pub(crate) fn mixed_hint(le: LineEnding) -> String {
-    format!("文件里同时有多种换行符；保存会统一成 {}。", le.name())
+    if crate::i18n::current() == crate::i18n::Language::English {
+        format!(
+            "The file contains mixed line endings. Saving will normalize them to {}.",
+            le.name()
+        )
+    } else {
+        format!("文件里同时有多种换行符；保存会统一成 {}。", le.name())
+    }
 }
 
 /// The status bar's segments, left to right; drawn with 「｜」 between them.
-pub(crate) fn status_segments(cursor: String, language: &str, encoding: &str, line_ending: &str, lines: usize) -> Vec<String> {
-    vec![cursor, language.into(), encoding.into(), line_ending.into(), format!("{lines} 行")]
+pub(crate) fn status_segments(
+    cursor: String,
+    language: &str,
+    encoding: &str,
+    line_ending: &str,
+    lines: usize,
+) -> Vec<String> {
+    vec![
+        cursor,
+        language.into(),
+        encoding.into(),
+        line_ending.into(),
+        if crate::i18n::current() == crate::i18n::Language::English {
+            format!("{lines} lines")
+        } else {
+            format!("{lines} 行")
+        },
+    ]
 }
 
 pub(crate) fn close_prompt(name: &str) -> String {
-    format!("要保存对 {name} 的修改吗？")
+    if crate::i18n::current() == crate::i18n::Language::English {
+        format!("Save changes to {name}?")
+    } else {
+        format!("要保存对 {name} 的修改吗？")
+    }
 }
 
 /// How many characters the header's directory may take in a pane `width_px` wide, next to a file name of
@@ -86,14 +130,47 @@ pub(crate) fn header_dir(path: Option<&Path>, home: Option<&Path>, budget: usize
 
 /// The notice bar's buttons, left to right: label, action, primary.
 pub(crate) fn bar_buttons(bar: &Bar) -> Vec<(&'static str, BarAction, bool)> {
+    let t = crate::i18n::text;
     match bar {
         Bar::None => vec![],
-        Bar::Close => vec![("取消", BarAction::Cancel, false), ("不保存", BarAction::Discard, false), ("保存 ⏎", BarAction::SaveAndClose, true)],
-        Bar::Modified { .. } => vec![("重新载入", BarAction::Reload, false), ("对比", BarAction::Compare, true), ("仍然覆盖", BarAction::Overwrite, false)],
-        Bar::Deleted => vec![("保存（重新创建）", BarAction::Recreate, true), ("关闭", BarAction::CloseNow, false), ("知道了", BarAction::Cancel, false)],
-        Bar::Confirm(_) => vec![("取消", BarAction::Cancel, false), ("放弃改动并重新打开", BarAction::ConfirmReopen, true)],
-        Bar::SaveError { jump: Some(_), .. } => vec![(JUMP_LABEL, BarAction::Jump, false), ("知道了", BarAction::Cancel, false)],
-        Bar::SaveError { jump: None, .. } => vec![("知道了", BarAction::Cancel, false)],
+        Bar::Close => vec![
+            (t("取消", "Cancel"), BarAction::Cancel, false),
+            (t("不保存", "Don't Save"), BarAction::Discard, false),
+            (t("保存 ⏎", "Save ⏎"), BarAction::SaveAndClose, true),
+        ],
+        Bar::Modified { .. } => vec![
+            (t("重新载入", "Reload"), BarAction::Reload, false),
+            (t("对比", "Compare"), BarAction::Compare, true),
+            (
+                t("仍然覆盖", "Overwrite Anyway"),
+                BarAction::Overwrite,
+                false,
+            ),
+        ],
+        Bar::Deleted => vec![
+            (
+                t("保存（重新创建）", "Save (Recreate)"),
+                BarAction::Recreate,
+                true,
+            ),
+            (t("关闭", "Close"), BarAction::CloseNow, false),
+            (t("知道了", "Dismiss"), BarAction::Cancel, false),
+        ],
+        Bar::Confirm(_) => vec![
+            (t("取消", "Cancel"), BarAction::Cancel, false),
+            (
+                t("放弃改动并重新打开", "Discard Changes and Reopen"),
+                BarAction::ConfirmReopen,
+                true,
+            ),
+        ],
+        Bar::SaveError { jump: Some(_), .. } => vec![
+            (t(JUMP_LABEL, "Jump to Error"), BarAction::Jump, false),
+            (t("知道了", "Dismiss"), BarAction::Cancel, false),
+        ],
+        Bar::SaveError { jump: None, .. } => {
+            vec![(t("知道了", "Dismiss"), BarAction::Cancel, false)]
+        }
     }
 }
 
@@ -101,8 +178,11 @@ pub(crate) fn bar_buttons(bar: &Bar) -> Vec<(&'static str, BarAction, bool)> {
 /// read-only buffer (manual, file permissions, over-long line).
 pub(crate) fn read_only_badge(read_only: bool, lossy: bool) -> Option<&'static str> {
     match (read_only, lossy) {
-        (_, true) => Some("只读 · 部分字符已替换"),
-        (true, false) => Some("只读"),
+        (_, true) => Some(crate::i18n::text(
+            "只读 · 部分字符已替换",
+            "Read only · some characters replaced",
+        )),
+        (true, false) => Some(crate::i18n::text("只读", "Read only")),
         (false, false) => None,
     }
 }
@@ -176,12 +256,20 @@ pub(crate) fn header(view: &EditorView, p: &Palette, cx: &mut Context<EditorView
                 .on_click(cx.listener(|v, _: &ClickEvent, _, cx| v.click_preview(cx))),
         )
         .child(
-            button("editor-save", "保存 ⌘S", true, p)
-                .relative()
-                .children(view.pane.and_then(|id| rects::recorder(RectId::EditorSave(id))))
-                .on_click(cx.listener(|v, _: &ClickEvent, _, cx| {
-                    v.save(cx);
-                })),
+            button(
+                "editor-save",
+                crate::i18n::text("保存 ⌘S", "Save ⌘S"),
+                true,
+                p,
+            )
+            .relative()
+            .children(
+                view.pane
+                    .and_then(|id| rects::recorder(RectId::EditorSave(id))),
+            )
+            .on_click(cx.listener(|v, _: &ClickEvent, _, cx| {
+                v.save(cx);
+            })),
         )
         .child(
             button("editor-close", "✕", false, p)
@@ -195,10 +283,23 @@ pub(crate) fn bar(view: &EditorView, p: &Palette, cx: &mut Context<EditorView>) 
     let (text, tint): (Vec<String>, _) = match &view.bar {
         Bar::None => return None,
         Bar::Close => (vec![close_prompt(&view.title())], p.ansi[3]),
-        Bar::Modified { .. } => (vec![MODIFIED_TEXT.into()], p.ansi[3]),
+        Bar::Modified { .. } => (
+            vec![crate::i18n::text(
+                MODIFIED_TEXT,
+                "⚠ The file was modified on disk while you have unsaved changes.",
+            )
+            .into()],
+            p.ansi[3],
+        ),
         Bar::SaveError { message, .. } => (vec![message.clone()], p.ansi[1]),
-        Bar::Deleted => (vec![DELETED_TEXT.into()], p.ansi[3]),
-        Bar::Confirm(_) => (vec![CONFIRM_TEXT.into()], p.ansi[3]),
+        Bar::Deleted => (
+            vec![crate::i18n::text(DELETED_TEXT, "⚠ The file was deleted or moved.").into()],
+            p.ansi[3],
+        ),
+        Bar::Confirm(_) => (
+            vec![crate::i18n::text(CONFIRM_TEXT, "Reopening will discard unsaved changes.").into()],
+            p.ansi[3],
+        ),
     };
     let mut row = div()
         .flex()
@@ -386,13 +487,16 @@ pub(crate) fn too_narrow(p: &Palette) -> impl IntoElement {
         .bg(hsla(p.background))
         .text_size(px(CHROME_TEXT))
         .text_color(muted)
-        .child(TOO_NARROW)
+        .child(crate::i18n::text(TOO_NARROW, "Window too narrow"))
 }
 
 /// The header's preview button: the shortcut while closed, the provider shown while open.
 pub(crate) fn preview_label(live: Option<crate::live_preview::Provider>) -> String {
     match live {
-        None => "预览 ⌘⇧V".to_string(),
+        None => crate::i18n::text("预览 ⌘⇧V", "Preview ⌘⇧V").to_string(),
+        Some(p) if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("Preview: {}", p.label())
+        }
         Some(p) => format!("预览：{}", p.label()),
     }
 }
@@ -481,7 +585,10 @@ pub(crate) fn compare_overlay(view: &EditorView, p: &Palette, cx: &mut Context<E
         .on_scroll_wheel(cx.listener(EditorView::compare_wheel));
     let note = |t: &'static str| div().flex().flex_1().items_center().justify_center().text_color(muted).child(t);
     body = match &c.rows {
-        _ if c.disk_missing => body.child(note(compare::MISSING_TEXT)),
+        _ if c.disk_missing => body.child(note(crate::i18n::text(
+            compare::MISSING_TEXT,
+            "The file was deleted.",
+        ))),
         CompareRows::Same => body.child(note(c.note)),
         CompareRows::Unified(rows) => {
             for row in &rows[window(rows.len())] {
@@ -544,7 +651,12 @@ pub(crate) fn compare_overlay(view: &EditorView, p: &Palette, cx: &mut Context<E
                 .font_weight(FontWeight::BOLD)
                 .child(compare::header_text(&view.title())),
         )
-        .child(div().flex_none().text_color(muted).child(compare::ESC_HINT));
+        .child(
+            div()
+                .flex_none()
+                .text_color(muted)
+                .child(crate::i18n::text(compare::ESC_HINT, "Esc Back to Editing")),
+        );
     let panel = div()
         .flex()
         .flex_col()

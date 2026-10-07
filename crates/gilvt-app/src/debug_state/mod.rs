@@ -1361,8 +1361,12 @@ pub struct SettingsState {
     pub id: Option<u64>,
     /// Is it the key window?
     pub key: bool,
-    /// The page shown: "appearance" (「外观」) or "monitor" (「◎ 监控官」).
+    /// The page shown: "appearance", "language", or "monitor".
     pub page: &'static str,
+    /// The active application language: "zh-CN" or "en".
+    pub language: &'static str,
+    /// Language choices, including their click rectangles while the language page is shown.
+    pub languages: Vec<SettingsLanguage>,
     /// config.toml does not parse: every control is disabled.
     pub readonly: bool,
     /// Why (the parser's message, starting with the file's path).
@@ -1386,10 +1390,19 @@ pub struct SettingsState {
 /// A page in the settings window's nav column.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsPage {
-    /// "appearance" | "monitor".
+    /// "appearance" | "language" | "monitor".
     pub id: &'static str,
     pub label: &'static str,
     /// The page shown.
+    pub selected: bool,
+    pub rect: Option<Rect4>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SettingsLanguage {
+    /// The config value: "zh-CN" or "en".
+    pub id: &'static str,
+    pub label: &'static str,
     pub selected: bool,
     pub rect: Option<Rect4>,
 }

@@ -18,6 +18,7 @@ use super::{probe, Page};
 use crate::actions::ClosePane;
 use crate::config_file::{self, edit::Edit, ConfigFile};
 use crate::debug_state::rects::{self, RectId};
+use crate::i18n::Language;
 use crate::settings::{MonitorProvider, MonitorSettings};
 use crate::sidebar::rename::{RenameEvent, RenameField};
 use crate::theme::{hsla, AppSettings};
@@ -31,11 +32,29 @@ fn chat_launch(enabled: bool, env: Option<&crate::launch::ShellEnv>) -> Result<(
     if !enabled {
         return Err(crate::monitor::tools::DISABLED.to_string());
     }
-    let env = env.ok_or_else(|| "找不到 gilvt 的启动环境".to_string())?;
-    match (env.bin_dir.as_ref().map(|d| d.join("gilvt")).filter(|p| p.is_file()), env.socket.clone()) {
+    let env = env.ok_or_else(|| {
+        crate::i18n::text(
+            "找不到 gilvt 的启动环境",
+            "Could not find gilvt's launch environment",
+        )
+        .to_string()
+    })?;
+    match (
+        env.bin_dir
+            .as_ref()
+            .map(|d| d.join("gilvt"))
+            .filter(|p| p.is_file()),
+        env.socket.clone(),
+    ) {
         (Some(gilvt), Some(socket)) => Ok((gilvt, socket)),
-        (None, _) => Err("找不到 gilvt 命令行".to_string()),
-        (_, None) => Err("gilvt 的本地通信没有启动".to_string()),
+        (None, _) => Err(
+            crate::i18n::text("找不到 gilvt 命令行", "Could not find the gilvt CLI").to_string(),
+        ),
+        (_, None) => Err(crate::i18n::text(
+            "gilvt 的本地通信没有启动",
+            "gilvt's local IPC is not running",
+        )
+        .to_string()),
     }
 }
 
@@ -160,8 +179,20 @@ impl SettingsWindow {
             test: self.test.clone(),
         };
         let file = cx.global::<ConfigFile>();
-        let view = super::debug::FileView { error: file.error.as_deref(), write_error: file.write_error.as_deref(), path: &file.path };
-        super::debug::build(&page, &cx.global::<AppSettings>().0.monitor, view, id, key, titlebar, rects)
+        let view = super::debug::FileView {
+            error: file.error.as_deref(),
+            write_error: file.write_error.as_deref(),
+            path: &file.path,
+        };
+        super::debug::build(
+            &page,
+            &cx.global::<AppSettings>().0,
+            view,
+            id,
+            key,
+            titlebar,
+            rects,
+        )
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -171,7 +202,7 @@ impl SettingsWindow {
         // The 外观 page takes typing (its search box); the 监控官 page has the keyboard itself.
         match page {
             Page::Appearance => window.focus(&appearance.focus_handle(cx)),
-            Page::Monitor => window.focus(&focus_handle),
+            Page::Language | Page::Monitor => window.focus(&focus_handle),
         }
         // Closing the window mid-test voids the test token (the task that would clear it is dropped with the view).
         cx.on_release(|_, cx| crate::monitor::tools::set_test_token(None, cx)).detach();
@@ -216,13 +247,24 @@ impl SettingsWindow {
         self.close_other();
         match page {
             Page::Appearance => window.focus(&self.appearance.focus_handle(cx)),
-            Page::Monitor => window.focus(&self.focus_handle),
+            Page::Language | Page::Monitor => window.focus(&self.focus_handle),
         }
         cx.notify();
     }
 
     fn nav(&self, k: &Colors, cx: &Context<Self>) -> Div {
-        let mut nav = div().w(px(150.)).flex_none().h_full().bg(k.nav).border_r_1().border_color(k.rule).p(px(8.)).flex().flex_col().gap(px(2.));
+        let language = cx.global::<AppSettings>().0.language;
+        let mut nav = div()
+            .w(px(150.))
+            .flex_none()
+            .h_full()
+            .bg(k.nav)
+            .border_r_1()
+            .border_color(k.rule)
+            .p(px(8.))
+            .flex()
+            .flex_col()
+            .gap(px(2.));
         for page in Page::ALL {
             let on = page == self.page;
             nav = nav.child(
@@ -234,8 +276,14 @@ impl SettingsWindow {
                     .py(px(5.))
                     .rounded(px(5.))
                     .when(on, |d| d.bg(k.accent).text_color(k.on_accent))
-                    .when(!on, |d| d.cursor_pointer().hover(|s| s.bg(k.seg_on)).on_click(cx.listener(move |view, _: &ClickEvent, window, cx| view.show_page(page, window, cx))))
-                    .child(page.label()),
+                    .when(!on, |d| {
+                        d.cursor_pointer()
+                            .hover(|s| s.bg(k.seg_on))
+                            .on_click(cx.listener(move |view, _: &ClickEvent, window, cx| {
+                                view.show_page(page, window, cx)
+                            }))
+                    })
+                    .child(page.label(language)),
             );
         }
         nav
@@ -293,6 +341,67 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn choose_language(
+        &mut self,
+        language: Language,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.notice = config_file::set_language(language, cx)
+            .err()
+            .map(|text| Notice { error: true, text });
+        window.set_window_title(language.text("设置", "Settings"));
+        cx.notify();
+    }
+
+    fn language_page(
+        &self,
+        current: Language,
+        readonly: bool,
+        k: &Colors,
+        cx: &Context<Self>,
+    ) -> Div {
+        let t = |zh, en| current.text(zh, en);
+        let mut choices = div().flex().flex_col().gap(px(8.));
+        for (index, language) in Language::ALL.into_iter().enumerate() {
+            let selected = language == current;
+            choices = choices.child(
+                div()
+                    .id(("settings-language", index))
+                    .relative()
+                    .children(rects::recorder(RectId::SettingsLanguage(index)))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(12.))
+                    .py(px(10.))
+                    .rounded(px(6.))
+                    .border_1()
+                    .border_color(if selected { k.accent } else { k.field_border })
+                    .bg(if selected { k.seg_on } else { k.field })
+                    .child(language.label())
+                    .child(if selected { "✓" } else { "" })
+                    .when(readonly, |d| d.opacity(0.5))
+                    .when(!readonly && !selected, |d| {
+                        d.cursor_pointer()
+                            .hover(|s| s.bg(k.seg_on))
+                            .on_click(cx.listener(move |view, _: &ClickEvent, window, cx| {
+                                view.choose_language(language, window, cx);
+                            }))
+                    }),
+            );
+        }
+        section(k, t("界面语言", "Interface Language"))
+            .child(choices)
+            .child(
+                div()
+                    .mt(px(8.))
+                    .text_size(px(10.5))
+                    .text_color(k.muted)
+                    .child(t("选择后立即应用到所有窗口，并写入 config.toml。终端内容不会被翻译。", "Changes apply immediately to every window and are saved to config.toml. Terminal content is never translated.")),
+            )
+    }
+
     fn toggle(&mut self, field: FieldId, cx: &mut Context<Self>) {
         let edits = form::edits_for_toggle(field, &cx.global::<AppSettings>().0.monitor);
         self.apply(edits, cx);
@@ -313,8 +422,17 @@ impl SettingsWindow {
         // A trial still running for another box is abandoned with it.
         self.close_other();
         let (current, placeholder) = match field {
-            FieldId::Command => (cx.global::<AppSettings>().0.monitor.command.clone(), "CLI 路径，留空 = 在 PATH 里查找"),
-            _ => (String::new(), "模型名，⏎ 试跑"),
+            FieldId::Command => (
+                cx.global::<AppSettings>().0.monitor.command.clone(),
+                crate::i18n::text(
+                    "CLI 路径，留空 = 在 PATH 里查找",
+                    "CLI path; leave empty to search PATH",
+                ),
+            ),
+            _ => (
+                String::new(),
+                crate::i18n::text("模型名，⏎ 试跑", "Model name; press Return to try"),
+            ),
         };
         let input = cx.new(|cx| RenameField::with_placeholder(&current, placeholder, window, cx));
         let events = cx.subscribe_in(&input, window, move |view, _, event: &RenameEvent, window, cx| match event {
@@ -360,7 +478,14 @@ impl SettingsWindow {
         if let Some(o) = self.other.as_mut() {
             o.trying = true;
         }
-        self.notice = Some(Notice { error: false, text: format!("正在用 {name} 试跑一次总结…") });
+        self.notice = Some(Notice {
+            error: false,
+            text: if crate::i18n::current() == Language::English {
+                format!("Trying one summary with {name}…")
+            } else {
+                format!("正在用 {name} 试跑一次总结…")
+            },
+        });
         let rx = probe::spawn(move || probe::trial(&cfg));
         // In the window: closing the box hands the keyboard back to the page.
         self.trial_task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -400,7 +525,14 @@ impl SettingsWindow {
             TrialOutcome::Stale => {
                 self.other = None;
                 window.focus(&self.focus_handle);
-                self.notice = Some(Notice { error: true, text: "设置已改变，试跑结果作废".into() });
+                self.notice = Some(Notice {
+                    error: true,
+                    text: crate::i18n::text(
+                        "设置已改变，试跑结果作废",
+                        "Settings changed; the trial result was discarded",
+                    )
+                    .into(),
+                });
             }
         }
         cx.notify();
@@ -431,7 +563,14 @@ impl SettingsWindow {
     /// 「测试连接」's answer for the settings `started`; None: the probe ended without an answer.
     fn test_arrived(&mut self, started: ProbeKey, program: String, result: Option<probe::TestResult>, cx: &mut Context<Self>) {
         let (ok, text) = match result {
-            _ if ProbeKey::test(&cx.global::<AppSettings>().0.monitor) != started => (false, "✗ 测试期间设置已改变，请再测一次".to_string()),
+            _ if ProbeKey::test(&cx.global::<AppSettings>().0.monitor) != started => (
+                false,
+                crate::i18n::text(
+                    "✗ 测试期间设置已改变，请再测一次",
+                    "✗ Settings changed during the test; run it again",
+                )
+                .to_string(),
+            ),
             Some(r) => form::test_line(&program, &r.version, &r.summary, &r.chat),
             None => (false, format!("✗ {PROBE_LOST}")),
         };
@@ -440,7 +579,12 @@ impl SettingsWindow {
     }
 
     fn choose_command(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("选择".into()) });
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(crate::i18n::text("选择", "Choose").into()),
+        });
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
             let Some(path) = paths.into_iter().next() else { return };
@@ -453,7 +597,12 @@ impl SettingsWindow {
     }
 
     fn add_exclude(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("排除".into()) });
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(crate::i18n::text("排除", "Exclude").into()),
+        });
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
             let Some(dir) = paths.into_iter().next() else { return };
@@ -483,7 +632,14 @@ impl SettingsWindow {
                 });
             }
             Err(e) => {
-                self.notice = Some(Notice { error: true, text: format!("无法打开编辑器：{e}") });
+                self.notice = Some(Notice {
+                    error: true,
+                    text: if crate::i18n::current() == Language::English {
+                        format!("Could not open editor: {e}")
+                    } else {
+                        format!("无法打开编辑器：{e}")
+                    },
+                });
                 cx.notify();
             }
         }
@@ -664,8 +820,13 @@ impl SettingsWindow {
     fn test_box(&self, k: &Colors) -> Option<Div> {
         match &self.test {
             TestState::Idle => None,
-            TestState::Running => Some(notice_box(k.warn, "正在测试…".into())),
-            TestState::Done { ok, text } => Some(notice_box(if *ok { k.ok } else { k.error }, text.clone())),
+            TestState::Running => Some(notice_box(
+                k.warn,
+                crate::i18n::text("正在测试…", "Testing…").into(),
+            )),
+            TestState::Done { ok, text } => {
+                Some(notice_box(if *ok { k.ok } else { k.error }, text.clone()))
+            }
         }
     }
 }
@@ -702,7 +863,18 @@ pub(super) fn segment_item(d: gpui::Stateful<Div>, selected: bool, enabled: bool
 /// A failed write-back: the short reason first (「config.toml 是只读的…」, not cut off behind a long path), the file
 /// on its own line under it.
 fn write_error_box(k: &Colors, error: &str, path: &std::path::Path) -> Div {
-    notice_box(k.error, format!("{error}（修改已在本次运行中生效）")).flex().flex_col().child(div().mt(px(2.)).text_size(px(10.5)).text_color(k.muted).child(path.display().to_string()))
+    let text = if crate::i18n::current() == Language::English {
+        format!("{error} (the change is active for this run)")
+    } else {
+        format!("{error}（修改已在本次运行中生效）")
+    };
+    notice_box(k.error, text).flex().flex_col().child(
+        div()
+            .mt(px(2.))
+            .text_size(px(10.5))
+            .text_color(k.muted)
+            .child(path.display().to_string()),
+    )
 }
 
 /// (background, border, text).
@@ -715,7 +887,10 @@ impl Render for SettingsWindow {
         rects::begin_frame(window, cx);
         let theme = crate::theme::current(cx);
         let k = Colors::new(&theme);
-        let m = cx.global::<AppSettings>().0.monitor.clone();
+        let settings = cx.global::<AppSettings>().0.clone();
+        let language = settings.language;
+        let t = |zh, en| language.text(zh, en);
+        let m = settings.monitor;
         let file = cx.global::<ConfigFile>();
         let (file_error, write_error, path) = (file.error.clone(), file.write_error.clone(), file.path.clone());
         let ro = file_error.is_some();
@@ -724,16 +899,47 @@ impl Render for SettingsWindow {
         let testing = self.test == TestState::Running;
         let model_row = |view: &Self, id: FieldId, cx: &Context<Self>| {
             let field = f(id);
-            let refresh = (id == FieldId::Model && m.provider == MonitorProvider::Codex).then(|| view.button(FieldId::RefreshModels, "↻ 刷新", false, ro, &k, cx, Self::refresh_models));
-            (div().flex().gap(px(8.)).child(view.dropdown(&field, ro, &k, cx)).children(refresh), field.hint)
+            let refresh =
+                (id == FieldId::Model && m.provider == MonitorProvider::Codex).then(|| {
+                    view.button(
+                        FieldId::RefreshModels,
+                        t("↻ 刷新", "↻ Refresh"),
+                        false,
+                        ro,
+                        &k,
+                        cx,
+                        Self::refresh_models,
+                    )
+                });
+            (
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .child(view.dropdown(&field, ro, &k, cx))
+                    .children(refresh),
+                field.hint,
+            )
         };
         let (chat_model, chat_hint) = model_row(self, FieldId::Model, cx);
         let (summary_model, summary_hint) = model_row(self, FieldId::SummaryModel, cx);
         let readonly_banner = file_error.map(|e| {
-            notice_box(k.warn, format!("{e}。修好之前这里的设置不能修改。"))
+            let text = if language == Language::English {
+                format!("{e}. Settings cannot be changed until this is fixed.")
+            } else {
+                format!("{e}。修好之前这里的设置不能修改。")
+            };
+            notice_box(k.warn, text)
                 .flex()
                 .gap(px(6.))
-                .child(self.button(FieldId::OpenConfig, "在编辑器中打开", false, false, &k, cx, Self::open_config))
+                .child(self.button(
+                    FieldId::OpenConfig,
+                    t("在编辑器中打开", "Open in Editor"),
+                    false,
+                    false,
+                    &k,
+                    cx,
+                    Self::open_config,
+                ))
         });
         let page = div()
             .id("settings-page")
@@ -746,41 +952,47 @@ impl Render for SettingsWindow {
             .flex_col()
             .gap(px(14.))
             .children(readonly_banner)
-            .children(write_error.as_deref().map(|e| write_error_box(&k, e, &path)));
-        let page = if self.page == Page::Appearance {
-            page.child(self.appearance.clone())
-        } else {
-            page.child(section(&k, "总开关").child(row(&k, "启用监控官", self.switch(&f(FieldId::Enabled), ro, &k, cx), Some("关闭后只剩不调用模型的卡片墙，不会向外发送任何数据".into()))))
+            .children(
+                write_error
+                    .as_deref()
+                    .map(|e| write_error_box(&k, e, &path)),
+            );
+        let page = match self.page {
+            Page::Appearance => page.child(self.appearance.clone()),
+            Page::Language => page
+                .child(self.language_page(language, ro, &k, cx))
+                .children(self.notice.clone().map(|n| notice_box(if n.error { k.error } else { k.warn }, n.text))),
+            Page::Monitor => page.child(section(&k, t("总开关", "General")).child(row(&k, t("启用监控官", "Enable Monitor"), self.switch(&f(FieldId::Enabled), ro, &k, cx), Some(t("关闭后只剩不调用模型的卡片墙，不会向外发送任何数据", "When off, the activity view remains available but no data is sent to a model.").into()))))
             .child(
-                section(&k, "模型")
-                    .child(row(&k, "通道", self.segmented(&f(FieldId::Provider), ro, &k, cx), None))
-                    .child(row(&k, "对话模型", chat_model, chat_hint))
-                    .child(row(&k, "总结模型", summary_model, summary_hint))
+                section(&k, t("模型", "Model"))
+                    .child(row(&k, t("通道", "Provider"), self.segmented(&f(FieldId::Provider), ro, &k, cx), None))
+                    .child(row(&k, t("对话模型", "Chat model"), chat_model, chat_hint))
+                    .child(row(&k, t("总结模型", "Summary model"), summary_model, summary_hint))
                     .child(row(
                         &k,
-                        "自定义 CLI 路径",
-                        div().flex().gap(px(8.)).child(self.command_box(&f(FieldId::Command), ro, &k, cx)).child(self.button(FieldId::ChooseCommand, "选择…", false, ro, &k, cx, Self::choose_command)),
+                        t("自定义 CLI 路径", "Custom CLI path"),
+                        div().flex().gap(px(8.)).child(self.command_box(&f(FieldId::Command), ro, &k, cx)).child(self.button(FieldId::ChooseCommand, t("选择…", "Choose…"), false, ro, &k, cx, Self::choose_command)),
                         None,
                     ))
-                    .child(row(&k, "", self.button(FieldId::Test, "测试连接", true, ro || testing, &k, cx, Self::run_test), Some("用当前配置试跑一次总结和一轮对话（对话需开启监控官）".into())))
+                    .child(row(&k, "", self.button(FieldId::Test, t("测试连接", "Test Connection"), true, ro || testing, &k, cx, Self::run_test), Some(t("用当前配置试跑一次总结和一轮对话（对话需开启监控官）", "Run one summary and one chat turn with the current settings (chat requires Monitor to be enabled).").into())))
                     .children(self.test_box(&k))
                     .children(self.notice.clone().map(|n| notice_box(if n.error { k.error } else { k.warn }, n.text))),
             )
             .child(
-                section(&k, "✦ AI 总结")
-                    .child(row(&k, "自动刷新", self.switch(&f(FieldId::AutoSummary), ro, &k, cx), Some("关闭后只在你点「✦ 重新总结」时生成".into())))
-                    .child(row(&k, "最小间隔", self.segmented(&f(FieldId::SummaryInterval), ro, &k, cx), Some("同一会话两次自动总结之间至少隔这么久".into())))
-                    .child(row(&k, "左栏显示摘要行", self.switch(&f(FieldId::SidebarSummary), ro, &k, cx), None)),
+                section(&k, t("✦ AI 总结", "✦ AI Summaries"))
+                    .child(row(&k, t("自动刷新", "Automatic refresh"), self.switch(&f(FieldId::AutoSummary), ro, &k, cx), Some(t("关闭后只在你点「✦ 重新总结」时生成", "When off, summaries are generated only when you click \"✦ Summarize Again\".").into())))
+                    .child(row(&k, t("最小间隔", "Minimum interval"), self.segmented(&f(FieldId::SummaryInterval), ro, &k, cx), Some(t("同一会话两次自动总结之间至少隔这么久", "Minimum time between automatic summaries for the same session.").into())))
+                    .child(row(&k, t("左栏显示摘要行", "Show summaries in sidebar"), self.switch(&f(FieldId::SidebarSummary), ro, &k, cx), None)),
             )
             .child(
-                section(&k, "隐私")
+                section(&k, t("隐私", "Privacy"))
                     .child(row(
                         &k,
-                        "排除目录",
-                        div().flex().flex_wrap().gap(px(6.)).child(self.excludes(&f(FieldId::ExcludePaths), ro, &k, cx)).child(self.button(FieldId::AddExclude, "＋ 添加…", false, ro, &k, cx, Self::add_exclude)),
+                        t("排除目录", "Excluded folders"),
+                        div().flex().flex_wrap().gap(px(6.)).child(self.excludes(&f(FieldId::ExcludePaths), ro, &k, cx)).child(self.button(FieldId::AddExclude, t("＋ 添加…", "+ Add…"), false, ro, &k, cx, Self::add_exclude)),
                         None,
                     ))
-                    .child(div().mt(px(6.)).text_size(px(10.5)).text_color(k.muted).child("这些目录下的会话和终端不会送给模型：卡片照常显示，但没有 ✦ 块。")),
+                    .child(div().mt(px(6.)).text_size(px(10.5)).text_color(k.muted).child(t("这些目录下的会话和终端不会送给模型：卡片照常显示，但没有 ✦ 块。", "Sessions and terminals in these folders are not sent to the model. Cards still appear, without ✦ blocks."))),
             )
             .child(
                 div()
@@ -790,8 +1002,12 @@ impl Render for SettingsWindow {
                     .gap(px(6.))
                     .text_size(px(10.5))
                     .text_color(k.muted)
-                    .child(format!("写入 {} 的 [monitor] 表，保留你的注释和格式", path.display()))
-                    .child(self.button(FieldId::OpenConfig, "在编辑器中打开", false, false, &k, cx, Self::open_config)),
+                    .child(if language == Language::English {
+                        format!("Writes the [monitor] table in {}, preserving comments and formatting", path.display())
+                    } else {
+                        format!("写入 {} 的 [monitor] 表，保留你的注释和格式", path.display())
+                    })
+                    .child(self.button(FieldId::OpenConfig, t("在编辑器中打开", "Open in Editor"), false, false, &k, cx, Self::open_config)),
             )
         };
         div()

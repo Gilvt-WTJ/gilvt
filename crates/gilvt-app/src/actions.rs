@@ -1,5 +1,7 @@
 use gpui::{actions, App, KeyBinding, Menu, MenuItem, SystemMenuType};
 
+use crate::i18n::Language;
+
 actions!(
     gilvt,
     [
@@ -198,14 +200,15 @@ pub fn bindings() -> Vec<KeyBinding> {
     ]
 }
 
-pub fn menus() -> Vec<Menu> {
+pub fn menus(language: Language) -> Vec<Menu> {
+    let t = |zh, en| language.text(zh, en);
     vec![
         Menu {
             name: "gilvt".into(),
             items: vec![
                 MenuItem::action("New Window", NewWindow),
                 MenuItem::separator(),
-                MenuItem::action("设置…", OpenSettings),
+                MenuItem::action(t("设置…", "Settings…"), OpenSettings),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
@@ -245,30 +248,54 @@ pub fn menus() -> Vec<Menu> {
             ],
         },
         Menu {
-            name: "会话".into(),
+            name: t("会话", "Sessions").into(),
             items: vec![
-                MenuItem::action("新建 Agent…", NewAgent),
-                MenuItem::action("监控官", OpenMonitor),
-                MenuItem::action("监控官命令条", ToggleCommandBar),
-                MenuItem::action("会话…", OpenSessions),
-                MenuItem::action("清理…", OpenCleanup),
+                MenuItem::action(t("新建 Agent…", "New Agent…"), NewAgent),
+                MenuItem::action(t("监控官", "Monitor"), OpenMonitor),
+                MenuItem::action(t("监控官命令条", "Monitor Command Bar"), ToggleCommandBar),
+                MenuItem::action(t("会话…", "Sessions…"), OpenSessions),
+                MenuItem::action(t("清理…", "Clean Up…"), OpenCleanup),
                 MenuItem::action("Resume All Sessions", ResumeAll),
                 MenuItem::separator(),
-                MenuItem::action("跳到下一个需要你的会话", NextNeedsYou),
-                MenuItem::action("上一个会话", PrevSession),
-                MenuItem::action("下一个会话", NextSession),
+                MenuItem::action(
+                    t("跳到下一个需要你的会话", "Next Session Needing You"),
+                    NextNeedsYou,
+                ),
+                MenuItem::action(t("上一个会话", "Previous Session"), PrevSession),
+                MenuItem::action(t("下一个会话", "Next Session"), NextSession),
                 MenuItem::separator(),
-                MenuItem::action("显示 / 隐藏会话栏", ToggleSidebar),
-                MenuItem::action("会话栏：按项目", GroupByProject),
-                MenuItem::action("会话栏：按状态", GroupByStatus),
+                MenuItem::action(t("显示 / 隐藏会话栏", "Show / Hide Sidebar"), ToggleSidebar),
+                MenuItem::action(
+                    t("会话栏：按项目", "Sidebar: Group by Project"),
+                    GroupByProject,
+                ),
+                MenuItem::action(
+                    t("会话栏：按状态", "Sidebar: Group by Status"),
+                    GroupByStatus,
+                ),
                 MenuItem::separator(),
-                MenuItem::action("显示 / 隐藏检查器", ToggleInspector),
-                MenuItem::action("检查器：过程", InspectorProcess),
-                MenuItem::action("检查器：产物", InspectorArtifacts),
-                MenuItem::action("检查器：配置", InspectorConfig),
+                MenuItem::action(
+                    t("显示 / 隐藏检查器", "Show / Hide Inspector"),
+                    ToggleInspector,
+                ),
+                MenuItem::action(t("检查器：过程", "Inspector: Process"), InspectorProcess),
+                MenuItem::action(
+                    t("检查器：产物", "Inspector: Artifacts"),
+                    InspectorArtifacts,
+                ),
+                MenuItem::action(
+                    t("检查器：配置", "Inspector: Configuration"),
+                    InspectorConfig,
+                ),
                 MenuItem::separator(),
-                MenuItem::action("重命名当前会话…", RenameSession),
-                MenuItem::action("静音当前会话的通知", MuteSession),
+                MenuItem::action(
+                    t("重命名当前会话…", "Rename Current Session…"),
+                    RenameSession,
+                ),
+                MenuItem::action(
+                    t("静音当前会话的通知", "Mute Current Session Notifications"),
+                    MuteSession,
+                ),
             ],
         },
     ]
@@ -295,8 +322,13 @@ mod tests {
 
     #[test]
     fn command_bar_is_in_the_session_menu() {
-        let menus = menus();
-        let session = menus.iter().find(|m| m.name.as_ref() == "会话").expect("会话 menu");
-        assert!(session.items.iter().any(|i| matches!(i, MenuItem::Action { name, .. } if name.as_ref() == "监控官命令条")));
+        let menus = menus(Language::Chinese);
+        let session = menus
+            .iter()
+            .find(|m| m.name.as_ref() == "会话")
+            .expect("会话 menu");
+        assert!(session.items.iter().any(
+            |i| matches!(i, MenuItem::Action { name, .. } if name.as_ref() == "监控官命令条")
+        ));
     }
 }

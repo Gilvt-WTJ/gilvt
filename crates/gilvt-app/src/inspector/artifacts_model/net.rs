@@ -12,12 +12,31 @@ pub(super) fn session(members: &[Member], i: &Inputs) -> Option<Net> {
     let others = members.iter().any(|m| repo_of(m).is_some_and(|r| r != repo));
     let (bi, ai, repo_root, before, after) = range_of(&mine, None)?;
     let (from, to) = (mine[bi].number(), mine[ai].number());
-    let range = CardRange { repo_root: repo_root.clone(), before, after, label: range_label("本会话", from, to, false), scope: "本会话" };
+    let range = CardRange {
+        repo_root: repo_root.clone(),
+        before,
+        after,
+        label: range_label(crate::i18n::text("本会话", "This session"), from, to, false),
+        scope: crate::i18n::text("本会话", "This session"),
+    };
     let side = |t: Option<SystemTime>, n: Option<u32>, end: &str| {
-        let turn = n.map_or_else(|| end.to_string(), |n| format!("第 {n} 轮{end}"));
+        let turn = n.map_or_else(
+            || end.to_string(),
+            |n| {
+                if crate::i18n::current() == crate::i18n::Language::English {
+                    format!("Turn {n} {end}")
+                } else {
+                    format!("第 {n} 轮{end}")
+                }
+            },
+        );
         t.map_or(turn.clone(), |t| format!("{} {turn}", (i.clock)(t)))
     };
-    let range_label = format!("{} → {}", side(mine[bi].started(), from, "前"), side(mine[ai].ended(), to, "后"));
+    let range_label = format!(
+        "{} → {}",
+        side(mine[bi].started(), from, crate::i18n::text("前", "before")),
+        side(mine[ai].ended(), to, crate::i18n::text("后", "after"))
+    );
     // The paths some turn named (its recorded changes, or the running turn's live list), old paths included.
     let named = mine.iter().filter_map(|m| m.rec?.changes.as_deref()).flatten().chain(i.live.into_iter().flatten());
     let touched: HashSet<&str> = named.flat_map(|c| std::iter::once(c.path.as_str()).chain(c.old_path.as_deref())).collect();

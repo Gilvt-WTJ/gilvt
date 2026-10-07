@@ -21,16 +21,28 @@ pub const MISSING_TEXT: &str = "文件已被删除。";
 pub const ESC_HINT: &str = "Esc 返回编辑";
 
 pub fn header_text(name: &str) -> String {
-    format!("对比 · {name}　磁盘版本 ↔ 你的版本（未保存）")
+    if crate::i18n::current() == crate::i18n::Language::English {
+        format!("Compare · {name}  Disk Version ↔ Your Version (Unsaved)")
+    } else {
+        format!("对比 · {name}　磁盘版本 ↔ 你的版本（未保存）")
+    }
 }
 
 /// The bar text when the overlay could not be opened: says it is the compare that failed, not a save.
 pub fn open_error_message(e: &EditorError) -> String {
-    format!("无法读取磁盘版本：{e}")
+    if crate::i18n::current() == crate::i18n::Language::English {
+        format!("Could not read the version on disk: {e}")
+    } else {
+        format!("无法读取磁盘版本：{e}")
+    }
 }
 
 pub fn fold_label(len: usize) -> String {
-    format!("⋯ {len} 行未改动（点击展开）")
+    if crate::i18n::current() == crate::i18n::Language::English {
+        format!("⋯ {len} unchanged lines (click to expand)")
+    } else {
+        format!("⋯ {len} 行未改动（点击展开）")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,11 +87,17 @@ pub fn build(disk: &str, mine: &str, width_cols: usize, expanded: &HashSet<usize
 /// What to say when the texts match (after newline normalization).
 pub fn same_note(disk_le: LineEnding, mine_le: LineEnding, disk_enc: &str, mine_enc: &str) -> &'static str {
     if disk_le != mine_le {
-        "内容相同，只有换行符不同。"
+        crate::i18n::text(
+            "内容相同，只有换行符不同。",
+            "The content is identical; only the line endings differ.",
+        )
     } else if disk_enc != mine_enc {
-        "内容相同，只有编码不同。"
+        crate::i18n::text(
+            "内容相同，只有编码不同。",
+            "The content is identical; only the encoding differs.",
+        )
     } else {
-        "内容相同。"
+        crate::i18n::text("内容相同。", "The content is identical.")
     }
 }
 
@@ -94,12 +112,28 @@ pub enum CompareAction {
 /// The bottom buttons, left to right: label, action, danger.
 pub fn buttons(disk_missing: bool) -> Vec<(&'static str, CompareAction, bool)> {
     if disk_missing {
-        vec![("保留我的，稍后再说", CompareAction::KeepMine, false)]
+        vec![(
+            crate::i18n::text("保留我的，稍后再说", "Keep Mine for Now"),
+            CompareAction::KeepMine,
+            false,
+        )]
     } else {
         vec![
-            ("用磁盘版本", CompareAction::UseDisk, false),
-            ("保留我的，稍后再说", CompareAction::KeepMine, false),
-            ("仍然覆盖磁盘", CompareAction::Overwrite, true),
+            (
+                crate::i18n::text("用磁盘版本", "Use Disk Version"),
+                CompareAction::UseDisk,
+                false,
+            ),
+            (
+                crate::i18n::text("保留我的，稍后再说", "Keep Mine for Now"),
+                CompareAction::KeepMine,
+                false,
+            ),
+            (
+                crate::i18n::text("仍然覆盖磁盘", "Overwrite Disk Anyway"),
+                CompareAction::Overwrite,
+                true,
+            ),
         ]
     }
 }

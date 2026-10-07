@@ -45,9 +45,9 @@ impl InspectorTab {
 
     pub fn label(self) -> &'static str {
         match self {
-            InspectorTab::Process => "过程",
-            InspectorTab::Artifacts => "产物",
-            InspectorTab::Config => "配置",
+            InspectorTab::Process => crate::i18n::text("过程", "Process"),
+            InspectorTab::Artifacts => crate::i18n::text("产物", "Artifacts"),
+            InspectorTab::Config => crate::i18n::text("配置", "Configuration"),
         }
     }
 

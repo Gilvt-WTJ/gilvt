@@ -176,7 +176,7 @@ impl Workspace {
                     save_rect: rect(RectId::EditorSave(id)),
                     close_rect: rect(RectId::EditorClose(id)),
                     highlight: ds::EditorHighlight {
-                        language: v.model.language_name().to_string(),
+                        language: v.model.language_name(),
                         enabled: v.model.highlight_enabled(),
                         disabled_reason: v.model.highlight_off_reason(),
                         visible_classes: v.hl_stats.clone(),

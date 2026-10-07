@@ -168,7 +168,15 @@ impl WizardModel {
         let (n, bytes) = self
             .picked_hits(outcome)
             .fold((0, 0), |(n, b), h| (n + 1, b + h.bytes));
-        format!("已选 {n} / {} · {}", outcome.hits.len(), size_label(bytes))
+        if crate::i18n::current() == crate::i18n::Language::English {
+            format!(
+                "Selected {n} / {} · {}",
+                outcome.hits.len(),
+                size_label(bytes)
+            )
+        } else {
+            format!("已选 {n} / {} · {}", outcome.hits.len(), size_label(bytes))
+        }
     }
 
     /// 「归档 N 个」 (N: the checked hits not archived already) and 「移到废纸篓 N 个（X MB + 附属 Y MB）」 (X the
@@ -181,16 +189,31 @@ impl WizardModel {
             bytes += h.bytes.saturating_sub(h.companion);
             companion += h.companion;
         }
+        let english = crate::i18n::current() == crate::i18n::Language::English;
         let extra = if companion == 0 {
             String::new()
+        } else if english {
+            format!(" + {} companion data", size_label(companion))
         } else {
             format!(" + 附属 {}", size_label(companion))
         };
         [
-            (Action::Archive, format!("归档 {archive} 个"), archive > 0),
+            (
+                Action::Archive,
+                if english {
+                    format!("Archive {archive}")
+                } else {
+                    format!("归档 {archive} 个")
+                },
+                archive > 0,
+            ),
             (
                 Action::Trash,
-                format!("移到废纸篓 {n} 个（{}{extra}）", size_label(bytes)),
+                if english {
+                    format!("Move {n} to Trash ({}{extra})", size_label(bytes))
+                } else {
+                    format!("移到废纸篓 {n} 个（{}{extra}）", size_label(bytes))
+                },
                 n > 0,
             ),
         ]
@@ -308,8 +331,11 @@ pub fn reload_for_history(
 /// A preset line's right side: 「14 个 · 0.3 MB」, or 「计算中…」 until the sizes are known.
 pub fn preset_count(outcome: Option<&Outcome>) -> String {
     match outcome {
+        Some(o) if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("{} · {}", o.hits.len(), size_label(o.bytes))
+        }
         Some(o) => format!("{} 个 · {}", o.hits.len(), size_label(o.bytes)),
-        None => "计算中…".into(),
+        None => crate::i18n::text("计算中…", "Calculating…").into(),
     }
 }
 

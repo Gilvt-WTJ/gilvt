@@ -11,6 +11,7 @@ mod view;
 use gpui::{px, size, App, AppContext, Bounds, Global, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions};
 
 use crate::actions::OpenSettings;
+use crate::i18n::Language;
 
 pub use view::SettingsWindow;
 
@@ -27,11 +28,12 @@ impl Global for Open {}
 pub enum Page {
     #[default]
     Appearance,
+    Language,
     Monitor,
 }
 
 impl Page {
-    pub const ALL: [Page; 2] = [Page::Appearance, Page::Monitor];
+    pub const ALL: [Page; 3] = [Page::Appearance, Page::Language, Page::Monitor];
 
     pub fn index(self) -> usize {
         Page::ALL.iter().position(|p| *p == self).expect("in ALL")
@@ -41,14 +43,16 @@ impl Page {
     pub fn id(self) -> &'static str {
         match self {
             Page::Appearance => "appearance",
+            Page::Language => "language",
             Page::Monitor => "monitor",
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(self, language: Language) -> &'static str {
         match self {
-            Page::Appearance => "◐ 外观",
-            Page::Monitor => "◎ 监控官",
+            Page::Appearance => language.text("◐ 外观", "◐ Appearance"),
+            Page::Language => language.text("文A 语言", "文A Language"),
+            Page::Monitor => language.text("◎ 监控官", "◎ Monitor"),
         }
     }
 }
@@ -78,8 +82,15 @@ pub fn open(cx: &mut App) {
         }
     }
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(WIDTH), px(HEIGHT)), cx))),
-        titlebar: Some(TitlebarOptions { title: Some("设置".into()), ..Default::default() }),
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(WIDTH), px(HEIGHT)),
+            cx,
+        ))),
+        titlebar: Some(TitlebarOptions {
+            title: Some(crate::i18n::text("设置", "Settings").into()),
+            ..Default::default()
+        }),
         window_min_size: Some(size(px(560.), px(420.))),
         ..Default::default()
     };

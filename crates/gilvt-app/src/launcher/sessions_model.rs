@@ -73,18 +73,27 @@ pub struct PaneAt {
 /// 「左上 pane」, 「标签 2 · 右 pane」, 「窗口 2 · 标签 1」; 「当前 pane」 for the palette window's focused pane
 /// alone in the active tab.
 pub fn location_word(at: &PaneAt) -> String {
+    let english = crate::i18n::current() == crate::i18n::Language::English;
     let mut parts = Vec::new();
     if let Some(n) = at.window {
-        parts.push(format!("窗口 {n}"));
+        parts.push(if english {
+            format!("Window {n}")
+        } else {
+            format!("窗口 {n}")
+        });
     }
     if at.window.is_some() || !at.active_tab {
-        parts.push(format!("标签 {}", at.tab));
+        parts.push(if english {
+            format!("Tab {}", at.tab)
+        } else {
+            format!("标签 {}", at.tab)
+        });
     }
     if !at.position.is_empty() {
         parts.push(format!("{} pane", at.position));
     }
     if parts.is_empty() {
-        return "当前 pane".into();
+        return crate::i18n::text("当前 pane", "Current pane").into();
     }
     parts.join(" · ")
 }
@@ -162,7 +171,12 @@ impl Row {
     /// The right side as drawn: 「● 运行中」, 「● 运行中 · 左上 pane」, else `when`.
     pub fn right(&self) -> String {
         match &self.live {
-            Some(live) if live.location.is_empty() => "● 运行中".to_string(),
+            Some(live) if live.location.is_empty() => {
+                crate::i18n::text("● 运行中", "● Running").to_string()
+            }
+            Some(live) if crate::i18n::current() == crate::i18n::Language::English => {
+                format!("● Running · {}", live.location)
+            }
             Some(live) => format!("● 运行中 · {}", live.location),
             None => self.when.clone(),
         }
@@ -260,7 +274,11 @@ pub fn build(i: &Input) -> List {
             letter,
             title,
             title_source,
-            turns_label: format!("{} 轮", e.turns),
+            turns_label: if crate::i18n::current() == crate::i18n::Language::English {
+                format!("{} turns", e.turns)
+            } else {
+                format!("{} 轮", e.turns)
+            },
             dir: shorten_dir(&e.cwd, i.home, DIR_MAX_CHARS),
             dir_missing: !(i.dir_exists)(&e.cwd),
             branch: (i.branch)(&e.cwd),
@@ -283,12 +301,28 @@ pub fn build(i: &Input) -> List {
             list.rows.push(row);
         }
     };
-    let here = |c: Option<&Project>| c.map(|c| format!("{} · 当前项目", c.name));
+    let here = |c: Option<&Project>| {
+        c.map(|c| {
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("{} · Current project", c.name)
+            } else {
+                format!("{} · 当前项目", c.name)
+            }
+        })
+    };
     match (scope, q.is_empty()) {
         (Scope::Current, _) => section(&mut list, here(i.current), ours.into_iter().map(plain).collect()),
         (Scope::All, false) if i.current.is_some() => {
-            section(&mut list, here(i.current), ours.into_iter().map(plain).collect());
-            section(&mut list, Some("其他项目".into()), others.into_iter().map(plain).collect());
+            section(
+                &mut list,
+                here(i.current),
+                ours.into_iter().map(plain).collect(),
+            );
+            section(
+                &mut list,
+                Some(crate::i18n::text("其他项目", "Other projects").into()),
+                others.into_iter().map(plain).collect(),
+            );
         }
         (Scope::All, _) => {
             // Newest first across projects, as the history lists them.
@@ -303,14 +337,29 @@ pub fn build(i: &Input) -> List {
 /// Shown instead of an empty list.
 pub fn empty_message(total: usize, refreshing: bool, query: &str, filters: Filters, current: Option<&Project>) -> String {
     match () {
-        _ if total == 0 && refreshing => "正在读取会话…".into(),
-        _ if total == 0 => "还没有 Claude / Codex 会话".into(),
-        _ if !query.trim().is_empty() => "无匹配".into(),
-        _ if filters.archived => "没有已归档的会话".into(),
-        _ if filters.stale => "没有 7 天未活动的会话".into(),
+        _ if total == 0 && refreshing => {
+            crate::i18n::text("正在读取会话…", "Loading sessions…").into()
+        }
+        _ if total == 0 => crate::i18n::text(
+            "还没有 Claude / Codex 会话",
+            "No Claude or Codex sessions yet",
+        )
+        .into(),
+        _ if !query.trim().is_empty() => crate::i18n::text("无匹配", "No matches").into(),
+        _ if filters.archived => {
+            crate::i18n::text("没有已归档的会话", "No archived sessions").into()
+        }
+        _ if filters.stale => {
+            crate::i18n::text("没有 7 天未活动的会话", "No sessions inactive for 7 days").into()
+        }
         _ => match (effective_scope(filters, current), current) {
+            (Scope::Current, Some(c))
+                if crate::i18n::current() == crate::i18n::Language::English =>
+            {
+                format!("No sessions in {}. Try All Projects.", c.name)
+            }
             (Scope::Current, Some(c)) => format!("{} 还没有会话，看看「全部项目」", c.name),
-            _ => "没有会话".into(),
+            _ => crate::i18n::text("没有会话", "No sessions").into(),
         },
     }
 }
@@ -318,22 +367,52 @@ pub fn empty_message(total: usize, refreshing: bool, query: &str, filters: Filte
 /// The line above the list while picking (the stale filter, or anything picked).
 pub fn picks_text(picked: usize, bytes: u64) -> String {
     match picked {
-        0 => "⇧ / ⌘ 点击多选".into(),
+        0 => crate::i18n::text("⇧ / ⌘ 点击多选", "Shift / Command-click to select multiple").into(),
+        n if crate::i18n::current() == crate::i18n::Language::English => {
+            format!(
+                "Shift / Command-click to select multiple · {n} selected · {} total",
+                size_label(bytes)
+            )
+        }
         n => format!("⇧ / ⌘ 点击多选 · 已选 {n} 个 · 共 {}", size_label(bytes)),
     }
 }
 
 /// The confirm bar: 「N 个会话 · X MB[ + 附属 Y MB] 将移到废纸篓（可从废纸篓还原）」.
 pub fn confirm_text(sessions: usize, bytes: u64, companion_bytes: u64) -> String {
-    let companion = if companion_bytes == 0 { String::new() } else { format!(" + 附属 {}", size_label(companion_bytes)) };
-    format!("{sessions} 个会话 · {}{companion} 将移到废纸篓（可从废纸篓还原）", size_label(bytes))
+    if crate::i18n::current() == crate::i18n::Language::English {
+        let companion = if companion_bytes == 0 {
+            String::new()
+        } else {
+            format!(" + {} companion data", size_label(companion_bytes))
+        };
+        return format!(
+            "{sessions} sessions · {}{companion} will be moved to Trash (restorable from Trash)",
+            size_label(bytes)
+        );
+    }
+    let companion = if companion_bytes == 0 {
+        String::new()
+    } else {
+        format!(" + 附属 {}", size_label(companion_bytes))
+    };
+    format!(
+        "{sessions} 个会话 · {}{companion} 将移到废纸篓（可从废纸篓还原）",
+        size_label(bytes)
+    )
 }
 
 /// The confirm bar while the companion data is still being sized off the UI thread:
 /// 「N 个会话 · X MB + 附属 计算中… 将移到废纸篓（可从废纸篓还原）」 (the bar already works: the Trash collects the
 /// companions itself).
 pub fn confirm_text_sizing(sessions: usize, bytes: u64) -> String {
-    format!("{sessions} 个会话 · {} + 附属 计算中… 将移到废纸篓（可从废纸篓还原）", size_label(bytes))
+    if crate::i18n::current() == crate::i18n::Language::English {
+        return format!("{sessions} sessions · {} + calculating companion data… will be moved to Trash (restorable from Trash)", size_label(bytes));
+    }
+    format!(
+        "{sessions} 个会话 · {} + 附属 计算中… 将移到废纸篓（可从废纸篓还原）",
+        size_label(bytes)
+    )
 }
 
 /// The rename field's starting text: the rename, else the title it has without one (`auto_title`: the agent's
@@ -433,6 +512,22 @@ pub enum MenuItem {
 /// Items, labels and whether each is enabled. `trashable`: the menu's Trash targets are not all running.
 /// `archived`: the row is archived, so the action is 取消归档. 移到废纸篓… comes last, after a separator, in red.
 pub fn menu_items(trashable: bool, archived: bool) -> [(MenuItem, &'static str, bool); 8] {
+    if crate::i18n::current() == crate::i18n::Language::English {
+        return [
+            (MenuItem::Resume, "Resume", true),
+            (MenuItem::ResumeRight, "Resume on Right", true),
+            (MenuItem::Rename, "Rename…", true),
+            (MenuItem::CopyId, "Copy Session ID", true),
+            (MenuItem::CopyDir, "Copy Directory Path", true),
+            (MenuItem::Reveal, "Reveal in Finder", true),
+            (
+                MenuItem::Archive,
+                if archived { "Unarchive" } else { "Archive" },
+                true,
+            ),
+            (MenuItem::Trash, "Move to Trash…", trashable),
+        ];
+    }
     [
         (MenuItem::Resume, "恢复", true),
         (MenuItem::ResumeRight, "在右侧恢复", true),
@@ -468,10 +563,27 @@ impl Resume {
     /// The toast of the outcomes that open nothing (spec §8).
     pub fn toast(&self) -> Option<String> {
         match self {
-            Resume::Elsewhere => Some("该会话正在运行，但不在 gilvt 的窗口里".into()),
-            Resume::Gone => Some("该会话已不存在".into()),
+            Resume::Elsewhere => Some(
+                crate::i18n::text(
+                    "该会话正在运行，但不在 gilvt 的窗口里",
+                    "This session is running outside a gilvt window",
+                )
+                .into(),
+            ),
+            Resume::Gone => {
+                Some(crate::i18n::text("该会话已不存在", "This session no longer exists").into())
+            }
+            Resume::NoDir(dir) if crate::i18n::current() == crate::i18n::Language::English => Some(
+                format!("The session directory no longer exists: {}", dir.display()),
+            ),
             Resume::NoDir(dir) => Some(format!("会话目录已不存在：{}", dir.display())),
-            Resume::NoCwd => Some("不知道该会话的目录，无法恢复".into()),
+            Resume::NoCwd => Some(
+                crate::i18n::text(
+                    "不知道该会话的目录，无法恢复",
+                    "The session directory is unknown, so it cannot be resumed",
+                )
+                .into(),
+            ),
             Resume::Focus(_) | Resume::Navigate(_) | Resume::Run { .. } => None,
         }
     }

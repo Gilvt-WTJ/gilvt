@@ -7,6 +7,8 @@ use std::time::Duration;
 use gilvt_theme::{color::parse_hex, Overrides, Selection, GILVT_DARK, GILVT_LIGHT};
 use serde::Deserialize;
 
+use crate::i18n::Language;
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MonitorProvider {
@@ -207,6 +209,8 @@ impl ColorsSetting {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    /// The application chrome language. Terminal contents are never translated.
+    pub language: Language,
     pub font_family: String,
     pub font_size: f32,
     /// Line height as a multiple of the font size.
@@ -312,6 +316,7 @@ impl AgentSettings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            language: Language::default(),
             font_family: "Menlo".into(),
             font_size: 13.0,
             line_height: 1.25,
@@ -404,8 +409,11 @@ mod tests {
 
     #[test]
     fn partial_file_overrides_fields() {
-        let (s, err) = load_str("font_size = 15\ntheme = \"dark\"\nshell = \"/bin/bash\"\n");
+        let (s, err) = load_str(
+            "language = \"en\"\nfont_size = 15\ntheme = \"dark\"\nshell = \"/bin/bash\"\n",
+        );
         assert!(err.is_none());
+        assert_eq!(s.language, Language::English);
         assert_eq!(s.font_size, 15.0);
         assert_eq!(s.theme.selection(), gilvt_theme::Selection::Fixed(gilvt_theme::GILVT_DARK.into()));
         assert_eq!(s.shell.as_deref(), Some("/bin/bash"));

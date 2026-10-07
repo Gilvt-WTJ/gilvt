@@ -362,10 +362,27 @@ impl Workspace {
     }
 
     /// Quick Look on `files[file]` of `range`, ←/→ walking `files`.
-    fn open_range_files(&mut self, range: &am::CardRange, files: &[am::FileRow], file: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(state) = crate::agents::state_dir() else { return };
-        let Ok(store) = ObjectStore::open(&range.repo_root, &state) else { return self.inspector_note("快照已清理", cx) };
-        let turn = TurnRange { store, before: range.before.clone(), after: range.after.clone(), label: range.label.clone(), scope: range.scope };
+    fn open_range_files(
+        &mut self,
+        range: &am::CardRange,
+        files: &[am::FileRow],
+        file: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(state) = crate::agents::state_dir() else {
+            return;
+        };
+        let Ok(store) = ObjectStore::open(&range.repo_root, &state) else {
+            return self.inspector_note(crate::i18n::text("快照已清理", "Snapshot was cleaned up"), cx);
+        };
+        let turn = TurnRange {
+            store,
+            before: range.before.clone(),
+            after: range.after.clone(),
+            label: range.label.clone(),
+            scope: range.scope,
+        };
         let req = OpenRequest {
             sources: files.iter().map(|f| Source::File(f.abs.clone())).collect(),
             index: file.min(files.len() - 1),
@@ -411,10 +428,14 @@ impl Workspace {
         }
         // The task's net diff is not in yet: its files are a placeholder union, not what the range compares.
         if card.computing {
-            return self.inspector_note("净改动还在计算", cx);
+            return self.inspector_note(crate::i18n::text("净改动还在计算", "Net changes are still being calculated"), cx);
         }
         let Some(range) = &card.range else {
-            let note = if card.state == am::CardState::Running { "这一轮还在进行，结束后才能看 diff" } else { "这一轮没有快照，无法查看 diff" };
+            let note = if card.state == am::CardState::Running {
+                crate::i18n::text("这一轮还在进行，结束后才能看 diff", "This turn is still running; the diff is available after it finishes")
+            } else {
+                crate::i18n::text("这一轮没有快照，无法查看 diff", "This turn has no snapshot, so its diff is unavailable")
+            };
             return self.inspector_note(note, cx);
         };
         self.open_range_files(range, &card.files, file, window, cx);
@@ -426,9 +447,16 @@ impl Workspace {
         let Some(card) = artifacts.cards.iter().find(|c| c.key == key) else { return };
         let Some(f) = card.files.get(file) else { return };
         // While the net diff is computed the rows are a placeholder union the range does not compare: line 1.
-        let line = card.range.as_ref().filter(|_| !card.computing).map_or(1, |r| first_line(r, f));
-        cx.write_to_clipboard(ClipboardItem::new_string(format!("{}:{line}", f.abs.display())));
-        self.inspector_note("已复制", cx);
+        let line = card
+            .range
+            .as_ref()
+            .filter(|_| !card.computing)
+            .map_or(1, |r| first_line(r, f));
+        cx.write_to_clipboard(ClipboardItem::new_string(format!(
+            "{}:{line}",
+            f.abs.display()
+        )));
+        self.inspector_note(crate::i18n::text("已复制", "Copied"), cx);
     }
 
     /// 「复制路径:行号」 of file `file` of the session net (the line of its first change over the session).
@@ -436,8 +464,11 @@ impl Workspace {
         let Some(net) = self.focused_artifacts(cx).and_then(|a| a.net) else { return };
         let Some(f) = net.files.get(file) else { return };
         let line = first_line(&net.range, f);
-        cx.write_to_clipboard(ClipboardItem::new_string(format!("{}:{line}", f.abs.display())));
-        self.inspector_note("已复制", cx);
+        cx.write_to_clipboard(ClipboardItem::new_string(format!(
+            "{}:{line}",
+            f.abs.display()
+        )));
+        self.inspector_note(crate::i18n::text("已复制", "Copied"), cx);
     }
 
     /// `↑↓` select, `Space` previews, `⏎` opens / closes the session net, a card or a quiet group (or previews

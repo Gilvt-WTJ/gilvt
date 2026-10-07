@@ -1025,8 +1025,11 @@ impl Workspace {
             div().id(id).flex_none().px_3().py(px(2.)).rounded(px(6.)).border_1().child(label)
         };
         let what = match c.action {
-            CloseAction::Quit => "退出 gilvt 会结束这些 agent：",
-            _ => "关闭会结束这些 agent：",
+            CloseAction::Quit => crate::i18n::text(
+                "退出 gilvt 会结束这些 agent：",
+                "Quitting gilvt will stop these agents:",
+            ),
+            _ => crate::i18n::text("关闭会结束这些 agent：", "Closing will stop these agents:"),
         };
         let files = !c.dirty.is_empty();
         let heading = |text: &'static str| div().font_weight(FontWeight::SEMIBOLD).child(text);
@@ -1041,8 +1044,17 @@ impl Workspace {
             .border_b_1()
             .border_color(border)
             .bg(hsla(mix(p.background, p.ansi[1], 0.18)))
-            .children(files.then(|| heading("关闭会丢失未保存的修改：")))
-            .children(close::dirty_lines(&c.dirty).into_iter().map(|line| div().truncate().child(line)))
+            .children(files.then(|| {
+                heading(crate::i18n::text(
+                    "关闭会丢失未保存的修改：",
+                    "Closing will discard unsaved changes:",
+                ))
+            }))
+            .children(
+                close::dirty_lines(&c.dirty)
+                    .into_iter()
+                    .map(|line| div().truncate().child(line)),
+            )
             .children((!files || !c.items.is_empty()).then(|| heading(what)))
             .children(c.items.iter().map(|s| div().truncate().child(close::item_line(s))))
             .child(
@@ -1052,7 +1064,8 @@ impl Workspace {
                     .gap(px(6.))
                     .child({
                         // The default (↩): 取消 on the agents-only bar; 全部保存并关闭 when files are listed (E2a §6).
-                        let cancel = button("close-confirm-cancel", "取消");
+                        let cancel =
+                            button("close-confirm-cancel", crate::i18n::text("取消", "Cancel"));
                         let cancel = if files {
                             cancel.border_color(border)
                         } else {
@@ -1061,16 +1074,28 @@ impl Workspace {
                         cancel.on_click(cx.listener(|ws, _, window, cx| ws.cancel_close(window, cx)))
                     })
                     .child(
-                        button("close-confirm-close", if files { "不保存并关闭" } else { "仍然关闭" })
-                            .border_color(hsla(p.ansi[1]))
-                            .text_color(hsla(p.ansi[1]))
-                            .on_click(cx.listener(|ws, _, window, cx| ws.confirm_close(window, cx))),
+                        button(
+                            "close-confirm-close",
+                            if files {
+                                crate::i18n::text("不保存并关闭", "Close Without Saving")
+                            } else {
+                                crate::i18n::text("仍然关闭", "Close Anyway")
+                            },
+                        )
+                        .border_color(hsla(p.ansi[1]))
+                        .text_color(hsla(p.ansi[1]))
+                        .on_click(cx.listener(|ws, _, window, cx| ws.confirm_close(window, cx))),
                     )
                     .children(files.then(|| {
-                        button("close-confirm-save", "全部保存并关闭")
-                            .border_color(hsla(p.foreground))
-                            .bg(hsla(mix(p.background, p.foreground, 0.15)))
-                            .on_click(cx.listener(|ws, _, window, cx| ws.save_all_and_close(window, cx)))
+                        button(
+                            "close-confirm-save",
+                            crate::i18n::text("全部保存并关闭", "Save All and Close"),
+                        )
+                        .border_color(hsla(p.foreground))
+                        .bg(hsla(mix(p.background, p.foreground, 0.15)))
+                        .on_click(
+                            cx.listener(|ws, _, window, cx| ws.save_all_and_close(window, cx)),
+                        )
                     })),
             )
     }

@@ -763,7 +763,11 @@ impl PreviewView {
             };
             left = left.child(div().px_2().rounded_md().bg(hsla(mix(p.background, p.foreground, 0.1))).child(base));
             if loaded.preview.is_new {
-                left = left.child(div().text_color(hsla(p.ansi[2])).child("新文件"));
+                left = left.child(
+                    div()
+                        .text_color(hsla(p.ansi[2]))
+                        .child(crate::i18n::text("新文件", "New file")),
+                );
             }
             if loaded.preview.changed_since {
                 let scope = match self.bases.get(self.base_ix) {
@@ -866,7 +870,10 @@ impl Render for PreviewView {
                 .py_1()
                 .text_size(px(12.))
                 .bg(hsla(mix(p.background, p.ansi[3], 0.25)))
-                .child("文件已更新 · R 刷新")
+                .child(crate::i18n::text(
+                    "文件已更新 · R 刷新",
+                    "File changed · R refresh",
+                ))
         });
         let banner = self.banner.clone().map(|text| {
             div().flex_none().px_3().py_1().text_size(px(12.)).bg(hsla(mix(p.background, p.ansi[1], 0.25))).child(text)

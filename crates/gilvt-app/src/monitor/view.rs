@@ -88,9 +88,18 @@ impl Colors {
 /// (spec §3.4; 已结束 still counts in 全部), with their labels as drawn.
 pub(crate) fn chips(model: &MonitorModel) -> Vec<(Filter, String)> {
     let all_total: usize = model.counts.iter().map(|(_, n)| n).sum();
-    std::iter::once((Filter::All, format!("全部 {all_total}")))
-        .chain(model.counts.iter().filter(|(g, _)| *g != Group::Ended).map(|(g, n)| (Filter::Only(*g), format!("{} {n}", g.title()))))
-        .collect()
+    std::iter::once((
+        Filter::All,
+        format!("{} {all_total}", crate::i18n::text("全部", "All")),
+    ))
+    .chain(
+        model
+            .counts
+            .iter()
+            .filter(|(g, _)| *g != Group::Ended)
+            .map(|(g, n)| (Filter::Only(*g), format!("{} {n}", g.title()))),
+    )
+    .collect()
 }
 
 /// A group header as drawn: `index` is its `RectId::MonitorGroup`, `cards` the cards drawn under it (none
@@ -135,14 +144,42 @@ pub(crate) fn card_lines(c: &Card) -> (String, String, String) {
                 meta.push(a.git.clone());
             }
             if let Some(t) = a.turn {
-                meta.push(format!("第 {t} 轮"));
+                meta.push(
+                    if crate::i18n::current() == crate::i18n::Language::English {
+                        format!("Turn {t}")
+                    } else {
+                        format!("第 {t} 轮")
+                    },
+                );
             }
             if let Some(e) = &a.elapsed {
-                meta.push(if e.starts_with("用时") { e.clone() } else { format!("本轮 {e}") });
+                meta.push(
+                    if crate::i18n::current() == crate::i18n::Language::English {
+                        if e.starts_with("took") {
+                            e.clone()
+                        } else {
+                            format!("This turn {e}")
+                        }
+                    } else if e.starts_with("用时") {
+                        e.clone()
+                    } else {
+                        format!("本轮 {e}")
+                    },
+                );
             }
             if let Some(ch) = a.changes {
                 meta.push(match (ch.added, ch.removed) {
-                    (Some(added), Some(removed)) => format!("+{added} −{removed} · {} 文件", ch.files),
+                    (Some(added), Some(removed))
+                        if crate::i18n::current() == crate::i18n::Language::English =>
+                    {
+                        format!("+{added} −{removed} · {} files", ch.files)
+                    }
+                    (Some(added), Some(removed)) => {
+                        format!("+{added} −{removed} · {} 文件", ch.files)
+                    }
+                    _ if crate::i18n::current() == crate::i18n::Language::English => {
+                        format!("{} files", ch.files)
+                    }
                     _ => format!("{} 文件", ch.files),
                 });
             }
@@ -155,9 +192,13 @@ pub(crate) fn card_lines(c: &Card) -> (String, String, String) {
             } else if let Some(last) = &t.last {
                 block_text(last, true)
             } else if let Some(fg) = &t.foreground {
-                format!("前台：{fg}")
+                if crate::i18n::current() == crate::i18n::Language::English {
+                    format!("Foreground: {fg}")
+                } else {
+                    format!("前台：{fg}")
+                }
             } else {
-                "空闲".to_string()
+                crate::i18n::text("空闲", "Idle").to_string()
             };
             (title, status, t.error_line.clone().unwrap_or_default())
         }
@@ -199,7 +240,10 @@ pub fn render(ws: &Workspace, pane: PaneId, m: &MonitorPane, window: &Window, cx
 
     let mut body = div().flex().flex_col().gap_3();
     if model.counts.is_empty() {
-        body = body.child(div().text_color(k.faint).child("还没有会话。在任意标签运行 claude / codex，或者执行命令，这里就会出现。"));
+        body = body.child(div().text_color(k.faint).child(crate::i18n::text(
+            "还没有会话。在任意标签运行 claude / codex，或者执行命令，这里就会出现。",
+            "No sessions yet. Run claude / codex or execute a command in any tab to see it here.",
+        )));
     }
     for d in drawn(&model) {
         let (gi, g) = (d.index, d.view);
@@ -304,7 +348,7 @@ fn card(c: &Card, n: usize, pane: PaneId, ui: &MonitorUi, chat_on: bool, k: &Col
             .px_2()
             .rounded_sm()
             .bg(k.button)
-            .child("跳过去")
+            .child(crate::i18n::text("跳过去", "Jump there"))
             .when(target.is_none(), |d| d.opacity(0.4))
             .when(target.is_some(), |d| d.cursor_pointer())
             .on_click(cx.listener(move |_, _, _, cx| {
@@ -324,8 +368,14 @@ fn card(c: &Card, n: usize, pane: PaneId, ui: &MonitorUi, chat_on: bool, k: &Col
                 .rounded_sm()
                 .cursor_pointer()
                 .bg(k.button)
-                .child(if expanded { "收起" } else { "补课" })
-                .on_click(cx.listener(move |ws, _, _, cx| ws.monitor_toggle_catchup(pane, key.clone(), cx))),
+                .child(if expanded {
+                    crate::i18n::text("收起", "Collapse")
+                } else {
+                    crate::i18n::text("补课", "Catch up")
+                })
+                .on_click(cx.listener(move |ws, _, _, cx| {
+                    ws.monitor_toggle_catchup(pane, key.clone(), cx)
+                })),
         );
     }
     if c.summary().is_some_and(|s| s.actionable && s.state != "none") {
@@ -340,7 +390,7 @@ fn card(c: &Card, n: usize, pane: PaneId, ui: &MonitorUi, chat_on: bool, k: &Col
                 .cursor_pointer()
                 .bg(k.ai_bg)
                 .text_color(k.ai_text)
-                .child("✦ 重新总结")
+                .child(crate::i18n::text("✦ 重新总结", "✦ Summarize Again"))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     let key = key.clone();
                     App::defer(cx, move |cx| crate::monitor::summaries::request(key, cx));
@@ -359,8 +409,10 @@ fn card(c: &Card, n: usize, pane: PaneId, ui: &MonitorUi, chat_on: bool, k: &Col
                 .cursor_pointer()
                 .bg(k.ai_bg)
                 .text_color(k.ai_text)
-                .child("◎ 问它")
-                .on_click(cx.listener(move |ws, _, window, cx| ws.monitor_ask(pane, key.clone(), window, cx))),
+                .child(crate::i18n::text("◎ 问它", "◎ Ask"))
+                .on_click(cx.listener(move |ws, _, window, cx| {
+                    ws.monitor_ask(pane, key.clone(), window, cx)
+                })),
         );
     }
     el = el.child(buttons);
@@ -376,7 +428,11 @@ fn agent_body(el: Stateful<Div>, a: &AgentCard, (title, status, meta): (String, 
         bottom.push(format!("TODO {done}/{total}"));
     }
     if let Some(ctx) = a.context {
-        bottom.push(format!("上下文 {}%", (ctx * 100.).round() as u32));
+        bottom.push(format!(
+            "{} {}%",
+            crate::i18n::text("上下文", "Context"),
+            (ctx * 100.).round() as u32
+        ));
     }
     el.child(
         div()
@@ -418,7 +474,28 @@ fn terminal_body(el: Stateful<Div>, t: &TerminalCard, (title, status, error): (S
 
 /// The ✦ block's texts as DebugState lists them: 「目标：…」 and 「近期：…」 ("" when absent).
 pub(crate) fn summary_texts(s: &SummaryLine) -> (String, String) {
-    (s.goal.as_ref().map(|g| format!("目标：{g}")).unwrap_or_default(), s.recent.as_ref().map(|r| format!("近期：{r}")).unwrap_or_default())
+    (
+        s.goal
+            .as_ref()
+            .map(|g| {
+                if crate::i18n::current() == crate::i18n::Language::English {
+                    format!("Goal: {g}")
+                } else {
+                    format!("目标：{g}")
+                }
+            })
+            .unwrap_or_default(),
+        s.recent
+            .as_ref()
+            .map(|r| {
+                if crate::i18n::current() == crate::i18n::Language::English {
+                    format!("Recent: {r}")
+                } else {
+                    format!("近期：{r}")
+                }
+            })
+            .unwrap_or_default(),
+    )
 }
 
 fn summary_block(s: &SummaryLine, n: usize, key: String, k: &Colors, cx: &mut Context<Workspace>) -> AnyElement {
@@ -491,7 +568,11 @@ fn catchup(c: &Card, n: usize, k: &Colors, cx: &mut Context<Workspace>) -> AnyEl
     match c {
         Card::Agent(a) => {
             if a.catchup.is_empty() {
-                list = list.child(div().text_color(k.faint).child("还没有轮次"));
+                list = list.child(
+                    div()
+                        .text_color(k.faint)
+                        .child(crate::i18n::text("还没有轮次", "No turns yet")),
+                );
             }
             for (j, l) in a.catchup.iter().enumerate() {
                 let (pane, turn) = (a.pane, l.turn);
@@ -514,7 +595,10 @@ fn catchup(c: &Card, n: usize, k: &Colors, cx: &mut Context<Workspace>) -> AnyEl
         }
         Card::Terminal(t) => {
             if t.catchup.is_empty() {
-                list = list.child(div().text_color(k.faint).child("还没有记录到命令"));
+                list = list.child(div().text_color(k.faint).child(crate::i18n::text(
+                    "还没有记录到命令",
+                    "No commands recorded",
+                )));
             }
             for (j, b) in t.catchup.iter().enumerate() {
                 let (pane, line) = (t.pane, b.line);

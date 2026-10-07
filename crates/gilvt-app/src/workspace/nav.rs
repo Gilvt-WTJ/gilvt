@@ -34,23 +34,28 @@ fn side(start: f32, len: f32, low: &'static str, high: &'static str) -> Option<&
     } else if start + len > 1.0 - EPS {
         Some(high)
     } else {
-        Some("中")
+        Some(crate::i18n::text("中", "Center"))
     }
 }
 
 /// Position word of a pane laid out at `r` inside the unit square.
 pub fn position_word(r: Rect) -> &'static str {
-    match (side(r.x, r.w, "左", "右"), side(r.y, r.h, "上", "下")) {
+    let left = crate::i18n::text("左", "Left");
+    let right = crate::i18n::text("右", "Right");
+    let top = crate::i18n::text("上", "Top");
+    let bottom = crate::i18n::text("下", "Bottom");
+    let center = crate::i18n::text("中", "Center");
+    match (side(r.x, r.w, left, right), side(r.y, r.h, top, bottom)) {
         (None, None) => "",
         (Some(h), None) => h,
         (None, Some(v)) => v,
-        (Some("中"), Some(v)) => v,
-        (Some(h), Some("中")) => h,
+        (Some(h), Some(v)) if h == center => v,
+        (Some(h), Some(v)) if v == center => h,
         (Some(h), Some(v)) => match (h, v) {
-            ("左", "上") => "左上",
-            ("左", _) => "左下",
-            (_, "上") => "右上",
-            _ => "右下",
+            (h, v) if h == left && v == top => crate::i18n::text("左上", "Top left"),
+            (h, _) if h == left => crate::i18n::text("左下", "Bottom left"),
+            (_, v) if v == top => crate::i18n::text("右上", "Top right"),
+            _ => crate::i18n::text("右下", "Bottom right"),
         },
     }
 }

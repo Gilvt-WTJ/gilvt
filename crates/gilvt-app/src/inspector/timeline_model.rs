@@ -26,10 +26,10 @@ impl Filter {
 
     pub fn label(self) -> &'static str {
         match self {
-            Filter::All => "全部",
+            Filter::All => crate::i18n::text("全部", "All"),
             Filter::Bash => "Bash",
-            Filter::Edit => "编辑",
-            Filter::Failed => "失败",
+            Filter::Edit => crate::i18n::text("编辑", "Edits"),
+            Filter::Failed => crate::i18n::text("失败", "Failed"),
         }
     }
 
@@ -105,10 +105,10 @@ pub fn duration_label(d: Duration) -> String {
 pub fn status_suffix(status: &ItemStatus) -> Option<String> {
     match status {
         ItemStatus::Failed { exit: Some(code) } => Some(format!("exit {code}")),
-        ItemStatus::Failed { exit: None } => Some("失败".into()),
-        ItemStatus::Denied => Some("已拒绝".into()),
-        ItemStatus::Interrupted => Some("已中断".into()),
-        ItemStatus::Pending => Some("待审批".into()),
+        ItemStatus::Failed { exit: None } => Some(crate::i18n::text("失败", "Failed").into()),
+        ItemStatus::Denied => Some(crate::i18n::text("已拒绝", "Denied").into()),
+        ItemStatus::Interrupted => Some(crate::i18n::text("已中断", "Interrupted").into()),
+        ItemStatus::Pending => Some(crate::i18n::text("待审批", "Awaiting approval").into()),
         ItemStatus::Running | ItemStatus::Ok => None,
     }
 }

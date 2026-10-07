@@ -59,7 +59,18 @@ impl Head {
             .children(self.banner.as_ref().map(|b| render_banner(b, k)))
             .child(render_card(&self.card, k))
             .children(self.plan.as_ref().map(|p| render_plan(p, k)))
-            .when(self.failed, |d| d.child(div().mt(px(10.)).text_size(px(11.)).text_color(k.muted).child("无法读取该会话的过程")))
+            .when(self.failed, |d| {
+                d.child(
+                    div()
+                        .mt(px(10.))
+                        .text_size(px(11.))
+                        .text_color(k.muted)
+                        .child(crate::i18n::text(
+                            "无法读取该会话的过程",
+                            "Could not read this session's activity",
+                        )),
+                )
+            })
             .into_any_element()
     }
 }
@@ -231,8 +242,29 @@ fn render_banner(b: &Banner, k: &Colors) -> impl IntoElement {
                 .flex()
                 .justify_between()
                 .gap(px(6.))
-                .child(div().min_w(px(0.)).truncate().font_weight(FontWeight::BOLD).text_color(k.yellow).child(b.title.clone()))
-                .child(div().flex_none().text_size(px(11.)).text_color(k.yellow).child("⌘⇧J 跳过去")),
+                .child(
+                    div()
+                        .min_w(px(0.))
+                        .truncate()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(k.yellow)
+                        .child(b.title.clone()),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.))
+                        .text_color(k.yellow)
+                        .child(crate::i18n::text("⌘⇧J 跳过去", "⇧⌘J Jump there")),
+                ),
+        )
+        .child(
+            div()
+                .truncate()
+                .text_size(px(11.))
+                .line_height(relative(1.6))
+                .text_color(k.meta)
+                .child(b.detail.clone()),
         )
         .child(div().truncate().text_size(px(11.)).line_height(relative(1.6)).text_color(k.meta).child(b.detail.clone()))
         .on_click(|_, window, cx| window.dispatch_action(Box::new(NextNeedsYou), cx))
@@ -311,7 +343,29 @@ fn render_empty(plain: Plain, k: &Colors) -> impl IntoElement {
         .line_height(relative(1.8))
         .text_color(k.empty)
         .child(plain.title())
-        .child(div().flex().flex_wrap().justify_center().child("运行 ").child(bold("claude")).child(" 或 ").child(bold("codex")).child(" 后，这里显示它的执行过程"))
+        .child(
+            if crate::i18n::current() == crate::i18n::Language::English {
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .justify_center()
+                    .child("Run ")
+                    .child(bold("claude"))
+                    .child(" or ")
+                    .child(bold("codex"))
+                    .child(" to see its activity here")
+            } else {
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .justify_center()
+                    .child(crate::i18n::text("运行 ", "Run "))
+                    .child(bold("claude"))
+                    .child(crate::i18n::text(" 或 ", " or "))
+                    .child(bold("codex"))
+                    .child(crate::i18n::text(" 后，这里显示它的执行过程", " to see its activity here"))
+            },
+        )
 }
 
 #[cfg(test)]

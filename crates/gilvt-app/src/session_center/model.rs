@@ -20,10 +20,10 @@ impl Tab {
 
     pub fn label(self) -> &'static str {
         match self {
-            Tab::NeedsYou => "需要你",
-            Tab::Review => "待 Review",
-            Tab::Running => "运行中",
-            Tab::All => "全部会话",
+            Tab::NeedsYou => crate::i18n::text("需要你", "Needs you"),
+            Tab::Review => crate::i18n::text("待 Review", "To Review"),
+            Tab::Running => crate::i18n::text("运行中", "Running"),
+            Tab::All => crate::i18n::text("全部会话", "All Sessions"),
         }
     }
 }
@@ -78,7 +78,7 @@ pub fn live_sessions_with_runtime<'a>(
             pane: session.pane,
             runtime: runtime(&session.key),
             title: if session.name.trim().is_empty() {
-                "新会话".into()
+                crate::i18n::text("新会话", "New session").into()
             } else {
                 session.name.clone()
             },
@@ -190,7 +190,7 @@ pub fn queue_subtitle(row: &Row, dir: &RowDir) -> String {
     if row.tool_count > 0 {
         text.push_str(&format!(" · {} tools", row.tool_count));
         if row.failed_tool_count > 0 {
-            text.push_str(" · 有失败");
+            text.push_str(crate::i18n::text(" · 有失败", " · failures"));
         }
     }
     if row.lines_added + row.lines_removed > 0 {

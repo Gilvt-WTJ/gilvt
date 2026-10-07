@@ -35,15 +35,43 @@ pub enum MenuCommand {
 pub fn items(muted: bool, ended: bool) -> Vec<(MenuCommand, &'static str, bool)> {
     let mut items = Vec::new();
     if ended {
-        items.push((MenuCommand::Resume(Location::Smart), "恢复", false));
-        items.push((MenuCommand::Resume(Location::Right), "在右侧恢复", false));
+        items.push((
+            MenuCommand::Resume(Location::Smart),
+            crate::i18n::text("恢复", "Resume"),
+            false,
+        ));
+        items.push((
+            MenuCommand::Resume(Location::Right),
+            crate::i18n::text("在右侧恢复", "Resume to the Right"),
+            false,
+        ));
     }
-    items.push((MenuCommand::Rename, "重命名…", false));
-    items.push((MenuCommand::ToggleMute, "静音这个会话的通知", muted));
-    items.push((MenuCommand::CopyId, "复制会话 ID", false));
+    items.push((
+        MenuCommand::Rename,
+        crate::i18n::text("重命名…", "Rename…"),
+        false,
+    ));
+    items.push((
+        MenuCommand::ToggleMute,
+        crate::i18n::text("静音这个会话的通知", "Mute Notifications for This Session"),
+        muted,
+    ));
+    items.push((
+        MenuCommand::CopyId,
+        crate::i18n::text("复制会话 ID", "Copy Session ID"),
+        false,
+    ));
     if ended {
-        items.push((MenuCommand::Archive, "归档", false));
-        items.push((MenuCommand::Trash, "移到废纸篓…", false));
+        items.push((
+            MenuCommand::Archive,
+            crate::i18n::text("归档", "Archive"),
+            false,
+        ));
+        items.push((
+            MenuCommand::Trash,
+            crate::i18n::text("移到废纸篓…", "Move to Trash…"),
+            false,
+        ));
     }
     items
 }

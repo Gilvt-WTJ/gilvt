@@ -164,7 +164,13 @@ impl SessionCenterView {
             .find(|index| index.key == surface.key)
             .cloned()
         else {
-            self.notice = Some("找不到这个会话的记录文件".into());
+            self.notice = Some(
+                crate::i18n::text(
+                    "找不到这个会话的记录文件",
+                    "Could not find this session's record file",
+                )
+                .into(),
+            );
             return;
         };
         self.detail_scroll.set_offset(point(px(0.), px(0.)));
@@ -276,7 +282,13 @@ impl SessionCenterView {
             .find(|index| index.key == key)
             .cloned()
         else {
-            self.notice = Some("找不到这个会话的记录文件，没有标记为已 Review".into());
+            self.notice = Some(
+                crate::i18n::text(
+                    "找不到这个会话的记录文件，没有标记为已 Review",
+                    "Could not find this session's record file, so it was not marked as reviewed",
+                )
+                .into(),
+            );
             return;
         };
         // The archive needs the history's entry (its turn count) and a session that is not running.
@@ -293,7 +305,7 @@ impl SessionCenterView {
             {
                 Some(entry) => Some(entry),
                 None => {
-                    self.notice = Some("找不到这个会话的历史记录，没有标记为已 Review".into());
+                    self.notice = Some(crate::i18n::text("找不到这个会话的历史记录，没有标记为已 Review", "Could not find this session in history, so it was not marked as reviewed").into());
                     return;
                 }
             }
@@ -312,15 +324,27 @@ impl SessionCenterView {
                 if let Some(report) = report.filter(|r| r.archived == 0) {
                     // Reviewed, but the archive did not happen: say so on the next item.
                     self.notice = Some(report.toast().map_or_else(
-                        || "已标记为已 Review，但没有归档".to_string(),
-                        |t| format!("已标记为已 Review，但没有归档（{t}）"),
+                        || {
+                            crate::i18n::text(
+                                "已标记为已 Review，但没有归档",
+                                "Marked as reviewed, but not archived",
+                            )
+                            .to_string()
+                        },
+                        |t| {
+                            if crate::i18n::current() == crate::i18n::Language::English {
+                                format!("Marked as reviewed, but not archived ({t})")
+                            } else {
+                                format!("已标记为已 Review，但没有归档（{t}）")
+                            }
+                        },
                     ));
                 }
             }
             Err(error) => {
                 self.notice = Some(save_notice(
                     error.kind(),
-                    "标记为已 Review",
+                    crate::i18n::text("标记为已 Review", "mark as reviewed"),
                     &error.to_string(),
                 ));
             }
@@ -343,7 +367,13 @@ impl SessionCenterView {
             .and_then(|index| index.last_completed())
             .map(|turn| turn.cursor.clone())
         else {
-            self.notice = Some("这个会话现在没有已完成的 turn，不能从当前开始".into());
+            self.notice = Some(
+                crate::i18n::text(
+                    "这个会话现在没有已完成的 turn，不能从当前开始",
+                    "This session has no completed turns, so it cannot start from here",
+                )
+                .into(),
+            );
             return;
         };
         let next = next_key(&self.queue_keys(), &key);
@@ -358,7 +388,7 @@ impl SessionCenterView {
             Err(error) => {
                 self.notice = Some(save_notice(
                     error.kind(),
-                    "重置 Review 位置",
+                    crate::i18n::text("重置 Review 位置", "reset the review position"),
                     &error.to_string(),
                 ));
             }
@@ -394,7 +424,7 @@ impl SessionCenterView {
             Err(error) => {
                 self.notice = Some(save_notice(
                     error.kind(),
-                    "重置 Review 位置",
+                    crate::i18n::text("重置 Review 位置", "reset the review position"),
                     &error.to_string(),
                 ));
             }
@@ -420,7 +450,7 @@ impl SessionCenterView {
                 self.set_snooze_menu(false);
                 self.notice = Some(save_notice(
                     error.kind(),
-                    "设置稍后提醒",
+                    crate::i18n::text("设置稍后提醒", "set the reminder"),
                     &error.to_string(),
                 ));
             }
@@ -438,7 +468,11 @@ impl SessionCenterView {
                 self.invalidate();
             }
             Err(error) => {
-                let what = if pinned { "取消置顶" } else { "置顶" };
+                let what = if pinned {
+                    crate::i18n::text("取消置顶", "unpin")
+                } else {
+                    crate::i18n::text("置顶", "pin")
+                };
                 self.notice = Some(save_notice(error.kind(), what, &error.to_string()));
             }
         }
@@ -464,7 +498,11 @@ impl SessionCenterView {
         let Some((key, runtime)) = self.surface_runtime().map(|(key, runtime)| (key.clone(), runtime.clone())) else { return };
         self.terminate_confirm = None;
         self.notice = Some(match interrupt_runtime(key.0, &runtime) {
-            Ok(()) => "已向 Agent 发送中断信号".into(),
+            Ok(()) => crate::i18n::text(
+                "已向 Agent 发送中断信号",
+                "Sent an interrupt signal to the Agent",
+            )
+            .into(),
             Err(error) => error.to_string(),
         });
         cx.notify();
@@ -475,22 +513,40 @@ impl SessionCenterView {
         if runtime.confidence != BindingConfidence::Exact { return }
         if self.terminate_confirm.as_ref() != Some(&key) {
             self.terminate_confirm = Some(key);
-            self.notice = Some("再次点击“确认终止”才会向 Agent 进程组发送 SIGTERM".into());
+            self.notice = Some(
+                crate::i18n::text(
+                    "再次点击“确认终止”才会向 Agent 进程组发送 SIGTERM",
+                    "Click \"Confirm Terminate\" again to send SIGTERM to the Agent process group",
+                )
+                .into(),
+            );
             cx.notify();
             return;
         }
         self.terminate_confirm = None;
         self.notice = Some(match terminate_runtime(key.0, &runtime) {
-            Ok(()) => "已向 Agent 进程组发送终止信号".into(),
+            Ok(()) => crate::i18n::text(
+                "已向 Agent 进程组发送终止信号",
+                "Sent a termination signal to the Agent process group",
+            )
+            .into(),
             Err(error) => error.to_string(),
         });
         cx.notify();
     }
 
     fn copy_diagnostics(&mut self, cx: &mut Context<Self>) {
-        let Some((key, runtime)) = self.surface_runtime().map(|(key, runtime)| (key.clone(), runtime.clone())) else { return };
-        cx.write_to_clipboard(ClipboardItem::new_string(runtime_diagnostics(key.0, &key.1, &runtime)));
-        self.notice = Some("已复制会话诊断信息".into());
+        let Some((key, runtime)) = self
+            .surface_runtime()
+            .map(|(key, runtime)| (key.clone(), runtime.clone()))
+        else {
+            return;
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(runtime_diagnostics(
+            key.0, &key.1, &runtime,
+        )));
+        self.notice =
+            Some(crate::i18n::text("已复制会话诊断信息", "Copied session diagnostics").into());
         cx.notify();
     }
 }

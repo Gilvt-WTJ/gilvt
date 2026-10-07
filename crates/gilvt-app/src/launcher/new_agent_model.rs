@@ -20,6 +20,21 @@ pub const CLAUDE_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 /// The 跟随配置 choice (no flag passed).
 pub const FOLLOW: &str = "跟随配置";
 
+pub fn follow_label() -> &'static str {
+    crate::i18n::text(FOLLOW, "Follow configuration")
+}
+
+pub fn permission_label(permission: Permission) -> &'static str {
+    match permission {
+        Permission::Codex(CodexPermission::ReadOnly) => crate::i18n::text("只读", "Read only"),
+        Permission::Codex(CodexPermission::Auto) => crate::i18n::text("自动", "Automatic"),
+        Permission::Codex(CodexPermission::FullAccess) => {
+            crate::i18n::text("完全访问", "Full access")
+        }
+        Permission::Claude(permission) => permission.label(),
+    }
+}
+
 /// The field that gets typed text and the arrow keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
@@ -47,9 +62,12 @@ impl Field {
 /// The 更多 line: open, or closed with what it holds.
 pub fn more_line(open: bool) -> &'static str {
     if open {
-        "▾ 更多"
+        crate::i18n::text("▾ 更多", "▾ More")
     } else {
-        "▸ 更多：模型、权限模式（默认跟随你的配置）"
+        crate::i18n::text(
+            "▸ 更多：模型、权限模式（默认跟随你的配置）",
+            "▸ More: model and permission mode (follows your configuration by default)",
+        )
     }
 }
 
@@ -127,7 +145,11 @@ pub struct Preview {
 
 /// The 目录 field's note while it still shows the focused pane's directory.
 pub fn dir_note(is_project_root: bool) -> &'static str {
-    if is_project_root { "（当前 pane 的项目）" } else { "（当前 pane 的目录）" }
+    if is_project_root {
+        crate::i18n::text("（当前 pane 的项目）", "(current pane's project)")
+    } else {
+        crate::i18n::text("（当前 pane 的目录）", "(current pane's directory)")
+    }
 }
 
 pub struct Form {
@@ -205,12 +227,18 @@ impl Form {
         if self.more {
             let current = self.current();
             let model = match &current.pick {
-                Pick::Follow => FOLLOW.to_string(),
+                Pick::Follow => follow_label().to_string(),
                 Pick::Preset(name) => name.clone(),
                 Pick::Custom => current.custom.clone(),
             };
             out.push((Field::Model, model));
-            out.push((Field::Permission, current.permission.map_or(FOLLOW, |p| p.label()).to_string()));
+            out.push((
+                Field::Permission,
+                current
+                    .permission
+                    .map_or_else(follow_label, permission_label)
+                    .to_string(),
+            ));
         }
         out
     }
@@ -396,11 +424,23 @@ impl Form {
     /// The preview for the current fields; `word`: where ↩ would run (`Placement::word`).
     pub fn preview(&self, launch: &str, word: &str, is_dir: impl Fn(&Path) -> bool) -> Preview {
         match self.target(is_dir) {
-            Some(dir) => Preview { head: format!("将在{word}执行{}：", self.worktree_note()), command: self.command(launch, &dir), missing: false },
+            Some(dir) => Preview {
+                head: if crate::i18n::current() == crate::i18n::Language::English {
+                    format!("Run in {word}{}:", self.worktree_note())
+                } else {
+                    format!("将在{word}执行{}：", self.worktree_note())
+                },
+                command: self.command(launch, &dir),
+                missing: false,
+            },
             None => {
                 // Still show the line the text would give, so the typo is visible in it.
                 let dir = expand(&self.dir, self.home.as_deref(), &self.base).unwrap_or_default();
-                Preview { head: "目录不存在".into(), command: self.command(launch, &dir), missing: true }
+                Preview {
+                    head: crate::i18n::text("目录不存在", "Directory does not exist").into(),
+                    command: self.command(launch, &dir),
+                    missing: true,
+                }
             }
         }
     }
@@ -409,7 +449,10 @@ impl Form {
     fn worktree_note(&self) -> String {
         match (self.worktree, &self.worktree_target) {
             (false, _) => String::new(),
-            (true, None) => "（新 worktree）".into(),
+            (true, None) => crate::i18n::text("（新 worktree）", " (new worktree)").into(),
+            (true, Some(t)) if crate::i18n::current() == crate::i18n::Language::English => {
+                format!(" (new worktree → {t})")
+            }
             (true, Some(t)) => format!("（新 worktree → {t}）"),
         }
     }
@@ -470,12 +513,23 @@ pub fn command(key: &str, m: Modifiers, field: Field) -> Option<Key> {
 
 /// The key hints under the form (mockup: the long ↩ hint while 更多 is closed; ⇧↩ while in 初始任务).
 pub fn hints(more: bool, field: Field) -> Vec<(&'static str, &'static str)> {
-    let enter = if more { "启动" } else { "启动（空闲 shell 里就地，否则新标签）" };
-    let mut hints = vec![("↩", enter), ("⌘↩", "右侧"), ("⌘⇧↩", "下方")];
+    let enter = if more {
+        crate::i18n::text("启动", "Launch")
+    } else {
+        crate::i18n::text(
+            "启动（空闲 shell 里就地，否则新标签）",
+            "Launch (in an idle shell, otherwise a new tab)",
+        )
+    };
+    let mut hints = vec![
+        ("↩", enter),
+        ("⌘↩", crate::i18n::text("右侧", "Right")),
+        ("⌘⇧↩", crate::i18n::text("下方", "Below")),
+    ];
     if field == Field::Prompt {
-        hints.push(("⇧↩", "任务换行"));
+        hints.push(("⇧↩", crate::i18n::text("任务换行", "New line in task")));
     }
-    hints.push(("Esc", "取消"));
+    hints.push(("Esc", crate::i18n::text("取消", "Cancel")));
     hints
 }
 

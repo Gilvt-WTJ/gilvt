@@ -84,6 +84,13 @@ pub(super) fn range_of(members: &[Member], fallback: Option<&Path>) -> Option<(u
 
 /// 本轮（第 3 轮前 → 后）/ 本任务（第 5 轮前 → 第 7 轮后）.
 pub(super) fn range_label(kind: &str, from: Option<u32>, to: Option<u32>, single: bool) -> String {
+    if crate::i18n::current() == crate::i18n::Language::English {
+        return match (single, from, to) {
+            (true, Some(n), _) => format!("{kind} (before Turn {n} → after)"),
+            (false, Some(a), Some(b)) => format!("{kind} (before Turn {a} → after Turn {b})"),
+            _ => format!("{kind} (before → after)"),
+        };
+    }
     match (single, from, to) {
         (true, Some(n), _) => format!("{kind}（第 {n} 轮前 → 后）"),
         (false, Some(a), Some(b)) => format!("{kind}（第 {a} 轮前 → 第 {b} 轮后）"),
@@ -150,12 +157,26 @@ pub(super) fn card(members: &[Member], i: &Inputs) -> ArtCard {
     let single = found.as_ref().and_then(|(bi, ai, ..)| (bi == ai).then_some(*bi));
     // A running task has no range: its files are the live list, and an earlier member's range would open
     // a stale diff for them (opening a file says the turn is still going instead).
-    let range = found.filter(|_| !running).map(|(bi, ai, repo_root, before, after)| {
-        let (kind, scope) = if bi == ai { ("本轮", "这一轮") } else { ("本任务", "这个任务") };
-        let label = range_label(kind, members[bi].number(), members[ai].number(), bi == ai);
-        CardRange { repo_root, before, after, label, scope }
-    });
-    let live_base = running.then(|| members.iter().find_map(|m| m.rec?.before.clone())).flatten();
+    let range = found
+        .filter(|_| !running)
+        .map(|(bi, ai, repo_root, before, after)| {
+            let (kind, scope) = if bi == ai {
+                (crate::i18n::text("本轮", "This turn"), crate::i18n::text("这一轮", "this turn"))
+            } else {
+                (crate::i18n::text("本任务", "This task"), crate::i18n::text("这个任务", "this task"))
+            };
+            let label = range_label(kind, members[bi].number(), members[ai].number(), bi == ai);
+            CardRange {
+                repo_root,
+                before,
+                after,
+                label,
+                scope,
+            }
+        });
+    let live_base = running
+        .then(|| members.iter().find_map(|m| m.rec?.before.clone()))
+        .flatten();
     // The live list belongs to the ledger's last record: only a running last member has one.
     let live = members.iter().any(|m| m.last && is(m, &TurnState::Running)).then_some(i.live).flatten();
     let mut computing = false;

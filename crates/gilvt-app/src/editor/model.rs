@@ -10,28 +10,43 @@ use unicode_segmentation::UnicodeSegmentation;
 
 pub const HIGHLIGHT_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const HIGHLIGHT_MAX_LINES: usize = 50_000;
+const PLAIN_TEXT: &str = "Plain Text";
+const LARGE_FILE: &str = "Large file";
 
 /// Extension, else the whole file name (`Makefile`, `Dockerfile`).
 fn syntax_token(file_name: &str) -> &str {
     Path::new(file_name).extension().and_then(|e| e.to_str()).unwrap_or(file_name)
 }
 
-/// "Bourne Again Shell (bash)" is too long for the status bar; plain text gets its Chinese name.
+/// "Bourne Again Shell (bash)" is too long for the status bar.
 fn display_language(name: &str) -> String {
     if name.starts_with("Bourne Again Shell") {
         "Shell".into()
-    } else if name == "Plain Text" {
-        "纯文本".into()
     } else {
         name.into()
     }
 }
 
-fn make_highlighter(buf: &Buffer, file_name: &str) -> (Option<Highlighter>, String, Option<&'static str>) {
+fn localized_language(name: &str) -> &str {
+    if name == PLAIN_TEXT {
+        crate::i18n::text("纯文本", PLAIN_TEXT)
+    } else {
+        name
+    }
+}
+
+fn make_highlighter(
+    buf: &Buffer,
+    file_name: &str,
+) -> (Option<Highlighter>, String, Option<&'static str>) {
     let token = syntax_token(file_name);
     let first = buf.line(0);
     if buf.len_bytes() > HIGHLIGHT_MAX_BYTES || buf.line_count() > HIGHLIGHT_MAX_LINES {
-        return (None, display_language(&language_name(token, &first)), Some("文件较大"));
+        return (
+            None,
+            display_language(&language_name(token, &first)),
+            Some(LARGE_FILE),
+        );
     }
     match Highlighter::new(token, &first) {
         Some(mut h) => {
@@ -39,7 +54,7 @@ fn make_highlighter(buf: &Buffer, file_name: &str) -> (Option<Highlighter>, Stri
             let name = display_language(h.language());
             (Some(h), name, None)
         }
-        None => (None, "纯文本".into(), Some("纯文本")),
+        None => (None, PLAIN_TEXT.into(), Some(PLAIN_TEXT)),
     }
 }
 
@@ -86,16 +101,21 @@ impl EditorModel {
 
     /// Language name for the status bar: "Rust", "Shell", "纯文本"; "（未高亮）" is appended when the big-file guard is on.
     pub fn language_label(&self) -> String {
-        if self.hl.is_some() || self.hl_off == Some("纯文本") {
-            self.hl_language.clone()
+        let language = localized_language(&self.hl_language);
+        if self.hl.is_some() || self.hl_off == Some(PLAIN_TEXT) {
+            language.into()
         } else {
-            format!("{}（未高亮）", self.hl_language)
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("{language} (not highlighted)")
+            } else {
+                format!("{language}（未高亮）")
+            }
         }
     }
 
     /// The display language without any suffix.
-    pub fn language_name(&self) -> &str {
-        &self.hl_language
+    pub fn language_name(&self) -> String {
+        localized_language(&self.hl_language).into()
     }
 
     pub fn highlight_enabled(&self) -> bool {
@@ -103,7 +123,11 @@ impl EditorModel {
     }
 
     pub fn highlight_off_reason(&self) -> Option<&'static str> {
-        self.hl_off
+        match self.hl_off {
+            Some(PLAIN_TEXT) => Some(crate::i18n::text("纯文本", PLAIN_TEXT)),
+            Some(LARGE_FILE) => Some(crate::i18n::text("文件较大", LARGE_FILE)),
+            reason => reason,
+        }
     }
 
     /// One class per grapheme of `row_text(row)` (a tab's expanded spaces take the tab's class). Empty (meaning no
@@ -144,9 +168,9 @@ impl EditorModel {
 
     pub fn read_only_reason(&self) -> Option<&'static str> {
         if self.long_line {
-            Some("含超长行，暂不支持编辑")
+            Some(crate::i18n::text("含超长行，暂不支持编辑", "Contains an extremely long line; editing is not supported"))
         } else if self.buf.read_only() {
-            Some("只读")
+            Some(crate::i18n::text("只读", "Read only"))
         } else {
             None
         }

@@ -50,10 +50,21 @@ pub enum Plain {
 impl Plain {
     pub fn title(self) -> &'static str {
         match self {
-            Plain::Shell => "当前 pane 是普通 shell",
-            Plain::Preview => "当前 pane 是文件预览",
-            Plain::Editor => "当前 pane 是文件编辑器",
-            Plain::Monitor => "监控官：所有会话的总览",
+            Plain::Shell => crate::i18n::text(
+                "当前 pane 是普通 shell",
+                "The current pane is a regular shell",
+            ),
+            Plain::Preview => {
+                crate::i18n::text("当前 pane 是文件预览", "The current pane is a file preview")
+            }
+            Plain::Editor => crate::i18n::text(
+                "当前 pane 是文件编辑器",
+                "The current pane is a file editor",
+            ),
+            Plain::Monitor => crate::i18n::text(
+                "监控官：所有会话的总览",
+                "Monitor: overview of all sessions",
+            ),
         }
     }
 }
@@ -144,17 +155,41 @@ fn with_detail(head: &str, detail: &str) -> String {
 /// the timeline), and background tasks are a tag rather than the status.
 pub fn card_status(s: &Session) -> (Tone, String) {
     match &s.status {
-        Status::NeedsApproval { .. } | Status::Asking { .. } | Status::Error { .. } | Status::Ended => status_line(s),
-        Status::Thinking => (Tone::Running, "● 思考中".into()),
+        Status::NeedsApproval { .. }
+        | Status::Asking { .. }
+        | Status::Error { .. }
+        | Status::Ended => status_line(s),
+        Status::Thinking => (
+            Tone::Running,
+            crate::i18n::text("● 思考中", "● Thinking").into(),
+        ),
         Status::Tool { label } => {
             let tool = label.split('(').next().unwrap_or("").trim();
-            (Tone::Running, with_detail("● 执行工具", tool))
+            (
+                Tone::Running,
+                with_detail(crate::i18n::text("● 执行工具", "● Running tool"), tool),
+            )
         }
         Status::Idle if s.unseen_done => {
-            let took = s.last_turn.map(|d| format!("用时 {}", duration_label(d))).unwrap_or_default();
-            (Tone::Done, with_detail("✓ 完成未看", &took))
+            let took = s
+                .last_turn
+                .map(|d| {
+                    format!(
+                        "{} {}",
+                        crate::i18n::text("用时", "took"),
+                        duration_label(d)
+                    )
+                })
+                .unwrap_or_default();
+            (
+                Tone::Done,
+                with_detail(crate::i18n::text("✓ 完成未看", "✓ Done, unseen"), &took),
+            )
         }
-        Status::Idle => (Tone::Muted, "空闲 · 等你输入".into()),
+        Status::Idle => (
+            Tone::Muted,
+            crate::i18n::text("空闲 · 等你输入", "Idle · waiting for input").into(),
+        ),
     }
 }
 
@@ -184,7 +219,12 @@ fn context_bar(s: &Session) -> Option<ContextBar> {
     Some(ContextBar {
         ratio: ratio.clamp(0.0, 1.0),
         meter: meter(ratio),
-        label: format!("上下文 {} / {} · {pct}%", token_label(tokens), token_label(window)),
+        label: format!(
+            "{} {} / {} · {pct}%",
+            crate::i18n::text("上下文", "Context"),
+            token_label(tokens),
+            token_label(window)
+        ),
     })
 }
 
@@ -194,26 +234,50 @@ pub fn card(s: &Session, view: Option<&TimelineView>, permission_mode: Option<&s
     let turn = view.and_then(TimelineView::current);
     let elapsed = turn_elapsed(s, turn, clock).map(elapsed_label);
     let running = busy(s) && elapsed.is_some();
+    let english = crate::i18n::current() == crate::i18n::Language::English;
     let turn_label = match (turn.map(|t| t.index), elapsed) {
+        (Some(n), Some(e)) if english => Some(format!("Turn {n} · {e}")),
         (Some(n), Some(e)) => Some(format!("第 {n} 轮 · {e}")),
+        (Some(n), None) if english => Some(format!("Turn {n}")),
         (Some(n), None) => Some(format!("第 {n} 轮")),
+        (None, Some(e)) if english => Some(format!("Current turn · {e}")),
         (None, Some(e)) => Some(format!("本轮 · {e}")),
         (None, None) => None,
     };
-    let model = [s.model.as_deref(), permission_mode].into_iter().flatten().filter(|p| !p.is_empty()).collect::<Vec<_>>();
-    let tokens = view.map(|v| match turn {
-        Some(t) => format!("本轮 {} · 会话 {} tokens", token_label(t.tokens), token_label(v.session_tokens)),
-        None => format!("会话 {} tokens", token_label(v.session_tokens)),
+    let model = [s.model.as_deref(), permission_mode]
+        .into_iter()
+        .flatten()
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>();
+    let tokens = view.map(|v| match (turn, english) {
+        (Some(t), true) => format!(
+            "Current turn {} · Session {} tokens",
+            token_label(t.tokens),
+            token_label(v.session_tokens)
+        ),
+        (Some(t), false) => format!(
+            "本轮 {} · 会话 {} tokens",
+            token_label(t.tokens),
+            token_label(v.session_tokens)
+        ),
+        (None, true) => format!("Session {} tokens", token_label(v.session_tokens)),
+        (None, false) => format!("会话 {} tokens", token_label(v.session_tokens)),
     });
     let mut tags = Vec::new();
     if s.lite && s.is_live() {
-        tags.push("精简模式");
+        tags.push(crate::i18n::text("精简模式", "Lite mode"));
     }
     if s.background_tasks > 0 && s.is_live() {
-        tags.push("后台任务运行中");
+        tags.push(crate::i18n::text(
+            "后台任务运行中",
+            "Background tasks running",
+        ));
     }
     if view.is_some_and(TimelineView::not_adapted) {
-        tags.push("该版本暂未完全适配");
+        tags.push(crate::i18n::text(
+            "该版本暂未完全适配",
+            "This version is not fully supported yet",
+        ));
     }
     Card {
         tone,
@@ -262,15 +326,31 @@ pub fn banner<'a>(
         AgentKind::Codex => "codex",
     };
     let (verb, what) = match &first.status {
-        Status::Asking { question } => ("在问你", question.as_str()),
-        Status::NeedsApproval { action } => ("在等审批", action.as_str()),
-        _ => ("在等你", ""),
+        Status::Asking { question } => (
+            crate::i18n::text("在问你", "is asking you"),
+            question.as_str(),
+        ),
+        Status::NeedsApproval { action } => (
+            crate::i18n::text("在等审批", "is awaiting approval"),
+            action.as_str(),
+        ),
+        _ => (crate::i18n::text("在等你", "is waiting for you"), ""),
     };
     let waited = first.waiting_since.map_or(Duration::ZERO, |t| now.saturating_duration_since(t));
     let others = waiting.len() - 1;
     let what = what.lines().next().unwrap_or("").trim();
-    let more = (others > 0).then(|| format!("另有 {others} 个"));
-    let parts = [Some(what.to_string()).filter(|w| !w.is_empty()), Some(wait_label(waited)), more];
+    let more = (others > 0).then(|| {
+        if crate::i18n::current() == crate::i18n::Language::English {
+            format!("{others} more")
+        } else {
+            format!("另有 {others} 个")
+        }
+    });
+    let parts = [
+        Some(what.to_string()).filter(|w| !w.is_empty()),
+        Some(wait_label(waited)),
+        more,
+    ];
     let detail = parts.into_iter().flatten().collect::<Vec<_>>().join(" · ");
     Some(Banner { title: format!("⏳ {agent} · {} {verb}", project(first)), detail, waited })
 }

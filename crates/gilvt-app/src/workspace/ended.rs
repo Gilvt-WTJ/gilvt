@@ -54,7 +54,7 @@ impl Workspace {
         let entry = cx.try_global::<History>().and_then(|h| h.find(key.0, &key.1)).cloned();
         self.error = match entry {
             Some(entry) => archive_sessions(&[entry], cx).toast(),
-            None => Some("找不到该会话的记录文件".into()),
+            None => Some(crate::i18n::text("找不到该会话的记录文件", "Could not find this session's record file").into()),
         };
         self.focus_active(window, cx);
         cx.notify();
@@ -65,14 +65,14 @@ impl Workspace {
         let Some(session) = cx.global::<Agents>().registry().get(&key) else { return };
         if session.is_live() {
             // It runs again: nothing to move (the final check in `trash_sessions` stays).
-            self.error = Some("运行中的会话不能移到废纸篓".into());
+            self.error = Some(crate::i18n::text("运行中的会话不能移到废纸篓", "A running session cannot be moved to Trash").into());
             self.focus_active(window, cx);
             cx.notify();
             return;
         }
         let indexed = cx.try_global::<History>().and_then(|h| h.find(key.0, &key.1));
         let Some(entry) = ended::trash_entry(session, indexed, SystemTime::now()) else {
-            self.error = Some("找不到该会话的记录文件".into());
+            self.error = Some(crate::i18n::text("找不到该会话的记录文件", "Could not find this session's record file").into());
             self.focus_active(window, cx);
             cx.notify();
             return;

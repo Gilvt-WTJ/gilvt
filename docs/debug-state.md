@@ -481,13 +481,15 @@ rect 什么时候有：这些 rect 都在元素绘制（prepaint）时记录，�
 
 ## `settings`
 
-`⌘,` 设置窗口（左栏两页：「◐ 外观」在前，「◎ 监控官」在后；打开时停在上次看的那一页，第一次是「外观」），在根上，不在 `windows[]` 里：GUI 用例读 `settings.…`。窗口关着时整个键不存在。所有 `rect` 与 `windows[]` 同一坐标系（窗口外框左上角为原点），上一帧没画出来的元素为 `null`。查询时设置窗口也会被立即重绘一帧。
+`⌘,` 设置窗口（左栏三页：「◐ 外观」、「文A 语言」、「◎ 监控官」；打开时停在上次看的那一页，第一次是「外观」），在根上，不在 `windows[]` 里：GUI 用例读 `settings.…`。窗口关着时整个键不存在。所有 `rect` 与 `windows[]` 同一坐标系（窗口外框左上角为原点），上一帧没画出来的元素为 `null`。查询时设置窗口也会被立即重绘一帧。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | 数字或 `null` | CGWindowID |
 | `key` | 布尔 | 是否是 key window |
-| `page` | 字符串 | 当前页：`appearance`（外观）或 `monitor`（监控官） |
+| `page` | 字符串 | 当前页：`appearance`（外观）、`language`（语言）或 `monitor`（监控官） |
+| `language` | 字符串 | 当前界面语言：`zh-CN` 或 `en` |
+| `languages` | 数组 | 语言项：`{ id, label, selected, rect }`；`id` 是 `zh-CN` / `en`，只在语言页显示时 `rect` 非空 |
 | `readonly` | 布尔 | `config.toml` 有语法错误：所有控件只读 |
 | `error` | 字符串或 `null` | 语法错误信息（以文件路径开头）；`readonly` 为真时才有 |
 | `write_error` | 字符串或 `null` | 最近一次写回 `config.toml` 失败的原因（修改仍在内存里生效） |
@@ -497,7 +499,7 @@ rect 什么时候有：这些 rect 都在元素绘制（prepaint）时记录，�
 | `notice` | 字符串或 `null` | 控件区下方的提示行（正在试跑、模型不存在或无权使用、设置已改变而作废、无法打开编辑器、写回失败…）；没有时为 `null` |
 | `notice_error` | 布尔 | `notice` 是错误（红）还是进行中（黄）；`notice` 为 `null` 时为 `false` |
 | `test` | 对象 | 「测试连接」结果：`{ state, text }`，`state` 为 `idle` / `running` / `ok` / `failed`；`text` 是结果行（`✓ …` / `✗ …`），`idle` / `running` 时为空串 |
-| `pages` | 数组 | 左栏的页，按顺序：`{ id, label, selected, rect }`，`id` 为 `appearance` / `monitor`，`label` 为 `◐ 外观` / `◎ 监控官`，`selected` 是当前页；点 `rect` 切换页 |
+| `pages` | 数组 | 左栏的页，按顺序：`{ id, label, selected, rect }`，`id` 为 `appearance` / `language` / `monitor`，`label` 随当前语言变化，`selected` 是当前页；点 `rect` 切换页 |
 | `appearance` | 对象 | 「外观」页，见下；不在这一页时字段照常给出，但 `rect` 都是 `null` |
 
 `fields[]`：`{ id, label, value, hint, open, options, rect }`。
@@ -530,7 +532,7 @@ rect 什么时候有：这些 rect 都在元素绘制（prepaint）时记录，�
 
 在「外观」页点一行、`↑` / `↓` 或 `⏎`（选中高亮行）、切换「固定 / 跟随系统」，主题立即在所有窗口生效（顶层 `theme` 随之变化），约 300 ms 内选择不再变化后写入 `config.toml` 的 `theme` 键。写回失败（例如文件只读）时主题仍然生效，原因在 `write_error`（以「config.toml 是只读的…」这类短句开头）。`config.toml` 有语法错误时 `readonly` 为真，选择被拒绝，页面回到正在使用的主题。
 
-例：`gilvt debug wait 'settings exists'`、`click 'rect(settings.pages[?id=="appearance"])'`、`click 'rect(settings.appearance.rows[?name=="Nord"])'`、`gilvt debug wait 'settings.appearance.fixed == "Nord"'`、`gilvt debug wait 'settings.fields[?id=="model"].label == "sonnet"'`、`click 'rect(settings.fields[?id=="model"])'`、`click 'rect(settings.fields[?id=="provider"].options[?label=="Codex"])'`、`gilvt debug wait 'settings.test.state == "ok"'`。
+例：`gilvt debug wait 'settings exists'`、`click 'rect(settings.pages[?id=="language"])'`、`click 'rect(settings.languages[?id=="en"])'`、`click 'rect(settings.pages[?id=="appearance"])'`、`click 'rect(settings.appearance.rows[?name=="Nord"])'`、`gilvt debug wait 'settings.appearance.fixed == "Nord"'`、`gilvt debug wait 'settings.fields[?id=="model"].label == "sonnet"'`、`click 'rect(settings.fields[?id=="model"])'`、`click 'rect(settings.fields[?id=="provider"].options[?label=="Codex"])'`、`gilvt debug wait 'settings.test.state == "ok"'`。
 
 ## 安全与隐私
 

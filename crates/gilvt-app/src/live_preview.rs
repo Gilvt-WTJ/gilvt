@@ -39,10 +39,10 @@ impl Provider {
 
     pub fn label(self) -> &'static str {
         match self {
-            Provider::Rendered => "渲染",
-            Provider::Diagram => "图表",
-            Provider::Image => "图片",
-            Provider::Changes => "改动",
+            Provider::Rendered => crate::i18n::text("渲染", "Rendered"),
+            Provider::Diagram => crate::i18n::text("图表", "Diagram"),
+            Provider::Image => crate::i18n::text("图片", "Image"),
+            Provider::Changes => crate::i18n::text("改动", "Changes"),
         }
     }
 }

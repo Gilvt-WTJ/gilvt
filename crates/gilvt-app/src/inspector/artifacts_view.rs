@@ -20,11 +20,25 @@ pub(super) fn render(ws: &mut Workspace, _window: &mut Window, cx: &mut Context<
     let theme = crate::theme::current(cx);
     let k = Colors::new(&theme.ui, theme.dark);
     let Some(artifacts) = ws.focused_artifacts(cx) else {
-        return (empty(ws, &k, "运行 claude 或 codex 后，这里显示它每一轮改了哪些文件", cx), false);
+        return (
+            empty(
+                ws,
+                &k,
+                crate::i18n::text(
+                    "运行 claude 或 codex 后，这里显示它每一轮改了哪些文件",
+                    "Run claude or codex to see the files changed in each turn",
+                ),
+                cx,
+            ),
+            false,
+        );
     };
     let running = artifacts.cards.iter().any(|c| c.state == CardState::Running);
     if artifacts.cards.is_empty() {
-        return (empty(ws, &k, "这个会话还没有任何一轮", cx), false);
+        return (
+            empty(ws, &k, crate::i18n::text("这个会话还没有任何一轮", "This session has no turns yet"), cx),
+            false,
+        );
     }
 
     let reveal = std::mem::take(&mut ws.inspector_mut().artifacts.reveal);
@@ -121,7 +135,13 @@ fn empty(ws: &Workspace, k: &Colors, text: &'static str, cx: &mut Context<Worksp
 
 /// No session net (no snapshot pair): the plain grey line, without line counts and not clickable.
 fn summary(s: &m::Summary, k: &Colors) -> impl IntoElement {
-    div().text_color(k.muted).child(format!("本会话 · {} 文件", s.files))
+    div().text_color(k.muted).child(
+        if crate::i18n::current() == crate::i18n::Language::English {
+            format!("This session · {} files", s.files)
+        } else {
+            format!("本会话 · {} 文件", s.files)
+        },
+    )
 }
 
 /// `+a` green and `−b` red, side by side.
@@ -140,10 +160,24 @@ fn net_block(
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
     let files = summary.map_or(net.files.len(), |s| s.files);
-    let head = div().flex().gap(px(6.)).child(format!("{} 本会话净改动 · {files} 文件", if open { "⌄" } else { "▸" })).children(
+    let head_text = if crate::i18n::current() == crate::i18n::Language::English {
+        format!(
+            "{} Net changes in this session · {files} files",
+            if open { "⌄" } else { "▸" }
+        )
+    } else {
+        format!(
+            "{} 本会话净改动 · {files} 文件",
+            if open { "⌄" } else { "▸" }
+        )
+    };
+    let head = div().flex().gap(px(6.)).child(head_text).children(
         match summary.and_then(|s| s.added.zip(s.removed)) {
             Some((a, r)) => counts(a, r, k).into_iter().collect::<Vec<_>>(),
-            None if net.computing => vec![div().text_color(k.muted).child("· 计算中").into_any_element()],
+            None if net.computing => vec![div()
+                .text_color(k.muted)
+                .child(crate::i18n::text("· 计算中", "· Calculating"))
+                .into_any_element()],
             None => vec![],
         },
     );
@@ -170,15 +204,39 @@ fn net_block(
     let note = |text: String, color| div().text_size(px(11.)).text_color(color).child(text);
     block = block.child(note(net.range_label.clone(), k.muted));
     if let Some(why) = &net.failed {
-        block = block.child(note(format!("净改动计算失败：{why}"), k.red));
+        block = block.child(note(
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Failed to calculate net changes: {why}")
+            } else {
+                format!("净改动计算失败：{why}")
+            },
+            k.red,
+        ));
     } else {
         block = block.children(file_rows(&net.files, net.files.len(), true, false, Owner::Net, selected, reveal, k, cx));
     }
     if net.excluded > 0 {
-        block = block.child(note(format!("另有 {} 个文件在轮次之间被改动，未计入", net.excluded), k.muted));
+        block = block.child(note(
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!(
+                    "{} additional files changed between turns and are not included",
+                    net.excluded
+                )
+            } else {
+                format!("另有 {} 个文件在轮次之间被改动，未计入", net.excluded)
+            },
+            k.muted,
+        ));
     }
     if let Some(name) = &net.only_repo {
-        block = block.child(note(format!("只统计 {name}"), k.muted));
+        block = block.child(note(
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Only counting {name}")
+            } else {
+                format!("只统计 {name}")
+            },
+            k.muted,
+        ));
     }
     block.into_any_element()
 }
@@ -211,7 +269,23 @@ fn quiet_row(
             ws.select_artifact(Sel::Quiet(key), cx);
             ws.toggle_artifact_quiet(key, cx);
         }))
-        .child(truncated(format!("{} {} 轮无文件改动 · {}", if open { "⌄" } else { "▸" }, g.cards.len(), g.titles.join("、"))))
+        .child(truncated(
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!(
+                    "{} {} turns without file changes · {}",
+                    if open { "⌄" } else { "▸" },
+                    g.cards.len(),
+                    g.titles.join(", ")
+                )
+            } else {
+                format!(
+                    "{} {} 轮无文件改动 · {}",
+                    if open { "⌄" } else { "▸" },
+                    g.cards.len(),
+                    g.titles.join("、")
+                )
+            },
+        ))
         .into_any_element()
 }
 
@@ -253,7 +327,7 @@ fn dir_header(last: Option<&str>, path: &str) -> Option<String> {
         return None;
     }
     if dir == "." {
-        return last.map(|_| "根目录".to_string());
+        return last.map(|_| crate::i18n::text("根目录", "Root").to_string());
     }
     Some(dir)
 }
@@ -330,7 +404,7 @@ fn file_rows(
                     None => f.path.clone(),
                 }).flex_1())
                 .child(div().flex_none().text_color(k.muted).child(if f.binary {
-                    "二进制".to_string()
+                    crate::i18n::text("二进制", "Binary").to_string()
                 } else if no_counts {
                     String::new()
                 } else {
@@ -346,13 +420,27 @@ fn file_rows(
 /// turn number nor a follow-up).
 pub(crate) fn sub_line(c: &ArtCard) -> String {
     let turns = match (c.turns.first(), c.turns.last()) {
+        (Some(a), Some(b))
+            if a != b && crate::i18n::current() == crate::i18n::Language::English =>
+        {
+            format!("Turns {a}–{b}")
+        }
         (Some(a), Some(b)) if a != b => format!("第 {a}–{b} 轮"),
+        (Some(a), _) if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("Turn {a}")
+        }
         (Some(a), _) => format!("第 {a} 轮"),
         _ => String::new(),
     };
     let follow = match c.follow_ups.len() {
         0 => String::new(),
+        n if n <= 3 && crate::i18n::current() == crate::i18n::Language::English => {
+            format!("{n} follow-ups: {}", c.follow_ups.join(" → "))
+        }
         n if n <= 3 => format!("含 {n} 次跟进：{}", c.follow_ups.join(" → ")),
+        n if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("{n} follow-ups: {} → …", c.follow_ups[..2].join(" → "))
+        }
         n => format!("含 {n} 次跟进：{} → …", c.follow_ups[..2].join(" → ")),
     };
     [turns, follow].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ")
@@ -368,14 +456,29 @@ fn join_some<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
 fn header_meta(c: &ArtCard, k: &Colors) -> Div {
     let meta = div().flex_none().flex().gap(px(4.)).text_color(k.muted);
     match c.state {
-        CardState::Quiet => return meta.child(join_some(["无文件改动", c.took.as_deref().unwrap_or("")])),
+        CardState::Quiet => {
+            return meta.child(join_some([
+                crate::i18n::text("无文件改动", "No file changes"),
+                c.took.as_deref().unwrap_or(""),
+            ]))
+        }
         CardState::Degraded => return meta.child(c.took.clone().unwrap_or_default()),
         CardState::Done | CardState::Running => {}
     }
-    let tail = if c.state == CardState::Running { Some("进行中".to_string()) } else { c.took.clone() };
-    let mut meta = meta.child(format!("{} 文件", c.files.len()));
+    let tail = if c.state == CardState::Running {
+        Some(crate::i18n::text("进行中", "In progress").to_string())
+    } else {
+        c.took.clone()
+    };
+    let mut meta = meta.child(
+        if crate::i18n::current() == crate::i18n::Language::English {
+            format!("{} files", c.files.len())
+        } else {
+            format!("{} 文件", c.files.len())
+        },
+    );
     if c.computing {
-        meta = meta.child("· 计算中");
+        meta = meta.child(crate::i18n::text("· 计算中", "· Calculating"));
     } else if !c.counts_hidden {
         meta = meta.children(counts(c.files.iter().map(|f| f.added).sum(), c.files.iter().map(|f| f.removed).sum(), k));
     }
@@ -475,7 +578,20 @@ fn render_card(
     let test = c.test.as_ref().map(|t| if t.ok { ("✓", k.green, t) } else { ("✗", k.red, t) });
     let sub = sub_line(c);
     // Closed, the test result rides on the small line.
-    let closed_test = test.filter(|_| !open).map(|(mark, color, t)| (color, format!("{mark} {} {}", t.command, if t.ok { "通过" } else { "失败" })));
+    let closed_test = test.filter(|_| !open).map(|(mark, color, t)| {
+        (
+            color,
+            format!(
+                "{mark} {} {}",
+                t.command,
+                if t.ok {
+                    crate::i18n::text("通过", "passed")
+                } else {
+                    crate::i18n::text("失败", "failed")
+                }
+            ),
+        )
+    });
     if !sub.is_empty() || closed_test.is_some() {
         let sep = if sub.is_empty() { "" } else { " · " };
         // The turns / follow-ups (prompt heads, possibly long) shrink and truncate; the test result stays whole
@@ -493,7 +609,16 @@ fn render_card(
         );
     }
     if c.touched_later {
-        let text = c.touched_later_turn.map_or("后被改动".to_string(), |n| format!("后被改动 · 第 {n} 轮"));
+        let text = c.touched_later_turn.map_or(
+            crate::i18n::text("后被改动", "Changed later").to_string(),
+            |n| {
+                if crate::i18n::current() == crate::i18n::Language::English {
+                    format!("Changed later · Turn {n}")
+                } else {
+                    format!("后被改动 · 第 {n} 轮")
+                }
+            },
+        );
         card = card.child(div().text_size(px(11.)).text_color(k.yellow).child(text));
     }
     if open {
@@ -518,15 +643,48 @@ fn render_card(
                         cx.stop_propagation();
                         ws.show_all_artifact_files(key, cx)
                     }))
-                    .child(format!("另有 {} 个文件 · 按目录分组查看全部", c.files.len() - SHOWN_FILES)),
+                    .child(
+                        if crate::i18n::current() == crate::i18n::Language::English {
+                            format!(
+                                "{} more files · View all grouped by folder",
+                                c.files.len() - SHOWN_FILES
+                            )
+                        } else {
+                            format!(
+                                "另有 {} 个文件 · 按目录分组查看全部",
+                                c.files.len() - SHOWN_FILES
+                            )
+                        },
+                    ),
             );
         }
         if let Some((mark, color, t)) = test {
-            card = card.child(div().text_size(px(11.)).text_color(color).child(match t.exit {
-                Some(code) if !t.ok => format!("{mark} {} 失败（退出码 {code}）", t.command),
-                _ if t.ok => format!("{mark} {} 通过", t.command),
-                _ => format!("{mark} {} 失败", t.command),
-            }));
+            card = card.child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(color)
+                    .child(match t.exit {
+                        Some(code)
+                            if !t.ok
+                                && crate::i18n::current() == crate::i18n::Language::English =>
+                        {
+                            format!("{mark} {} failed (exit code {code})", t.command)
+                        }
+                        Some(code) if !t.ok => {
+                            format!("{mark} {} 失败（退出码 {code}）", t.command)
+                        }
+                        _ if t.ok => format!(
+                            "{mark} {} {}",
+                            t.command,
+                            crate::i18n::text("通过", "passed")
+                        ),
+                        _ => format!(
+                            "{mark} {} {}",
+                            t.command,
+                            crate::i18n::text("失败", "failed")
+                        ),
+                    }),
+            );
         }
     }
     for n in &c.notices {

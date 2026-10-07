@@ -69,6 +69,7 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 路径可用 `XDG_CONFIG_HOME` 覆盖（`$XDG_CONFIG_HOME/gilvt/config.toml`）；`scrollback` 上限为 1000000，字号范围 6–72，行高范围 1.0–2.0。
 
 ```toml
+language = "zh-CN"      # zh-CN | en；也可在「设置 → 语言」中切换
 font_family = "Menlo"
 font_size = 13.0
 line_height = 1.25
@@ -93,6 +94,8 @@ dock_bounce = true        # 有会话开始需要你、gilvt 在后台时 Dock �
 # background = "#1b1b26"
 # palette = { 1 = "#ff5f5f" }
 ```
+
+`language` 控制 gilvt 自身界面的语言，不影响终端内程序的输出。默认保持简体中文；在 `⌘,` 设置窗口的「语言」页选择 English 后立即应用到所有窗口，并写回 `config.toml`。手动修改该键也会热重载。
 
 ## 主题
 

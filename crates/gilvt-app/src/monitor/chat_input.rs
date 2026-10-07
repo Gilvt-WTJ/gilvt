@@ -185,8 +185,14 @@ pub enum InputPlace {
 impl InputPlace {
     pub fn placeholder(self) -> &'static str {
         match self {
-            InputPlace::Panel => PLACEHOLDER,
-            InputPlace::CommandBar => super::command_bar::PLACEHOLDER,
+            InputPlace::Panel => crate::i18n::text(
+                PLACEHOLDER,
+                "Ask another question… (@ choose sessions · ⏎ send · ⇧⏎ newline)",
+            ),
+            InputPlace::CommandBar => crate::i18n::text(
+                super::command_bar::PLACEHOLDER,
+                "Ask Monitor… (@ choose sessions · ⏎ send · Esc collapse)",
+            ),
         }
     }
 

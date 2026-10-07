@@ -490,7 +490,10 @@ impl Render for FinderView {
                     .text_color(muted)
                     .bg(hsla(mix(p.background, p.foreground, 0.06)))
                     .child(div().children(truncated))
-                    .child(div().whitespace_nowrap().child("⏎ 预览 · ⌘⏎ 固定 · ⌥⏎ 插入路径 · Esc 关闭")),
+                    .child(div().whitespace_nowrap().child(crate::i18n::text(
+                        "⏎ 预览 · ⌘⏎ 固定 · ⌥⏎ 插入路径 · Esc 关闭",
+                        "⏎ preview · ⌘⏎ pin · ⌥⏎ insert path · Esc close",
+                    ))),
             )
     }
 }

@@ -128,10 +128,28 @@ fn title(turn: u32, on: Filter, started: Option<&str>, ix: usize, cx: &Ctx) -> A
                 .flex()
                 .items_baseline()
                 .text_color(k.head)
-                .child(format!("时间线 · 第 {turn} 轮"))
-                .children(started.map(|t| div().font_weight(FontWeight::NORMAL).text_color(k.dur).child(format!("\u{a0}·\u{a0}{t}")))),
+                .child(
+                    if crate::i18n::current() == crate::i18n::Language::English {
+                        format!("Timeline · Turn {turn}")
+                    } else {
+                        format!("时间线 · 第 {turn} 轮")
+                    },
+                )
+                .children(started.map(|t| {
+                    div()
+                        .font_weight(FontWeight::NORMAL)
+                        .text_color(k.dur)
+                        .child(format!("\u{a0}·\u{a0}{t}"))
+                })),
         )
-        .child(div().flex().gap(px(4.)).mt(px(2.)).mb(px(6.)).children(chips))
+        .child(
+            div()
+                .flex()
+                .gap(px(4.))
+                .mt(px(2.))
+                .mb(px(6.))
+                .children(chips),
+        )
         .into_any_element()
 }
 
@@ -141,7 +159,16 @@ fn row_item(row: &Row, ix: usize, cx: &Ctx) -> AnyElement {
         RowKind::Tool(t) => tool(row, t, ix, cx),
         RowKind::Thinking { secs, expandable, text } => thinking(row, secs.as_deref(), *expandable, text.as_deref(), ix, cx),
         RowKind::Returned(result) => line("↩", result.clone(), cx.k.muted, ix),
-        RowKind::Truncated(n) => line("…", format!("另有 {n} 条"), cx.k.muted, ix),
+        RowKind::Truncated(n) => line(
+            "…",
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("{n} more")
+            } else {
+                format!("另有 {n} 条")
+            },
+            cx.k.muted,
+            ix,
+        ),
         RowKind::Empty(note) => line("", (*note).to_string(), cx.k.muted, ix),
     };
     let body = if row.sub { div().ml(px(10.)).pl(px(6.)).border_l_2().border_color(cx.k.rule).child(body).into_any_element() } else { body };
@@ -283,7 +310,7 @@ fn detail(lines: &[DetailLine], ix: usize, cx: &Ctx) -> AnyElement {
         .font_family(UI_FONT)
         .text_size(px(10.))
         .cursor_pointer()
-        .child("复制")
+        .child(crate::i18n::text("复制", "Copy"))
         .on_click(cx.on_ws(move |ws, _, _, cx| {
             cx.stop_propagation();
             ws.copy_timeline_detail(text.clone(), cx);
@@ -293,7 +320,12 @@ fn detail(lines: &[DetailLine], ix: usize, cx: &Ctx) -> AnyElement {
         DetailLine::More(s) => div().pl(px(12.)).child(s.clone()),
         DetailLine::Output(s) => div().text_color(k.meta).child(if s.is_empty() { " ".to_string() } else { s.clone() }),
     });
-    let empty = lines.is_empty().then(|| div().text_color(k.muted).child("（没有记录参数或输出）"));
+    let empty = lines.is_empty().then(|| {
+        div().text_color(k.muted).child(crate::i18n::text(
+            "（没有记录参数或输出）",
+            "(No recorded arguments or output)",
+        ))
+    });
     div()
         .relative()
         .ml(px(38.))
@@ -318,8 +350,11 @@ fn detail(lines: &[DetailLine], ix: usize, cx: &Ctx) -> AnyElement {
 fn thinking(row: &Row, secs: Option<&str>, expandable: bool, text: Option<&[String]>, ix: usize, cx: &Ctx) -> AnyElement {
     let k = &cx.k;
     let label = match secs {
+        Some(s) if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("Thinking · {s}")
+        }
         Some(s) => format!("思考 · {s}"),
-        None => "思考".to_string(),
+        None => crate::i18n::text("思考", "Thinking").to_string(),
     };
     let label = if expandable { format!("{label} {}", if text.is_some() { "▾" } else { "▸" }) } else { label };
     let key = row.key.clone();

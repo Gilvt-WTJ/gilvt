@@ -102,7 +102,12 @@ impl Focusable for RenameField {
 
 impl RenameField {
     pub fn new(current: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::with_placeholder(current, "留空 = 自动名称", window, cx)
+        Self::with_placeholder(
+            current,
+            crate::i18n::text("留空 = 自动名称", "Leave empty for automatic name"),
+            window,
+            cx,
+        )
     }
 
     /// The same field with another grey hint while it is empty (the settings window's model and path boxes).

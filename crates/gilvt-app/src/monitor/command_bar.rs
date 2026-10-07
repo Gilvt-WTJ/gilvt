@@ -91,30 +91,41 @@ fn pending_error(conv: &Conversation) -> Option<&Message> {
 
 /// The collapsed line (Decision 8).
 pub fn collapsed_line(conv: &Conversation) -> String {
-    let with = |s: &str| format!("{TITLE} · {s}");
+    let title = crate::i18n::text(TITLE, "◎ Monitor");
+    let with = |s: &str| format!("{title} · {s}");
     match conv.status {
-        Status::Starting => return with("启动中…"),
-        Status::Answering => return with("回答中…"),
-        Status::Stopping => return with("停止中…"),
+        Status::Starting => return with(crate::i18n::text("启动中…", "Starting…")),
+        Status::Answering => return with(crate::i18n::text("回答中…", "Answering…")),
+        Status::Stopping => return with(crate::i18n::text("停止中…", "Stopping…")),
         Status::Error | Status::Idle => {}
     }
     if let Some(m) = pending_error(conv) {
-        let what = m.card.as_ref().map_or(m.text.as_str(), |c| c.title.as_str());
-        return with(&format!("出错：{}", clip(what.lines().next().unwrap_or(""), LINE_MAX_CHARS)));
+        let what = m
+            .card
+            .as_ref()
+            .map_or(m.text.as_str(), |c| c.title.as_str());
+        let line = clip(what.lines().next().unwrap_or(""), LINE_MAX_CHARS);
+        return with(
+            &if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Error: {line}")
+            } else {
+                format!("出错：{line}")
+            },
+        );
     }
     // Only the newest answer counts: when it has no sentence (code only, a stopped turn without text) show the title.
     match conv.messages.iter().rev().find(|m| m.role == Role::Assistant).and_then(|m| first_sentence(&m.text)) {
         Some(s) => with(&s),
-        None => TITLE.to_string(),
+        None => title.to_string(),
     }
 }
 
 /// The line's right-hand hint.
 pub fn hint_text(expanded: bool) -> &'static str {
     if expanded {
-        HINT_OPEN
+        crate::i18n::text(HINT_OPEN, "Esc collapse")
     } else {
-        HINT
+        crate::i18n::text(HINT, "⇧⌘M ask")
     }
 }
 
@@ -139,7 +150,13 @@ pub fn question_line(m: &Message) -> String {
 /// The popup as plain text (DebugState `popup_text`): the question, then each reply's tool rows and Markdown lines,
 /// notices and errors; [`EMPTY_POPUP`] before the first question.
 pub fn popup_text(messages: &[Message]) -> String {
-    let Some(x) = last_exchange(messages) else { return EMPTY_POPUP.to_string() };
+    let Some(x) = last_exchange(messages) else {
+        return crate::i18n::text(
+            EMPTY_POPUP,
+            "No conversation yet. Try asking \"What needs me?\"",
+        )
+        .to_string();
+    };
     let mut out = vec![question_line(&messages[x.question])];
     for m in &messages[x.replies] {
         match m.role {
@@ -349,7 +366,12 @@ pub fn popup(bar: &CommandBar, window: &Window, cx: &mut Context<Workspace>) -> 
     };
     let mut body = div().id("command-bar-scroll").max_h(px(POPUP_MAX_HEIGHT)).overflow_y_scroll().track_scroll(&bar.scroll).flex().flex_col().gap_1();
     match last_exchange(msgs) {
-        None => body = body.child(div().text_color(k.faint).child(EMPTY_POPUP)),
+        None => {
+            body = body.child(div().text_color(k.faint).child(crate::i18n::text(
+                EMPTY_POPUP,
+                "No conversation yet. Try asking \"What needs me?\"",
+            )))
+        }
         Some(x) => {
             body = body.child(div().text_size(px(10.5)).text_color(k.faint).child(question_line(&msgs[x.question])));
             for n in x.replies {
@@ -385,8 +407,15 @@ pub fn popup(bar: &CommandBar, window: &Window, cx: &mut Context<Workspace>) -> 
             .child(body)
             .child(
                 div().flex().child(
-                    chat_view::button("command-bar-open-monitor", RectId::CommandBarOpenMonitor, OPEN_MONITOR, &k)
-                        .on_click(cx.listener(|ws, _, window, cx| ws.command_bar_open_monitor(window, cx))),
+                    chat_view::button(
+                        "command-bar-open-monitor",
+                        RectId::CommandBarOpenMonitor,
+                        crate::i18n::text(OPEN_MONITOR, "View in Monitor ↗"),
+                        &k,
+                    )
+                    .on_click(
+                        cx.listener(|ws, _, window, cx| ws.command_bar_open_monitor(window, cx)),
+                    ),
                 ),
             )
             .children(picker_el)

@@ -32,19 +32,30 @@ impl Preset {
 
     pub fn label(self) -> &'static str {
         match self {
-            Preset::Empty => "空会话",
-            Preset::ReviewedStale => "已 Review 且 30 天未动",
-            Preset::Largest => "最大的 20 个",
-            Preset::ArchivedStale => "已归档且 90 天未动",
+            Preset::Empty => crate::i18n::text("空会话", "Empty sessions"),
+            Preset::ReviewedStale => crate::i18n::text(
+                "已 Review 且 30 天未动",
+                "Reviewed and inactive for 30 days",
+            ),
+            Preset::Largest => crate::i18n::text("最大的 20 个", "Largest 20"),
+            Preset::ArchivedStale => {
+                crate::i18n::text("已归档且 90 天未动", "Archived and inactive for 90 days")
+            }
         }
     }
 
     pub fn hint(self) -> &'static str {
         match self {
-            Preset::Empty => "没有实质提示词 · 移到废纸篓",
-            Preset::ReviewedStale => "默认：归档",
-            Preset::Largest => "含附属数据 · 移到废纸篓",
-            Preset::ArchivedStale => "移到废纸篓",
+            Preset::Empty => crate::i18n::text(
+                "没有实质提示词 · 移到废纸篓",
+                "No meaningful prompt · move to Trash",
+            ),
+            Preset::ReviewedStale => crate::i18n::text("默认：归档", "Default: archive"),
+            Preset::Largest => crate::i18n::text(
+                "含附属数据 · 移到废纸篓",
+                "Includes companion data · move to Trash",
+            ),
+            Preset::ArchivedStale => crate::i18n::text("移到废纸篓", "Move to Trash"),
         }
     }
 

@@ -12,10 +12,21 @@ use crate::config_file::edit::{Edit, TomlValue};
 use crate::settings::{MonitorProvider, MonitorSettings};
 
 pub const INTERVALS: [&str; 4] = ["1m", "2m", "5m", "10m"];
-pub const DEFAULT_LABEL: &str = "CLI 默认";
-pub const SAME_LABEL: &str = "同对话模型";
-pub const OTHER_LABEL: &str = "其他…";
-pub const NOT_LISTED: &str = "⚠ 不在列表中";
+fn default_label() -> &'static str {
+    crate::i18n::text("CLI 默认", "CLI default")
+}
+
+fn same_label() -> &'static str {
+    crate::i18n::text("同对话模型", "Same as chat model")
+}
+
+fn other_label() -> &'static str {
+    crate::i18n::text("其他…", "Other…")
+}
+
+fn not_listed() -> &'static str {
+    crate::i18n::text("⚠ 不在列表中", "⚠ Not in list")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FieldId {
@@ -161,10 +172,26 @@ pub fn model_ids(provider: MonitorProvider, codex: &CodexModels) -> Option<Vec<S
 /// CLI 默认 (chat) or 同对话模型 (summary), the known models, 其他….
 pub fn model_options(value: &str, summary: bool, known: Option<&[String]>) -> Vec<OptionModel> {
     let v = value.trim();
-    let first = if summary { SAME_LABEL } else { DEFAULT_LABEL };
-    let mut out = vec![OptionModel { label: first.into(), value: OptValue::Set(String::new()), selected: v.is_empty() }];
-    out.extend(known.unwrap_or(&[]).iter().map(|id| OptionModel { label: id.clone(), value: OptValue::Set(id.clone()), selected: v == id }));
-    out.push(OptionModel { label: OTHER_LABEL.into(), value: OptValue::Other, selected: false });
+    let first = if summary {
+        same_label()
+    } else {
+        default_label()
+    };
+    let mut out = vec![OptionModel {
+        label: first.into(),
+        value: OptValue::Set(String::new()),
+        selected: v.is_empty(),
+    }];
+    out.extend(known.unwrap_or(&[]).iter().map(|id| OptionModel {
+        label: id.clone(),
+        value: OptValue::Set(id.clone()),
+        selected: v == id,
+    }));
+    out.push(OptionModel {
+        label: other_label().into(),
+        value: OptValue::Other,
+        selected: false,
+    });
     out
 }
 
@@ -172,10 +199,15 @@ pub fn model_options(value: &str, summary: bool, known: Option<&[String]>) -> Ve
 pub fn model_label(value: &str, summary: bool, known: Option<&[String]>) -> String {
     let v = value.trim();
     if v.is_empty() {
-        return if summary { SAME_LABEL } else { DEFAULT_LABEL }.into();
+        return if summary {
+            same_label()
+        } else {
+            default_label()
+        }
+        .into();
     }
     match known {
-        Some(list) if !list.iter().any(|m| m == v) => format!("{v} {NOT_LISTED}"),
+        Some(list) if !list.iter().any(|m| m == v) => format!("{v} {}", not_listed()),
         _ => v.to_string(),
     }
 }
@@ -185,7 +217,16 @@ pub fn interval_options(value: &str) -> Vec<OptionModel> {
     let v = value.trim();
     let mut out: Vec<OptionModel> = INTERVALS.iter().map(|i| OptionModel { label: i.to_string(), value: OptValue::Set(i.to_string()), selected: *i == v }).collect();
     if !INTERVALS.contains(&v) {
-        out.push(OptionModel { label: format!("自定义：{v}"), value: OptValue::Set(v.to_string()), selected: true });
+        let label = if crate::i18n::current() == crate::i18n::Language::English {
+            format!("Custom: {v}")
+        } else {
+            format!("自定义：{v}")
+        };
+        out.push(OptionModel {
+            label,
+            value: OptValue::Set(v.to_string()),
+            selected: true,
+        });
     }
     out
 }
@@ -203,8 +244,16 @@ pub fn tilde(path: &Path, home: Option<&Path>) -> String {
 pub fn fields(m: &MonitorSettings, codex: &CodexModels) -> Vec<FieldModel> {
     let known = model_ids(m.provider, codex);
     let list_hint = match (m.provider, codex) {
-        (MonitorProvider::Codex, CodexModels::Loading) => Some("正在读取模型列表…".to_string()),
-        (MonitorProvider::Codex, CodexModels::Failed(e)) => Some(format!("读取模型列表失败：{e}")),
+        (MonitorProvider::Codex, CodexModels::Loading) => {
+            Some(crate::i18n::text("正在读取模型列表…", "Loading model list…").to_string())
+        }
+        (MonitorProvider::Codex, CodexModels::Failed(e)) => Some(
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("Failed to load model list: {e}")
+            } else {
+                format!("读取模型列表失败：{e}")
+            },
+        ),
         _ => None,
     };
     FieldId::ALL
@@ -212,7 +261,10 @@ pub fn fields(m: &MonitorSettings, codex: &CodexModels) -> Vec<FieldModel> {
         .map(|&id| {
             let plain = |label: String, value: Value| FieldModel { id, label, value, options: Vec::new(), hint: None };
             match id {
-                FieldId::Enabled => plain("启用监控官".into(), json!(m.enabled)),
+                FieldId::Enabled => plain(
+                    crate::i18n::text("启用监控官", "Enable Monitor").into(),
+                    json!(m.enabled),
+                ),
                 FieldId::Provider => FieldModel {
                     id,
                     label: provider_label(m.provider).into(),
@@ -237,29 +289,57 @@ pub fn fields(m: &MonitorSettings, codex: &CodexModels) -> Vec<FieldModel> {
                     options: model_options(&m.summary_model, true, known.as_deref()),
                     hint: None,
                 },
-                FieldId::RefreshModels => plain("↻ 刷新".into(), Value::Null),
+                FieldId::RefreshModels => {
+                    plain(crate::i18n::text("↻ 刷新", "↻ Refresh").into(), Value::Null)
+                }
                 FieldId::Command => plain(
-                    m.command().map(str::to_string).unwrap_or_else(|| format!("{}（在 PATH 里查找）", provider_name(m.provider))),
+                    m.command().map(str::to_string).unwrap_or_else(|| {
+                        if crate::i18n::current() == crate::i18n::Language::English {
+                            format!("{} (find in PATH)", provider_name(m.provider))
+                        } else {
+                            format!("{}（在 PATH 里查找）", provider_name(m.provider))
+                        }
+                    }),
                     json!(m.command),
                 ),
-                FieldId::ChooseCommand => plain("选择…".into(), Value::Null),
-                FieldId::Test => plain("测试连接".into(), Value::Null),
-                FieldId::AutoSummary => plain("自动刷新".into(), json!(m.auto_summary)),
+                FieldId::ChooseCommand => {
+                    plain(crate::i18n::text("选择…", "Choose…").into(), Value::Null)
+                }
+                FieldId::Test => plain(
+                    crate::i18n::text("测试连接", "Test Connection").into(),
+                    Value::Null,
+                ),
+                FieldId::AutoSummary => plain(
+                    crate::i18n::text("自动刷新", "Automatic refresh").into(),
+                    json!(m.auto_summary),
+                ),
                 FieldId::SummaryInterval => {
                     let options = interval_options(&m.summary_interval);
                     let label = options.iter().find(|o| o.selected).map(|o| o.label.clone()).unwrap_or_default();
                     FieldModel { id, label, value: json!(m.summary_interval), options, hint: None }
                 }
-                FieldId::SidebarSummary => plain("左栏显示摘要行".into(), json!(m.sidebar_summary)),
+                FieldId::SidebarSummary => plain(
+                    crate::i18n::text("左栏显示摘要行", "Show summaries in sidebar").into(),
+                    json!(m.sidebar_summary),
+                ),
                 FieldId::ExcludePaths => FieldModel {
                     id,
-                    label: if m.exclude_paths.is_empty() { "（无）".into() } else { m.exclude_paths.join("、") },
+                    label: if m.exclude_paths.is_empty() {
+                        crate::i18n::text("（无）", "None").into()
+                    } else {
+                        m.exclude_paths.join(", ")
+                    },
                     value: json!(m.exclude_paths),
                     options: m.exclude_paths.iter().map(|p| OptionModel { label: p.clone(), value: OptValue::Set(p.clone()), selected: false }).collect(),
                     hint: None,
                 },
-                FieldId::AddExclude => plain("＋ 添加…".into(), Value::Null),
-                FieldId::OpenConfig => plain("在编辑器中打开".into(), Value::Null),
+                FieldId::AddExclude => {
+                    plain(crate::i18n::text("＋ 添加…", "+ Add…").into(), Value::Null)
+                }
+                FieldId::OpenConfig => plain(
+                    crate::i18n::text("在编辑器中打开", "Open in Editor").into(),
+                    Value::Null,
+                ),
             }
         })
         .collect()

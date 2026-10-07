@@ -21,6 +21,7 @@ pub struct TimelineUi {
     pub open: Expanded,
     /// Bumped by every filter / expansion change (row caches compare it).
     gen: u64,
+    language: crate::i18n::Language,
     session: Option<SessionKey>,
     turns: Vec<Arc<Turn>>,
     built: Option<u64>,
@@ -39,6 +40,7 @@ impl Default for TimelineUi {
             filter: Filter::All,
             open: Expanded::default(),
             gen: 0,
+            language: crate::i18n::current(),
             session: None,
             turns: Vec::new(),
             built: None,
@@ -115,6 +117,11 @@ impl TimelineUi {
     /// returns the entries to draw.
     pub fn sync(&mut self, session: &SessionKey, turns: &[Arc<Turn>], head: u64) -> Rc<Vec<Entry>> {
         self.switch_to(session);
+        let language = crate::i18n::current();
+        if self.language != language {
+            self.language = language;
+            self.gen += 1;
+        }
         let same = self.built == Some(self.gen) && self.turns.len() == turns.len() && self.turns.iter().zip(turns).all(|(a, b)| Arc::ptr_eq(a, b));
         if !same {
             let old = self.entries.clone();

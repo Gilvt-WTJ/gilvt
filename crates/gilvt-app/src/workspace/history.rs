@@ -45,9 +45,19 @@ impl Workspace {
                     match crate::external_navigation::navigate(runtime) {
                         Ok(()) => ws.error = None,
                         Err(error) => {
-                            let tty = runtime.tty.as_deref().map_or("unknown".into(), |tty| tty.display().to_string());
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(format!("pid={}\ntty={tty}", runtime.pid)));
-                            ws.error = Some(format!("{error}；TTY/PID 已复制，请手动切换"));
+                            let tty = runtime
+                                .tty
+                                .as_deref()
+                                .map_or("unknown".into(), |tty| tty.display().to_string());
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(format!(
+                                "pid={}\ntty={tty}",
+                                runtime.pid
+                            )));
+                            ws.error = Some(if crate::i18n::current() == crate::i18n::Language::English {
+                                format!("{error}; TTY/PID copied, switch manually")
+                            } else {
+                                format!("{error}；TTY/PID 已复制，请手动切换")
+                            });
                         }
                     }
                     ws.focus_active(window, cx);

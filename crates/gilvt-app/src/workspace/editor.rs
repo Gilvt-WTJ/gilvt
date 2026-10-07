@@ -90,7 +90,11 @@ fn is_not_found(e: &EditorError) -> bool {
 /// The banner's reason text and buttons for a file `load_model` refused.
 pub(super) fn refusal(e: &EditorError) -> (String, RefusalButtons) {
     let missing = is_not_found(e);
-    let reason = if missing { "文件不存在".to_string() } else { e.to_string() };
+    let reason = if missing {
+        crate::i18n::text("文件不存在", "File does not exist").to_string()
+    } else {
+        e.to_string()
+    };
     let external = !missing && !matches!(e, EditorError::Binary | EditorError::TooLarge { .. });
     let reopen = matches!(e, EditorError::UnsupportedEncoding);
     (reason, RefusalButtons { external, preview: !missing, reopen })
@@ -290,27 +294,49 @@ impl Workspace {
             .py_1()
             .text_size(px(12.))
             .bg(hsla(mix(p.background, p.ansi[1], 0.25)))
-            .child(div().flex_1().min_w(px(0.)).truncate().child(format!("不能编辑 {name}：{}", r.message)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .child(if crate::i18n::current() == crate::i18n::Language::English {
+                        format!("Cannot edit {name}: {}", r.message)
+                    } else {
+                        format!("不能编辑 {name}：{}", r.message)
+                    }),
+            )
             .children(r.buttons.external.then(|| {
-                button("editor-refusal-external", "在外部编辑器中打开").on_click(cx.listener(move |ws, _, _, cx| {
-                    open_in_editor(&path, line);
-                    ws.editor_refusal = None;
-                    cx.notify();
-                }))
+                button("editor-refusal-external", crate::i18n::text("在外部编辑器中打开", "Open in External Editor")).on_click(cx.listener(
+                    move |ws, _, _, cx| {
+                        open_in_editor(&path, line);
+                        ws.editor_refusal = None;
+                        cx.notify();
+                    },
+                ))
             }))
             .children(r.buttons.reopen.then(|| {
-                button("editor-refusal-pick-encoding", "选择编码打开…").on_click(cx.listener(|ws, _, window, cx| ws.reopen_refused(true, window, cx)))
+                button("editor-refusal-pick-encoding", crate::i18n::text("选择编码打开…", "Choose Encoding…"))
+                    .on_click(cx.listener(|ws, _, window, cx| ws.reopen_refused(true, window, cx)))
             }))
             .children(r.buttons.reopen.then(|| {
-                button("editor-refusal-read-only", "以只读方式打开").on_click(cx.listener(|ws, _, window, cx| ws.reopen_refused(false, window, cx)))
+                button("editor-refusal-read-only", crate::i18n::text("以只读方式打开", "Open as Read Only"))
+                    .on_click(cx.listener(|ws, _, window, cx| ws.reopen_refused(false, window, cx)))
             }))
             .children(r.buttons.preview.then(|| {
-                button("editor-refusal-preview", "预览").on_click(cx.listener(move |ws, _, window, cx| {
-                    ws.editor_refusal = None;
-                    ws.open_preview(OpenRequest::file(preview_path.clone(), line, None), false, origin, window, cx);
-                }))
+                button("editor-refusal-preview", crate::i18n::text("预览", "Preview")).on_click(cx.listener(
+                    move |ws, _, window, cx| {
+                        ws.editor_refusal = None;
+                        ws.open_preview(
+                            OpenRequest::file(preview_path.clone(), line, None),
+                            false,
+                            origin,
+                            window,
+                            cx,
+                        );
+                    },
+                ))
             }))
-            .child(button("editor-refusal-dismiss", "知道了").on_click(cx.listener(|ws, _, _, cx| {
+            .child(button("editor-refusal-dismiss", crate::i18n::text("知道了", "Dismiss")).on_click(cx.listener(|ws, _, _, cx| {
                 ws.editor_refusal = None;
                 cx.notify();
             })))

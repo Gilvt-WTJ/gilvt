@@ -200,12 +200,38 @@ pub struct Open<'a> {
 impl Notice {
     pub fn text(&self) -> String {
         match self {
-            Notice::NotGit => "非 git 目录，暂不记录文件改动".into(),
-            Notice::NoSnapshot => "无快照：这一轮发生时 gilvt 没在记录".into(),
+            Notice::NotGit => crate::i18n::text(
+                "非 git 目录，暂不记录文件改动",
+                "Not a Git directory; file changes are not recorded",
+            )
+            .into(),
+            Notice::NoSnapshot => crate::i18n::text(
+                "无快照：这一轮发生时 gilvt 没在记录",
+                "No snapshot: gilvt was not recording during this turn",
+            )
+            .into(),
+            Notice::Failed(why) if crate::i18n::current() == crate::i18n::Language::English => {
+                format!("Snapshot failed: {why}")
+            }
             Notice::Failed(why) => format!("快照失败：{why}"),
-            Notice::Lost => "中断：没有看到这一轮的结束".into(),
+            Notice::Lost => crate::i18n::text(
+                "中断：没有看到这一轮的结束",
+                "Interrupted: the end of this turn was not observed",
+            )
+            .into(),
+            Notice::LargeSkipped(n) if crate::i18n::current() == crate::i18n::Language::English => {
+                format!("Skipped {n} large files")
+            }
             Notice::LargeSkipped(n) => format!("{n} 个大文件已跳过"),
+            Notice::DiffFailed(why) if crate::i18n::current() == crate::i18n::Language::English => {
+                format!("Failed to calculate net changes: {why}")
+            }
             Notice::DiffFailed(why) => format!("净改动计算失败：{why}"),
+            Notice::InTurn(n, inner)
+                if crate::i18n::current() == crate::i18n::Language::English =>
+            {
+                format!("Turn {n}: {}", inner.text())
+            }
             Notice::InTurn(n, inner) => format!("第 {n} 轮：{}", inner.text()),
         }
     }
@@ -226,9 +252,18 @@ impl CardState {
 pub fn relative(now: SystemTime, then: SystemTime) -> String {
     let secs = now.duration_since(then).map_or(0, |d| d.as_secs());
     match secs {
-        0..60 => "刚刚".into(),
+        0..60 => crate::i18n::text("刚刚", "Just now").into(),
+        60..3600 if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("{}m ago", secs / 60)
+        }
         60..3600 => format!("{} 分钟前", secs / 60),
+        3600..86_400 if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("{}h ago", secs / 3600)
+        }
         3600..86_400 => format!("{} 小时前", secs / 3600),
+        _ if crate::i18n::current() == crate::i18n::Language::English => {
+            format!("{}d ago", secs / 86_400)
+        }
         _ => format!("{} 天前", secs / 86_400),
     }
 }

@@ -55,6 +55,7 @@ pub struct SessionCenterView {
 struct ProjectionStamp {
     generation: u64,
     refreshing: bool,
+    language: crate::i18n::Language,
     tab: Tab,
     query: String,
     sort: ReviewSort,
@@ -275,6 +276,7 @@ impl SessionCenterView {
         let stamp = ProjectionStamp {
             generation: self.snapshot.generation,
             refreshing: self.snapshot.refreshing,
+            language: crate::i18n::current(),
             tab: self.tab,
             query: self.query.clone(),
             sort: self.sort,

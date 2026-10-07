@@ -42,9 +42,12 @@ pub fn render(ws: &Workspace, k: Colors, cx: &mut Context<Workspace>) -> AnyElem
                             .text_size(px(11.))
                             .text_color(k.meta)
                             .child(if loading {
-                                "正在读取配置…"
+                                crate::i18n::text("正在读取配置…", "Loading configuration…")
                             } else {
-                                "只读 · 不显示密钥和环境变量值"
+                                crate::i18n::text(
+                                    "只读 · 不显示密钥和环境变量值",
+                                    "Read-only · secrets and environment values are hidden",
+                                )
                             }),
                     )
                     .child(
@@ -54,7 +57,7 @@ pub fn render(ws: &Workspace, k: Colors, cx: &mut Context<Workspace>) -> AnyElem
                             .children(rects::recorder(RectId::InspectorConfigRefresh))
                             .cursor_pointer()
                             .text_color(k.blue)
-                            .child("刷新")
+                            .child(crate::i18n::text("刷新", "Refresh"))
                             .on_click(cx.listener(|ws, _, _, cx| ws.refresh_config_summary(cx))),
                     ),
             )
@@ -72,8 +75,14 @@ fn empty(k: &Colors) -> AnyElement {
         .items_center()
         .line_height(relative(1.8))
         .text_color(k.empty)
-        .child("当前 pane 没有 Agent 会话")
-        .child("运行 claude 或 codex 后查看生效配置")
+        .child(crate::i18n::text(
+            "当前 pane 没有 Agent 会话",
+            "The current pane has no Agent session",
+        ))
+        .child(crate::i18n::text(
+            "运行 claude 或 codex 后查看生效配置",
+            "Run claude or codex to inspect its effective configuration",
+        ))
         .into_any_element()
 }
 
@@ -99,10 +108,13 @@ fn cards(ws: &Workspace, summary: &Summary, k: &Colors, cx: &mut Context<Workspa
                 ),
         )
         .child(values_card(
-            "模型 / 模式",
+            crate::i18n::text("模型 / 模式", "Model / Mode"),
             [
-                ("模型", summary.model.as_ref()),
-                ("权限模式", summary.permission.as_ref()),
+                (crate::i18n::text("模型", "Model"), summary.model.as_ref()),
+                (
+                    crate::i18n::text("权限模式", "Permission mode"),
+                    summary.permission.as_ref(),
+                ),
             ],
             k,
         ))
@@ -110,7 +122,7 @@ fn cards(ws: &Workspace, summary: &Summary, k: &Colors, cx: &mut Context<Workspa
             Section::Mcp,
             &format!("MCP · {}", summary.mcp.len()),
             &summary.mcp,
-            "没有发现 MCP server",
+            crate::i18n::text("没有发现 MCP server", "No MCP servers found"),
             (open, &mut row),
             k,
             cx,
@@ -120,16 +132,22 @@ fn cards(ws: &Workspace, summary: &Summary, k: &Colors, cx: &mut Context<Workspa
             Section::Hooks,
             &format!("Hooks · {}", summary.hooks.len()),
             &summary.hooks,
-            "没有发现 hooks / notify",
+            crate::i18n::text(
+                "没有发现 hooks / notify",
+                "No hooks / notify configuration found",
+            ),
             (open, &mut row),
             k,
             cx,
         ))
         .child(items_card(
             Section::Memory,
-            "记忆 / 指令",
+            crate::i18n::text("记忆 / 指令", "Memory / Instructions"),
             &summary.memory,
-            "没有发现 CLAUDE.md / AGENTS.md",
+            crate::i18n::text(
+                "没有发现 CLAUDE.md / AGENTS.md",
+                "No CLAUDE.md / AGENTS.md found",
+            ),
             (open, &mut row),
             k,
             cx,
@@ -169,9 +187,13 @@ fn values_card<'a>(
 }
 
 fn value_row(label: &str, value: Option<&Value>, k: &Colors) -> AnyElement {
-    let (text, source) = value.map_or(("未检测到".to_string(), None), |v| {
-        (v.text.clone(), Some(v.source))
-    });
+    let (text, source) = value.map_or(
+        (
+            crate::i18n::text("未检测到", "Not detected").to_string(),
+            None,
+        ),
+        |v| (v.text.clone(), Some(v.source)),
+    );
     div()
         .flex()
         .items_center()
@@ -285,8 +307,10 @@ fn open_link(ix: usize, path: PathBuf, k: &Colors, cx: &mut Context<Workspace>) 
         .pt(px(3.))
         .cursor_pointer()
         .text_color(k.blue)
-        .child("打开")
-        .on_click(cx.listener(move |ws, _, window, cx| ws.open_config_files(vec![path.clone()], 0, window, cx)))
+        .child(crate::i18n::text("打开", "Open"))
+        .on_click(cx.listener(move |ws, _, window, cx| {
+            ws.open_config_files(vec![path.clone()], 0, window, cx)
+        }))
         .into_any_element()
 }
 
@@ -297,36 +321,45 @@ fn edit_link(ix: usize, path: PathBuf, k: &Colors, cx: &mut Context<Workspace>) 
         .pt(px(3.))
         .cursor_pointer()
         .text_color(k.blue)
-        .child("编辑")
-        .on_click(cx.listener(move |ws, ev: &ClickEvent, window, cx| ws.open_config_edit(path.clone(), ev.modifiers().alt, window, cx)))
+        .child(crate::i18n::text("编辑", "Edit"))
+        .on_click(cx.listener(move |ws, ev: &ClickEvent, window, cx| {
+            ws.open_config_edit(path.clone(), ev.modifiers().alt, window, cx)
+        }))
         .into_any_element()
 }
 
 /// 「扩展」: one line per kind, with its count; a click opens the dialog that lists them.
 fn resource_card(summary: &Summary, k: &Colors, cx: &mut Context<Workspace>) -> AnyElement {
-    let mut body = card("扩展", k);
+    let mut body = card(crate::i18n::text("扩展", "Extensions"), k);
     for (ix, group) in Group::ALL.into_iter().enumerate() {
         let count = group.items(summary).len();
-        body = body.child(
-            div()
-                .id(("config-group", ix))
-                .relative()
-                .children(rects::recorder(RectId::ConfigGroup(ix)))
-                .flex()
-                .justify_between()
-                .py(px(2.))
-                .when(count > 0, |d| {
-                    d.cursor_pointer().on_click(cx.listener(move |ws, _, window, cx| ws.open_config_dialog(group, window, cx)))
-                })
-                .child(div().text_color(k.meta).child(group.title(summary.agent)))
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(4.))
-                        .child(count.to_string())
-                        .when(count > 0, |d| d.child(div().text_color(k.blue).child("查看 ›"))),
-                ),
-        );
+        body =
+            body.child(
+                div()
+                    .id(("config-group", ix))
+                    .relative()
+                    .children(rects::recorder(RectId::ConfigGroup(ix)))
+                    .flex()
+                    .justify_between()
+                    .py(px(2.))
+                    .when(count > 0, |d| {
+                        d.cursor_pointer()
+                            .on_click(cx.listener(move |ws, _, window, cx| {
+                                ws.open_config_dialog(group, window, cx)
+                            }))
+                    })
+                    .child(div().text_color(k.meta).child(group.title(summary.agent)))
+                    .child(div().flex().gap(px(4.)).child(count.to_string()).when(
+                        count > 0,
+                        |d| {
+                            d.child(
+                                div()
+                                    .text_color(k.blue)
+                                    .child(crate::i18n::text("查看 ›", "View ›")),
+                            )
+                        },
+                    )),
+            );
     }
     body.into_any_element()
 }
@@ -366,7 +399,7 @@ pub fn dialog(ws: &Workspace, _window: &mut Window, cx: &mut Context<Workspace>)
                     cx.stop_propagation();
                     ws.open_config_edit(path.clone(), ev.modifiers().alt, window, cx);
                 }))
-                .child("编辑")
+                .child(crate::i18n::text("编辑", "Edit"))
         });
         list = list.child(
             div()
@@ -390,8 +423,27 @@ pub fn dialog(ws: &Workspace, _window: &mut Window, cx: &mut Context<Workspace>)
                         .items_center()
                         .justify_between()
                         .gap(px(6.))
-                        .child(div().min_w(px(0.)).truncate().font_weight(FontWeight::SEMIBOLD).child(item.name.clone()))
-                        .child(div().flex_none().flex().items_center().gap(px(6.)).child(source_tag(item.source, &k)).children(edit).child(div().text_color(k.blue).child("打开"))),
+                        .child(
+                            div()
+                                .min_w(px(0.))
+                                .truncate()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(item.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(source_tag(item.source, &k))
+                                .children(edit)
+                                .child(
+                                    div()
+                                        .text_color(k.blue)
+                                        .child(crate::i18n::text("打开", "Open")),
+                                ),
+                        ),
                 )
                 .children(item.description.clone().map(|d| div().mt(px(2.)).text_size(px(12.)).text_color(k.detail).child(d)))
                 .child(div().mt(px(2.)).truncate().text_size(px(10.)).text_color(k.muted).child(item.path.display().to_string())),
@@ -432,20 +484,33 @@ pub fn dialog(ws: &Workspace, _window: &mut Window, cx: &mut Context<Workspace>)
                             .on_click(cx.listener(|ws, _, window, cx| ws.close_config_dialog(window, cx))),
                     ),
             )
-            .child(div().flex_none().px(px(12.)).pb(px(8.)).text_size(px(11.)).text_color(k.meta).child("点击一项预览，悬停出「编辑」（⌥ 翻转分屏 / 新标签），←/→ 切换，Esc 关闭"))
+            .child(div().flex_none().px(px(12.)).pb(px(8.)).text_size(px(11.)).text_color(k.meta).child(crate::i18n::text(
+                "点击一项预览，悬停出「编辑」（⌥ 翻转分屏 / 新标签），←/→ 切换，Esc 关闭",
+                "Click to preview; hover for Edit (⌥ toggles split / new tab), ←/→ switches, Esc closes",
+            )))
             .child(list)
             .into_any_element(),
     )
 }
 
 fn source_card(summary: &Summary, k: &Colors) -> AnyElement {
-    let mut body = card(format!("配置来源 · {}", summary.sources.len()), k);
+    let mut body = card(
+        if crate::i18n::current() == crate::i18n::Language::English {
+            format!("Configuration Sources · {}", summary.sources.len())
+        } else {
+            format!("配置来源 · {}", summary.sources.len())
+        },
+        k,
+    );
     if summary.sources.is_empty() {
         body = body.child(
             div()
                 .text_size(px(11.))
                 .text_color(k.muted)
-                .child("使用 Agent 默认配置"),
+                .child(crate::i18n::text(
+                    "使用 Agent 默认配置",
+                    "Using Agent defaults",
+                )),
         );
     }
     for source in &summary.sources {

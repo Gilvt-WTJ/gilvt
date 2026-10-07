@@ -58,10 +58,10 @@ impl Colors {
 
 fn sort_label(sort: ReviewSort) -> &'static str {
     match sort {
-        ReviewSort::Smart => "智能排序",
-        ReviewSort::Recent => "最近完成",
-        ReviewSort::Project => "按项目",
-        ReviewSort::Oldest => "最久未 Review",
+        ReviewSort::Smart => crate::i18n::text("智能排序", "Smart order"),
+        ReviewSort::Recent => crate::i18n::text("最近完成", "Recently completed"),
+        ReviewSort::Project => crate::i18n::text("按项目", "By project"),
+        ReviewSort::Oldest => crate::i18n::text("最久未 Review", "Oldest unreviewed"),
     }
 }
 
@@ -76,16 +76,20 @@ fn next_sort(sort: ReviewSort) -> ReviewSort {
 
 fn status(row: &Row) -> (&'static str, &'static str) {
     if row.needs_you {
-        return ("需要你", "warning");
+        return (crate::i18n::text("需要你", "Needs you"), "warning");
     }
     match row.priority {
-        Some(ReviewPriority::Failed) => ("失败", "danger"),
-        Some(ReviewPriority::RunningWithResults) => ("运行中", "accent"),
-        _ if row.running => ("运行中", "accent"),
+        Some(ReviewPriority::Failed) => (crate::i18n::text("失败", "Failed"), "danger"),
+        Some(ReviewPriority::RunningWithResults) => {
+            (crate::i18n::text("运行中", "Running"), "accent")
+        }
+        _ if row.running => (crate::i18n::text("运行中", "Running"), "accent"),
         _ => match row.latest_outcome {
-            Some(ReviewOutcome::Interrupted) => ("已中断", "warning"),
-            Some(ReviewOutcome::Failed { .. }) => ("失败", "danger"),
-            _ => ("已完成", "muted"),
+            Some(ReviewOutcome::Interrupted) => {
+                (crate::i18n::text("已中断", "Interrupted"), "warning")
+            }
+            Some(ReviewOutcome::Failed { .. }) => (crate::i18n::text("失败", "Failed"), "danger"),
+            _ => (crate::i18n::text("已完成", "Completed"), "muted"),
         },
     }
 }
@@ -131,9 +135,10 @@ impl SessionCenterView {
         let entity = cx.entity();
         let focus = self.focus_handle.clone();
         let query = if self.query.is_empty() && self.marked.is_none() {
-            div()
-                .text_color(colors.muted)
-                .child("搜索标题、提示词、项目或 ID")
+            div().text_color(colors.muted).child(crate::i18n::text(
+                "搜索标题、提示词、项目或 ID",
+                "Search titles, prompts, projects, or IDs",
+            ))
         } else {
             div().child(self.query.clone()).children(
                 self.marked
@@ -209,8 +214,13 @@ impl SessionCenterView {
         };
         let dir = SessionCenterView::row_dir(row, cx);
         let subtitle = super::model::queue_subtitle(row, &dir);
-        let pending =
-            (row.unreviewed_count > 0).then(|| format!("{} 轮待 Review", row.unreviewed_count));
+        let pending = (row.unreviewed_count > 0).then(|| {
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("{} turns to review", row.unreviewed_count)
+            } else {
+                format!("{} 轮待 Review", row.unreviewed_count)
+            }
+        });
         div()
             .id(SharedString::from(format!("session-center-row-{index}")))
             .relative()
@@ -257,7 +267,7 @@ impl SessionCenterView {
                                     .flex_none()
                                     .text_size(px(10.))
                                     .text_color(colors.warning)
-                                    .child("目录已不存在")
+                                    .child(crate::i18n::text("目录已不存在", "Directory missing"))
                             })),
                     ),
             )
@@ -283,13 +293,16 @@ impl SessionCenterView {
     fn queue(&mut self, colors: Colors, fill: bool, cx: &mut Context<Self>) -> AnyElement {
         let body = if self.list.rows.is_empty() {
             let text = if self.snapshot.refreshing {
-                "正在刷新会话…"
+                crate::i18n::text("正在刷新会话…", "Refreshing sessions…")
             } else if self.query.is_empty() && self.tab == Tab::Review {
-                "已全部 Review，没有待处理的结果"
+                crate::i18n::text(
+                    "已全部 Review，没有待处理的结果",
+                    "Everything is reviewed; nothing is pending",
+                )
             } else if self.query.is_empty() {
-                "这里暂时没有会话"
+                crate::i18n::text("这里暂时没有会话", "No sessions here yet")
             } else {
-                "无匹配"
+                crate::i18n::text("无匹配", "No matches")
             };
             div()
                 .h(px(ROW_HEIGHT * 2.))
@@ -316,15 +329,24 @@ impl SessionCenterView {
             }
         };
         let hints = if self.surface.is_some() {
-            "点击左侧会话切换 · Esc 返回列表"
+            crate::i18n::text(
+                "点击左侧会话切换 · Esc 返回列表",
+                "Click a session on the left to switch · Esc returns to the list",
+            )
         } else {
-            "↑↓ 选择 · Space 只读 Review · ↩ 回到 Agent / 恢复 · 全局外部运行发现将在 M3e 提供"
+            crate::i18n::text(
+                "↑↓ 选择 · Space 只读 Review · ↩ 回到 Agent / 恢复 · 全局外部运行发现将在 M3e 提供",
+                "↑↓ select · Space opens read-only review · ↩ returns to Agent / resumes · external runtime discovery is planned for M3e",
+            )
         };
         // A review state file that could not be read or saved: say so instead of silently losing progress.
-        let store_error = cx
-            .global::<ReviewService>()
-            .last_error()
-            .map(|error| format!("Review 状态文件有问题，进度可能不会保存：{error}"));
+        let store_error = cx.global::<ReviewService>().last_error().map(|error| {
+            if crate::i18n::current() == crate::i18n::Language::English {
+                format!("The review state file has a problem; progress may not be saved: {error}")
+            } else {
+                format!("Review 状态文件有问题，进度可能不会保存：{error}")
+            }
+        });
         let queue = div().flex().flex_col();
         let queue = if fill { queue.h_full() } else { queue };
         queue

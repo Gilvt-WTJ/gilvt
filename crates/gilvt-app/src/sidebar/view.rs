@@ -287,7 +287,23 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         .pb(px(6.))
         .text_color(k.group)
         .child(model::header_text(&m))
-        .child(div().flex().p(px(2.)).rounded(px(6.)).bg(k.seg).child(seg("按项目", Grouping::Project, cx)).child(seg("按状态", Grouping::Status, cx)));
+        .child(
+            div()
+                .flex()
+                .p(px(2.))
+                .rounded(px(6.))
+                .bg(k.seg)
+                .child(seg(
+                    crate::i18n::text("按项目", "Project"),
+                    Grouping::Project,
+                    cx,
+                ))
+                .child(seg(
+                    crate::i18n::text("按状态", "Status"),
+                    Grouping::Status,
+                    cx,
+                )),
+        );
     // 待 Review N: the same number as the Session Center's tab; a click opens the center on that tab.
     let pending = crate::session_center::pending::pending_review_count(cx);
     let review_entry = div()
@@ -306,7 +322,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
         .cursor_pointer()
         .hover(|d| d.bg(k.seg))
         .text_color(if pending > 0 { k.text } else { k.faint })
-        .child("待 Review")
+        .child(crate::i18n::text("待 Review", "To Review"))
         .child(
             div()
                 .px(px(7.))
@@ -325,8 +341,16 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
                 .py(px(16.))
                 .text_size(px(11.))
                 .text_color(k.faint)
-                .child("还没有会话")
-                .child(div().mt(px(4.)).text_color(k.place).child("在终端里运行 claude 或 codex 后会出现在这里")),
+                .child(crate::i18n::text("还没有会话", "No sessions yet"))
+                .child(
+                    div()
+                        .mt(px(4.))
+                        .text_color(k.place)
+                        .child(crate::i18n::text(
+                            "在终端里运行 claude 或 codex 后会出现在这里",
+                            "Run claude or codex in a terminal to see it here",
+                        )),
+                ),
         );
     }
     // The rename field goes in the first row of its session (需要你 repeats rows), even when collapsed.
@@ -351,7 +375,10 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             .text_size(px(11.))
             .text_color(k.time)
             .line_height(relative(1.6))
-            .child("点击：跳到该 pane · ⌘⇧J 需要你 · ⌘⇧↑↓ 上下一个会话 · ⌘B 折叠左栏")
+            .child(crate::i18n::text(
+                "点击：跳到该 pane · ⌘⇧J 需要你 · ⌘⇧↑↓ 上下一个会话 · ⌘B 折叠左栏",
+                "Click: jump to pane · ⇧⌘J needs you · ⇧⌘↑↓ sessions · ⌘B sidebar",
+            ))
             .into_any_element(),
     };
     div()
@@ -411,12 +438,26 @@ fn confirm_bar(confirm: &Confirm, k: &Colors, cx: &mut Context<Workspace>) -> An
                 .flex()
                 .justify_end()
                 .gap(px(6.))
-                .child(button("ended-confirm-cancel", 0, "取消").border_color(k.border).on_click(cx.listener(|ws, _, window, cx| ws.cancel_trash_ended(window, cx))))
                 .child(
-                    button("ended-confirm-trash", 1, "移到废纸篓")
-                        .border_color(k.red)
-                        .text_color(k.red)
-                        .on_click(cx.listener(|ws, _, window, cx| ws.trash_ended_confirmed(window, cx))),
+                    button(
+                        "ended-confirm-cancel",
+                        0,
+                        crate::i18n::text("取消", "Cancel"),
+                    )
+                    .border_color(k.border)
+                    .on_click(cx.listener(|ws, _, window, cx| ws.cancel_trash_ended(window, cx))),
+                )
+                .child(
+                    button(
+                        "ended-confirm-trash",
+                        1,
+                        crate::i18n::text("移到废纸篓", "Move to Trash"),
+                    )
+                    .border_color(k.red)
+                    .text_color(k.red)
+                    .on_click(
+                        cx.listener(|ws, _, window, cx| ws.trash_ended_confirmed(window, cx)),
+                    ),
                 ),
         )
         .into_any_element()
@@ -456,7 +497,7 @@ fn section_header(i: usize, s: &Section, k: &Colors, cx: &mut Context<Workspace>
                     .id(("sidebar-resume-all", i))
                     .text_color(k.place)
                     .hover(|d| d.text_color(k.group))
-                    .child("全部恢复")
+                    .child(crate::i18n::text("全部恢复", "Resume All"))
                     .on_click(cx.listener(|ws, _, window, cx| ws.resume_all_pending(window, cx))),
             )
             .into_any_element();
@@ -515,7 +556,16 @@ fn render_row(n: usize, r: &Row, pending: bool, field: Option<Entity<RenameField
         .text_size(px(11.))
         .child(div().min_w(px(0.)).truncate().text_color(k.tone(r.tone)).child(r.status.clone()))
         .when(r.lite, |d| {
-            d.child(div().flex_none().px(px(5.)).rounded(px(4.)).bg(k.pill).text_color(k.pill_text).text_size(px(10.)).child("精简模式"))
+            d.child(
+                div()
+                    .flex_none()
+                    .px(px(5.))
+                    .rounded(px(4.))
+                    .bg(k.pill)
+                    .text_color(k.pill_text)
+                    .text_size(px(10.))
+                    .child(crate::i18n::text("精简模式", "Lite mode")),
+            )
         });
     let main = div()
         .flex_1()

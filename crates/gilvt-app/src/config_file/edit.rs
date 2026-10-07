@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use gilvt_theme::Selection;
 use toml_edit::{DocumentMut, InlineTable, Item, Table, Value};
 
+use crate::i18n::Language;
 use crate::settings::{MonitorProvider, MonitorSettings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,25 +26,38 @@ pub type Edit = (&'static str, TomlValue);
 pub struct Changes {
     pub monitor: Vec<Edit>,
     pub theme: Option<Selection>,
+    pub language: Option<Language>,
 }
 
 impl Changes {
     pub fn monitor(edits: &[Edit]) -> Changes {
-        Changes { monitor: edits.to_vec(), theme: None }
+        Changes {
+            monitor: edits.to_vec(),
+            theme: None,
+            language: None,
+        }
     }
 
     #[cfg(test)]
     pub fn theme(sel: Selection) -> Changes {
-        Changes { monitor: Vec::new(), theme: Some(sel) }
+        Changes {
+            monitor: Vec::new(),
+            theme: Some(sel),
+            language: None,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.monitor.is_empty() && self.theme.is_none()
+        self.monitor.is_empty() && self.theme.is_none() && self.language.is_none()
     }
 
     /// `self` followed by `newer`: a later value of a key replaces the earlier one.
     pub fn then(&self, newer: &Changes) -> Changes {
-        Changes { monitor: merge_edits(&self.monitor, &newer.monitor), theme: newer.theme.clone().or_else(|| self.theme.clone()) }
+        Changes {
+            monitor: merge_edits(&self.monitor, &newer.monitor),
+            theme: newer.theme.clone().or_else(|| self.theme.clone()),
+            language: newer.language.or(self.language),
+        }
     }
 }
 
@@ -94,10 +108,28 @@ impl WriteError {
     /// For the settings window's red line.
     pub fn message(&self) -> String {
         match self {
+            WriteError::Syntax(e) if crate::i18n::current() == Language::English => {
+                format!("config.toml has a syntax error; not written: {e}")
+            }
             WriteError::Syntax(e) => format!("config.toml 有语法错误，没有写入：{e}"),
-            WriteError::NotATable => "config.toml 里的 monitor 不是表，没有写入".into(),
-            WriteError::Busy => "config.toml 一直在被别的程序修改，没有写入".into(),
-            WriteError::ReadOnly => "config.toml 是只读的，没有写入".into(),
+            WriteError::NotATable => crate::i18n::text(
+                "config.toml 里的 monitor 不是表，没有写入",
+                "monitor in config.toml is not a table; not written",
+            )
+            .into(),
+            WriteError::Busy => crate::i18n::text(
+                "config.toml 一直在被别的程序修改，没有写入",
+                "config.toml kept changing in another program; not written",
+            )
+            .into(),
+            WriteError::ReadOnly => crate::i18n::text(
+                "config.toml 是只读的，没有写入",
+                "config.toml is read-only; not written",
+            )
+            .into(),
+            WriteError::Io(e) if crate::i18n::current() == Language::English => {
+                format!("Failed to write config.toml: {e}")
+            }
             WriteError::Io(e) => format!("写回 config.toml 失败：{e}"),
         }
     }
@@ -119,6 +151,9 @@ pub fn apply_changes(text: &str, changes: &Changes) -> Result<String, WriteError
     }
     if let Some(sel) = &changes.theme {
         set_theme_in(&mut doc, sel);
+    }
+    if let Some(language) = changes.language {
+        set_top_level_string(&mut doc, "language", language.id());
     }
     Ok(doc.to_string())
 }
@@ -143,6 +178,14 @@ fn set_theme_in(doc: &mut DocumentMut, sel: &Selection) {
         *value.decor_mut() = old.decor().clone();
     }
     doc["theme"] = Item::Value(value);
+}
+
+fn set_top_level_string(doc: &mut DocumentMut, key: &str, text: &str) {
+    let mut value = Value::from(text);
+    if let Some(old) = doc.get(key).and_then(Item::as_value) {
+        *value.decor_mut() = old.decor().clone();
+    }
+    doc[key] = Item::Value(value);
 }
 
 fn set_monitor_in(doc: &mut DocumentMut, text: &str, edits: &[Edit]) -> Result<(), WriteError> {
@@ -502,17 +545,65 @@ mod tests {
     }
 
     #[test]
+    fn language_is_written_as_a_top_level_key_and_keeps_comments() {
+        let changes = Changes {
+            language: Some(Language::English),
+            ..Changes::default()
+        };
+        let after = apply_changes(
+            "font_size = 14 # keep\n\n[agent]\nclaude_launch = \"claude\"\n",
+            &changes,
+        )
+        .unwrap();
+        assert!(
+            after.contains("font_size = 14 # keep\nlanguage = \"en\"\n"),
+            "{after}"
+        );
+        let changed = apply_changes(
+            &after.replace("language = \"en\"", "language = \"en\" # locale"),
+            &Changes {
+                language: Some(Language::Chinese),
+                ..Changes::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            changed.contains("language = \"zh-CN\" # locale"),
+            "{changed}"
+        );
+    }
+
+    #[test]
     fn theme_and_monitor_in_one_write() {
-        let changes = Changes { monitor: vec![("model", s("sonnet"))], theme: Some(Selection::Fixed("Nord".into())) };
+        let changes = Changes {
+            monitor: vec![("model", s("sonnet"))],
+            theme: Some(Selection::Fixed("Nord".into())),
+            language: None,
+        };
         let out = apply_changes(SAMPLE, &changes).unwrap();
         assert_eq!(out, SAMPLE.replace("model = \"opus\"", "model = \"sonnet\"").replace("font_size = 13 # 字号\n", "font_size = 13 # 字号\ntheme = \"Nord\"\n"));
     }
 
     #[test]
     fn later_changes_win() {
-        let a = Changes { monitor: vec![("enabled", Bool(true))], theme: Some(Selection::Fixed("Nord".into())) };
-        let b = Changes { monitor: vec![("enabled", Bool(false))], theme: None };
-        assert_eq!(a.then(&b), Changes { monitor: vec![("enabled", Bool(false))], theme: Some(Selection::Fixed("Nord".into())) });
+        let a = Changes {
+            monitor: vec![("enabled", Bool(true))],
+            theme: Some(Selection::Fixed("Nord".into())),
+            language: Some(Language::Chinese),
+        };
+        let b = Changes {
+            monitor: vec![("enabled", Bool(false))],
+            theme: None,
+            language: Some(Language::English),
+        };
+        assert_eq!(
+            a.then(&b),
+            Changes {
+                monitor: vec![("enabled", Bool(false))],
+                theme: Some(Selection::Fixed("Nord".into())),
+                language: Some(Language::English)
+            }
+        );
         assert_eq!(a.then(&Changes::theme(pair())).theme, Some(pair()));
         assert!(Changes::default().is_empty() && !nord().is_empty());
     }

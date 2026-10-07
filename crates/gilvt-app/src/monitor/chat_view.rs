@@ -88,7 +88,21 @@ pub fn debug_chat(view: &ChatView, mode: PanelMode, draft: &Draft, matches: &[Ca
         unread: view.unread,
         scope: draft.chips().iter().map(|(k, _)| k.clone()).collect(),
         messages,
-        quick: QUICK.iter().enumerate().map(|(i, (label, _))| ds::ChatQuick { label: label.to_string(), rect: rect(RectId::ChatQuick(i)) }).collect(),
+        quick: QUICK
+            .iter()
+            .enumerate()
+            .map(|(i, (label, _))| {
+                let label = match i {
+                    0 => crate::i18n::text(label, "✦ Generate Standup Brief"),
+                    1 => crate::i18n::text(label, "What needs me?"),
+                    _ => crate::i18n::text(label, "What failed?"),
+                };
+                ds::ChatQuick {
+                    label: label.to_string(),
+                    rect: rect(RectId::ChatQuick(i)),
+                }
+            })
+            .collect(),
         input: ds::ChatInputState {
             text: draft.text().to_string(),
             chips: draft.chips().iter().enumerate().map(|(i, (key, label))| ds::ChatChip { key: key.clone(), label: label.clone(), remove: rect(RectId::ChatChipRemove(i)) }).collect(),
@@ -207,9 +221,35 @@ pub(crate) fn picker_list(id: &'static str, rect: fn(usize) -> RectId, input: &E
                 .on_click(cx.listener(move |_, _, _, cx| input.update(cx, |i_, cx| i_.choose_index(i, cx)))),
         );
     }
-    let list = div().p_1().rounded_md().border_1().border_color(k.border).bg(k.bg).flex().flex_col().child(rows);
-    let list = if matches.is_empty() { list.child(div().text_color(k.faint).child("没有匹配的会话")) } else { list };
-    Some(list.child(div().text_size(px(10.)).text_color(k.faint).child("⏎ 选中 · Esc 取消")))
+    let list = div()
+        .p_1()
+        .rounded_md()
+        .border_1()
+        .border_color(k.border)
+        .bg(k.bg)
+        .flex()
+        .flex_col()
+        .child(rows);
+    let list = if matches.is_empty() {
+        list.child(
+            div()
+                .text_color(k.faint)
+                .child(crate::i18n::text("没有匹配的会话", "No matching sessions")),
+        )
+    } else {
+        list
+    };
+    Some(
+        list.child(
+            div()
+                .text_size(px(10.))
+                .text_color(k.faint)
+                .child(crate::i18n::text(
+                    "⏎ 选中 · Esc 取消",
+                    "⏎ select · Esc cancel",
+                )),
+        ),
+    )
 }
 
 /// What a click on a session link in an answer does (the key is the link's session).
@@ -367,8 +407,26 @@ fn messages(view: &ChatView, pane: PaneId, wall: &MonitorModel, base: &Font, k: 
                         div()
                             .flex()
                             .gap_1()
-                            .child(button("chat-error-settings", RectId::ChatErrorSettings(n), "打开设置", k).on_click(cx.listener(|_, _, _, cx| App::defer(cx, crate::settings_window::open))))
-                            .child(button("chat-error-log", RectId::ChatErrorLog(n), "查看日志", k).on_click(cx.listener(|_, _, _, cx| App::defer(cx, open_log)))),
+                            .child(
+                                button(
+                                    "chat-error-settings",
+                                    RectId::ChatErrorSettings(n),
+                                    crate::i18n::text("打开设置", "Open Settings"),
+                                    k,
+                                )
+                                .on_click(cx.listener(
+                                    |_, _, _, cx| App::defer(cx, crate::settings_window::open),
+                                )),
+                            )
+                            .child(
+                                button(
+                                    "chat-error-log",
+                                    RectId::ChatErrorLog(n),
+                                    crate::i18n::text("查看日志", "View Log"),
+                                    k,
+                                )
+                                .on_click(cx.listener(|_, _, _, cx| App::defer(cx, open_log))),
+                            ),
                     ),
                 None => el.text_color(k.red).child(msg.text.clone()),
             },
@@ -401,8 +459,21 @@ fn open_log(cx: &mut App) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn panel(pane: PaneId, m: &MonitorPane, view: &ChatView, wall: &MonitorModel, base: &Font, narrow: bool, k: &Colors, cx: &mut Context<Workspace>) -> AnyElement {
-    let model = if view.model.is_empty() { "CLI 默认" } else { view.model.as_str() };
+fn panel(
+    pane: PaneId,
+    m: &MonitorPane,
+    view: &ChatView,
+    wall: &MonitorModel,
+    base: &Font,
+    narrow: bool,
+    k: &Colors,
+    cx: &mut Context<Workspace>,
+) -> AnyElement {
+    let model = if view.model.is_empty() {
+        crate::i18n::text("CLI 默认", "CLI default")
+    } else {
+        view.model.as_str()
+    };
     let status = view.conv.status;
     let mut header = div()
         .flex()
@@ -412,7 +483,11 @@ fn panel(pane: PaneId, m: &MonitorPane, view: &ChatView, wall: &MonitorModel, ba
         .py_1()
         .border_b_1()
         .border_color(k.border)
-        .child(div().font_weight(FontWeight::BOLD).child("◎ 监控官"))
+        .child(
+            div()
+                .font_weight(FontWeight::BOLD)
+                .child(crate::i18n::text("◎ 监控官", "◎ Monitor")),
+        )
         .child(
             div()
                 .id("chat-model")
@@ -429,11 +504,31 @@ fn panel(pane: PaneId, m: &MonitorPane, view: &ChatView, wall: &MonitorModel, ba
     }
     header = header.child(div().flex_1());
     if status == Status::Answering {
-        header = header.child(button("chat-stop", RectId::ChatStop, "停止", k).on_click(cx.listener(|_, _, _, cx| App::defer(cx, chat::stop))));
+        header = header.child(
+            button(
+                "chat-stop",
+                RectId::ChatStop,
+                crate::i18n::text("停止", "Stop"),
+                k,
+            )
+            .on_click(cx.listener(|_, _, _, cx| App::defer(cx, chat::stop))),
+        );
     }
     header = header
-        .child(button("chat-new", RectId::ChatNew, "新对话", k).on_click(cx.listener(|_, _, _, cx| App::defer(cx, chat::new_conversation))))
-        .child(button("chat-collapse", RectId::ChatCollapse, "⇥", k).on_click(cx.listener(move |ws, _, window, cx| ws.monitor_chat_collapse(pane, narrow, window, cx))));
+        .child(
+            button(
+                "chat-new",
+                RectId::ChatNew,
+                crate::i18n::text("新对话", "New Chat"),
+                k,
+            )
+            .on_click(cx.listener(|_, _, _, cx| App::defer(cx, chat::new_conversation))),
+        )
+        .child(
+            button("chat-collapse", RectId::ChatCollapse, "⇥", k).on_click(cx.listener(
+                move |ws, _, window, cx| ws.monitor_chat_collapse(pane, narrow, window, cx),
+            )),
+        );
 
     follow_answer(view, &m.chat_scroll, &m.chat_seen, &m.chat_questions);
     let list = div()
@@ -450,6 +545,11 @@ fn panel(pane: PaneId, m: &MonitorPane, view: &ChatView, wall: &MonitorModel, ba
 
     let mut quick = div().flex().flex_wrap().gap_1().px_2();
     for (i, (label, text)) in QUICK.iter().enumerate() {
+        let label = match i {
+            0 => crate::i18n::text(label, "✦ Generate Standup Brief"),
+            1 => crate::i18n::text(label, "What needs me?"),
+            _ => crate::i18n::text(label, "What failed?"),
+        };
         let text = text.to_string();
         quick = quick.child(
             div()
@@ -461,7 +561,7 @@ fn panel(pane: PaneId, m: &MonitorPane, view: &ChatView, wall: &MonitorModel, ba
                 .cursor_pointer()
                 .bg(k.ai_bg)
                 .text_color(k.ai)
-                .child(*label)
+                .child(label)
                 .on_click(cx.listener(move |_, _, _, cx| {
                     let out = Outgoing { text: text.clone(), chips: Vec::new() };
                     App::defer(cx, move |cx| chat::send(out, cx));

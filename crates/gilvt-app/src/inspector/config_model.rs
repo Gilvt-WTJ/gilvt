@@ -46,8 +46,8 @@ impl Group {
         match (self, agent) {
             (Group::Skills, _) => "Skills",
             (Group::Commands, gilvt_agent::AgentKind::Codex) => "Prompts",
-            (Group::Commands, _) => "斜杠命令",
-            (Group::Subagents, _) => "子 Agent",
+            (Group::Commands, _) => crate::i18n::text("斜杠命令", "Slash Commands"),
+            (Group::Subagents, _) => crate::i18n::text("子 Agent", "Subagents"),
         }
     }
 
