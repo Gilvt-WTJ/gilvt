@@ -25,6 +25,8 @@ First public release, in preparation as 0.1.0.
   a bottom command bar and a read-only MCP server (`gilvt mcp`) using the local `claude` / `codex` CLI.
 - Quick Look for code, diffs, Markdown and Mermaid; `⌘P` file search; the `gilvt` CLI (`view`, `diff`).
 - Built-in editor with syntax highlighting, safe saving and live preview.
+- Interface language: Simplified Chinese (default) or English, switchable live in Settings → Language
+  or with `language` in `config.toml`.
 - Themes: 725 built-in Ghostty-format themes plus user themes, light / dark pairs, and an Appearance page
   in the settings window (`⌘,`); settings are written back to `config.toml` with comments preserved.
 

@@ -19,9 +19,9 @@
 <!-- TODO: screenshot or short GIF of the three-column window (sidebar · terminal · inspector). -->
 
 > [!NOTE]
-> gilvt is pre-release software (0.1.0). It runs on macOS only, and its interface is currently in
-> Simplified Chinese; localization is in progress. The user guide and developer docs are also in
-> Chinese for now.
+> gilvt is pre-release software (0.1.0) and runs on macOS only. The interface defaults to Simplified
+> Chinese; switch to English in Settings (`⌘,`) → Language, or set `language = "en"` in
+> `~/.config/gilvt/config.toml`. The user guide and developer docs are in Chinese for now.
 
 ## About
 

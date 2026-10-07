@@ -58,7 +58,8 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 
 - [x] 英文 `README.md`（面向用户：介绍、安装、文档、隐私、关系声明）；原来的开发者文档改名为 `HACKING.md`。
 - [ ] README 顶部的截图 / 动图（三栏窗口），README 里留了 TODO 注释。
-- [ ] 界面本地化（另一个 worktree 在做）；完成后更新 README 顶部的说明，手册和 HACKING.md 视情况出英文版。
+- [x] 界面支持英文（`language = "en"` / 设置 →「语言」），README 顶部已说明。
+- [ ] 手册和 HACKING.md 视情况出英文版；考虑公开版默认语言是否跟随系统。
 - [x] `CONTRIBUTING.md`、`AI_POLICY.md`、`SECURITY.md`、`PRIVACY.md`、Issue 模板（bug / 功能）、PR 模板、`AGENTS.md`（指向 `CLAUDE.md` 的符号链接）。
 - [ ] `CODE_OF_CONDUCT.md`（可选；Ghostty 没有，Zed 有）。
 - [x] `CHANGELOG.md`（Keep a Changelog + SemVer）。发版时把 `[Unreleased]` 改成版本号与日期。
