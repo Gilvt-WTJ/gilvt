@@ -19,7 +19,7 @@ objc2-foundation = { version = "0.3", default-features = false }
 objc2-app-kit = { version = "0.3", default-features = false }
 objc2-web-kit = { version = "0.3", default-features = false }
 objc2-user-notifications = { version = "0.3", default-features = false }
-resvg = "=0.45.1"
+resvg = "=0.48.1"
 ignore = "0.4"
 nucleo-matcher = "0.3"
 gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "runtime_shaders"] }
