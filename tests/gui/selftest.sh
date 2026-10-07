@@ -775,6 +775,13 @@ reset
 drv click 'menu("静音这个会话的通知")' >/dev/null 2>&1
 if logged "peekaboo click --global --at 316,253.5"; then ok; else bad "click menu(): $(cat "$LOG")"; fi
 reset
+cp "$T/settings.json" "$T/state.json"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["front"]=True; json.dump(d, open(sys.argv[1],"w"))' "$T/state.json"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["windows"].insert(0, dict(d["windows"][0], id=160500, x=500, y=100)); json.dump(d, open(sys.argv[2],"w"))' "$fx/wins.json" "$T/wins-fixture.json"
+drv click 'rect(settings.fields[?id=="model"])' >/dev/null 2>&1
+if logged "peekaboo click --global --at 790,211 --pid $$ --window-id 160500 --foreground --input-strategy synthOnly"; then ok; else bad "click settings targets settings window: $(cat "$LOG")"; fi
+cp "$fx/wins.json" "$T/wins-fixture.json"
+reset
 drv dclick 10,20 >/dev/null 2>&1
 if logged "--at 110,70.5" && logged "--double"; then ok; else bad "dclick: $(cat "$LOG")"; fi
 reset

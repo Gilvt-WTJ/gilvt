@@ -350,7 +350,7 @@ fg_click() {
     return 0
   fi
   # shellcheck disable=SC2086
-  pb click --global --at "$at" --pid "$PID" --window-id "$WINDOW_ID" --foreground --input-strategy synthOnly ${kind:+--$kind} && return 0
+  pb click --global --at "$at" --pid "$PID" --window-id "$target" --foreground --input-strategy synthOnly ${kind:+--$kind} && return 0
   # Peekaboo's focus check sometimes refuses ("Target window … is not focused", AX reports no focused window)
   # although gilvt is in front (fg_activate just made sure): post the click through tools/mouse instead.
   # shellcheck disable=SC2086
