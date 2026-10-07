@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+# Vendored and generated content: excluded from GitHub's language stats and collapsed in diffs.
+crates/gilvt-mermaid/assets/mermaid.min.js  linguist-vendored -diff
+crates/gilvt-theme/themes/**                linguist-vendored
+THIRD_PARTY_LICENSES.md                     linguist-generated
+Cargo.lock                                  linguist-generated
+
+# Recorded agent sessions and GUI test fixtures.
+crates/gilvt-agent/tests/fixtures/**        linguist-generated
+tests/gui/fixtures/**                       linguist-generated
+
+# Design documents and mockups are documentation, not code.
+docs/**                                     linguist-documentation
+
+*.png  binary
+*.icns binary

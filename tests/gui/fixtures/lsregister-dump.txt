@@ -1,0 +1,16 @@
+--------------------------------------------------------------------------------
+bundle id:                  49784
+path:                       /Users/u/gilvt/target/debug/Gilvt.app (0xc278)
+name:                       gilvt
+identifier:                 com.gilvt.app
+--------------------------------------------------------------------------------
+bundle id:                  49785
+path:                       /Applications/Other.app (0xc279)
+identifier:                 com.example.other
+--------------------------------------------------------------------------------
+bundle id:                  49786
+path:                       /Users/u/gilvt/target/acc-ref/debug/Gilvt.app (0xc2a0)
+identifier:                 com.gilvt.app
+--------------------------------------------------------------------------------
+path:                       /Users/u/gilvt/target/debug/Gilvt.app (0xc278)
+identifier:                 com.gilvt.app

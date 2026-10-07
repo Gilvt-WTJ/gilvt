@@ -1,0 +1,43 @@
+description = "Three turns like three-turns, but the first one's tool call takes 4 s: the 监控官's 1 s tick sees the session running and summarizes it automatically (R1, R3, R5, R6)."
+
+[[step]]
+prompt = "第一轮：列出文件"
+
+[[step]]
+tool = "Bash"
+input = { command = "sleep 4; ls", description = "List files slowly" }
+result = "README.md\nsrc"
+ms = 4000
+
+[[step]]
+reply = "两个条目：README.md 和 src。"
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "第二轮：拉取依赖"
+
+[[step]]
+sleep = "300ms"
+
+[[step]]
+api_error = "Network connection lost"
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "第三轮：跑测试"
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test", description = "Run the tests" }
+result = "test result: ok. 3 passed; 0 failed"
+ms = 300
+
+[[step]]
+reply = "测试通过。"
+
+[[step]]
+idle = true

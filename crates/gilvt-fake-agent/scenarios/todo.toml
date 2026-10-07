@@ -1,0 +1,31 @@
+description = "TodoWrite: a list that advances while a tool runs."
+
+[[step]]
+prompt = "Write the tests, then run them"
+
+[[step]]
+todo = [{ text = "写测试", status = "in_progress" }, { text = "Run the tests", status = "pending" }]
+
+[[step]]
+tool = "Write"
+input = { file_path = "{cwd}/tests/basic.rs", content = "#[test]\nfn works() {}\n" }
+result = "File created successfully at: {cwd}/tests/basic.rs"
+ms = 300
+
+[[step]]
+todo = [{ text = "写测试", status = "completed" }, { text = "Run the tests", status = "in_progress" }]
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test", description = "Run the tests" }
+result = "test works ... ok"
+ms = 500
+
+[[step]]
+todo = [{ text = "写测试", status = "completed" }, { text = "Run the tests", status = "completed" }]
+
+[[step]]
+reply = "Tests written and passing."
+
+[[step]]
+idle = true

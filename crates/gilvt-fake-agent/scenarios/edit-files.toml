@@ -1,0 +1,35 @@
+description = "File tools: Read, Edit, Write, then a failing test run. Nothing is written to disk."
+
+[[step]]
+prompt = "Add a greeting to README.md and a hello.txt"
+
+[[step]]
+tool = "Read"
+input = { file_path = "{cwd}/README.md" }
+result = "     1\t# Demo\n"
+ms = 200
+
+[[step]]
+tool = "Edit"
+input = { file_path = "{cwd}/README.md", old_string = "# Demo", new_string = "# Demo\n\nHello!", replace_all = false }
+result = "The file {cwd}/README.md has been updated successfully."
+ms = 300
+
+[[step]]
+tool = "Write"
+input = { file_path = "{cwd}/hello.txt", content = "hello\n" }
+result = "File created successfully at: {cwd}/hello.txt"
+ms = 300
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test", description = "Run the tests" }
+result = "test tests::greets ... FAILED\n\ntest result: FAILED. 0 passed; 1 failed"
+exit_code = 101
+ms = 800
+
+[[step]]
+reply = "Updated README.md and wrote hello.txt; one test fails."
+
+[[step]]
+idle = true

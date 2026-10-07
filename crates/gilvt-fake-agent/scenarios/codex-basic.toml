@@ -1,0 +1,20 @@
+description = "Codex: a plan, a shell command and a reply."
+agent = "codex"
+
+[[step]]
+prompt = "say hi"
+
+[[step]]
+todo = [{ text = "say hi", status = "in_progress" }, { text = "reply ok", status = "pending" }]
+
+[[step]]
+tool = "Bash"
+input = { command = "echo hi" }
+result = "hi"
+ms = 300
+
+[[step]]
+reply = "hi"
+
+[[step]]
+idle = true

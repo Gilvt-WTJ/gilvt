@@ -1,0 +1,15 @@
+# gilvt shell integration (zsh). gilvt starts zsh with ZDOTDIR pointing here; restore the user's
+# ZDOTDIR, load their .zshenv, then install gilvt's hooks. zsh reads the remaining startup files
+# (.zprofile, .zshrc, .zlogin) from the restored ZDOTDIR as usual.
+if [[ -n "${GILVT_USER_ZDOTDIR+x}" ]]; then
+  ZDOTDIR="$GILVT_USER_ZDOTDIR"
+  unset GILVT_USER_ZDOTDIR
+else
+  unset ZDOTDIR
+fi
+_gilvt_user_zshenv="${ZDOTDIR:-$HOME}/.zshenv"
+[[ -r "$_gilvt_user_zshenv" ]] && builtin source "$_gilvt_user_zshenv"
+unset _gilvt_user_zshenv
+if [[ -o interactive && -n "${GILVT_SHELL_INTEGRATION_DIR-}" ]]; then
+  builtin source "$GILVT_SHELL_INTEGRATION_DIR/zsh/gilvt-integration.zsh"
+fi

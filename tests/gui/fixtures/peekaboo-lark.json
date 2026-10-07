@@ -1,0 +1,13 @@
+{
+  "data" : {
+    "windows" : [
+      { "bounds" : { "width" : 1920, "height" : 1080, "x" : 0, "y" : 0 }, "window_index" : 6,
+        "is_on_screen" : true, "window_id" : 151107, "layer" : 0, "observation_capability" : "unknown" },
+      { "bounds" : { "y" : 0, "height" : 72, "x" : 0, "width" : 900 }, "window_index" : 9,
+        "window_id" : 53413, "layer" : 0, "is_on_screen" : true }
+    ],
+    "target_application_info" : { "pid" : 38868, "app_name" : "Lark", "bundle_id" : "com.electron.lark" },
+    "inventory_completeness" : "partial"
+  },
+  "success" : true
+}

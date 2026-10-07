@@ -1,0 +1,1 @@
+{"success":true,"data":{"permissions":[{"name":"Screen Recording","isRequired":true,"isGranted":true},{"name":"Accessibility","isRequired":true,"isGranted":true},{"name":"Event Synthesizing","isRequired":false,"isGranted":true}],"source":"bridge"}}

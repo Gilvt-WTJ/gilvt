@@ -1,0 +1,9 @@
+{"id":3,"result":{"turn":{"id":"turn-1","items":[],"status":"inProgress","error":null}}}
+{"method":"turn/started","params":{"threadId":"th-1","turn":{"id":"turn-1","items":[],"status":"inProgress","error":null}}}
+{"method":"item/started","params":{"threadId":"th-1","turnId":"turn-1","startedAtMs":1,"item":{"type":"userMessage","id":"u1","content":[{"type":"text","text":"哪些需要我？"}]}}}
+{"method":"item/started","params":{"threadId":"th-1","turnId":"turn-1","startedAtMs":2,"item":{"type":"mcpToolCall","id":"call-1","server":"gilvt","tool":"list_sessions","arguments":{},"status":"inProgress","result":null,"error":null}}}
+{"method":"item/completed","params":{"threadId":"th-1","turnId":"turn-1","completedAtMs":3,"item":{"type":"mcpToolCall","id":"call-1","server":"gilvt","tool":"list_sessions","arguments":{},"status":"completed","result":{"content":[{"type":"text","text":"{\"gilvt_label\":\"已列出 1 个会话\",\"sessions\":[]}"}],"structuredContent":null},"error":null,"durationMs":12}}}
+{"method":"item/agentMessage/delta","params":{"threadId":"th-1","turnId":"turn-1","itemId":"msg-1","delta":"api-refactor "}}
+{"method":"item/agentMessage/delta","params":{"threadId":"th-1","turnId":"turn-1","itemId":"msg-1","delta":"在等你批准。"}}
+{"method":"item/completed","params":{"threadId":"th-1","turnId":"turn-1","completedAtMs":4,"item":{"type":"agentMessage","id":"msg-1","text":"api-refactor 在等你批准。"}}}
+{"method":"turn/completed","params":{"threadId":"th-1","turn":{"id":"turn-1","items":[],"status":"completed","error":null}}}

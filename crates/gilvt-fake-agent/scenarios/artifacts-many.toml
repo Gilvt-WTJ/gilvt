@@ -1,0 +1,21 @@
+description = "One turn whose single tool call writes ten files; the artifacts card shows the first few and a 「+N」 fold."
+
+[[step]]
+prompt = "generate ten files"
+
+[[step]]
+thinking = "Working out what to change."
+ms = 1500
+
+[[step]]
+tool = "Bash"
+input = { command = "./gen.sh", description = "Generate the files" }
+writes = [{ path = "{cwd}/f01.txt", content = "x\n" }, { path = "{cwd}/f02.txt", content = "x\n" }, { path = "{cwd}/f03.txt", content = "x\n" }, { path = "{cwd}/f04.txt", content = "x\n" }, { path = "{cwd}/f05.txt", content = "x\n" }, { path = "{cwd}/f06.txt", content = "x\n" }, { path = "{cwd}/f07.txt", content = "x\n" }, { path = "{cwd}/f08.txt", content = "x\n" }, { path = "{cwd}/f09.txt", content = "x\n" }, { path = "{cwd}/f10.txt", content = "x\n" }]
+result = "ok"
+ms = 200
+
+[[step]]
+reply = "Wrote ten files."
+
+[[step]]
+idle = true

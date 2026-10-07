@@ -1,0 +1,16 @@
+description = "A 30 s Bash call: a session that stays 执行中 long enough to observe, focus away from or interrupt with Esc (H11, H15)."
+
+[[step]]
+prompt = "Run the long build"
+
+[[step]]
+tool = "Bash"
+input = { command = "sleep 30", description = "Wait for the build" }
+result = ""
+ms = 30000
+
+[[step]]
+reply = "Build finished."
+
+[[step]]
+idle = true

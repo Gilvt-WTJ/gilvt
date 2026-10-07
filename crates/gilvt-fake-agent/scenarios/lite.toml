@@ -1,0 +1,17 @@
+description = "精简模式: no hooks at all; gilvt only has the transcript."
+lite = true
+
+[[step]]
+prompt = "List the files"
+
+[[step]]
+tool = "Bash"
+input = { command = "ls", description = "List files" }
+result = "README.md\nsrc"
+ms = 300
+
+[[step]]
+reply = "Two entries: README.md and src."
+
+[[step]]
+idle = true

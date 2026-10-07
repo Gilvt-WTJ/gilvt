@@ -1,0 +1,18 @@
+apps                                     stable             true
+browser_use                              stable             true
+code_mode                                under development  false
+computer_use                             stable             true
+goals                                    stable             true
+hooks                                    stable             true
+image_generation                         stable             true
+in_app_browser                           stable             true
+js_repl                                  removed            false
+multi_agent                              stable             true
+plugins                                  stable             true
+shell_tool                               stable             true
+skill_search                             stable             true
+sleep_tool                               stable             true
+tool_search                              removed            false
+tool_suggest                             stable             true
+unified_exec                             stable             true
+view_image                               stable             true

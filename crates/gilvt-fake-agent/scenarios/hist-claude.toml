@@ -1,0 +1,31 @@
+description = "A finished two-turn Claude session for `drive.sh seed` (past sessions in the 会话 palette, I section). Seed it with --prompt to give each case its own first prompt."
+
+[[step]]
+prompt = "历史会话：整理 README"
+
+[[step]]
+tool = "Read"
+input = { file_path = "{cwd}/README.md" }
+result = "     1\t# Demo\n"
+ms = 200
+
+[[step]]
+reply = "README 已整理。"
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "历史会话：再补一段用法"
+
+[[step]]
+tool = "Edit"
+input = { file_path = "{cwd}/README.md", old_string = "# Demo", new_string = "# Demo\n\n## 用法", replace_all = false }
+result = "The file {cwd}/README.md has been updated successfully."
+ms = 300
+
+[[step]]
+reply = "已补充用法。"
+
+[[step]]
+idle = true

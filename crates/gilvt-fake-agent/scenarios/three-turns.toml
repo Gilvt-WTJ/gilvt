@@ -1,0 +1,43 @@
+description = "Three turns in a row (H12): the first succeeds, the second fails with an API error, the third is the current one."
+
+[[step]]
+prompt = "第一轮：列出文件"
+
+[[step]]
+tool = "Bash"
+input = { command = "ls", description = "List files" }
+result = "README.md\nsrc"
+ms = 200
+
+[[step]]
+reply = "两个条目：README.md 和 src。"
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "第二轮：拉取依赖"
+
+[[step]]
+sleep = "300ms"
+
+[[step]]
+api_error = "Network connection lost"
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "第三轮：跑测试"
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test", description = "Run the tests" }
+result = "test result: ok. 3 passed; 0 failed"
+ms = 300
+
+[[step]]
+reply = "测试通过。"
+
+[[step]]
+idle = true

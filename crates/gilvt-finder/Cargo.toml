@@ -1,0 +1,12 @@
+[package]
+name = "gilvt-finder"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+ignore.workspace = true
+nucleo-matcher.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

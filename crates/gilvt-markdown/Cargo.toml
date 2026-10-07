@@ -1,0 +1,9 @@
+[package]
+name = "gilvt-markdown"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+comrak.workspace = true
+gilvt-viewer.workspace = true

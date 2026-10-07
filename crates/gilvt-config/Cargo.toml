@@ -1,0 +1,13 @@
+[package]
+name = "gilvt-config"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+gilvt-agent.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

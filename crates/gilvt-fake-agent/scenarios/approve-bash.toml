@@ -1,0 +1,23 @@
+description = "A Bash call that needs approval: y / 1 / Enter runs it, n / 2 / Esc rejects it and ends the turn."
+
+[[step]]
+prompt = "Clean the build directory"
+
+[[step]]
+tool = "Bash"
+input = { command = "ls build", description = "List the build directory" }
+result = "a.o\nb.o"
+ms = 300
+
+[[step]]
+approve = { tool = "Bash", input = { command = "rm -rf build", description = "Remove the build directory" } }
+result = ""
+ms = 500
+on_yes = "continue"
+on_no = "interrupt"
+
+[[step]]
+reply = "Removed build/."
+
+[[step]]
+idle = true

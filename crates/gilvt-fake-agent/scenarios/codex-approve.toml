@@ -1,0 +1,17 @@
+description = "Codex: a command that needs approval (PermissionRequest)."
+agent = "codex"
+
+[[step]]
+prompt = "Clean the build directory"
+
+[[step]]
+approve = { tool = "Bash", input = { command = "rm -rf build" } }
+result = ""
+ms = 300
+on_no = "interrupt"
+
+[[step]]
+reply = "Removed build/."
+
+[[step]]
+idle = true

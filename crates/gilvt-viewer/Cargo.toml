@@ -1,0 +1,13 @@
+[package]
+name = "gilvt-viewer"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+gilvt-snapshot.workspace = true
+similar.workspace = true
+syntect.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

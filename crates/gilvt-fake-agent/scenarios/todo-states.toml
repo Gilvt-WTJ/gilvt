@@ -1,0 +1,22 @@
+description = "TodoWrite with every state at once (H7): done, in progress and pending, held for 5 s, then all done."
+
+[[step]]
+prompt = "按计划完成三件事"
+
+[[step]]
+todo = [{ text = "写测试", status = "completed" }, { text = "改实现", status = "in_progress" }, { text = "更新文档", status = "pending" }]
+
+[[step]]
+tool = "Bash"
+input = { command = "sleep 5", description = "Work on the implementation" }
+result = ""
+ms = 5000
+
+[[step]]
+todo = [{ text = "写测试", status = "completed" }, { text = "改实现", status = "completed" }, { text = "更新文档", status = "completed" }]
+
+[[step]]
+reply = "三件事都完成了。"
+
+[[step]]
+idle = true

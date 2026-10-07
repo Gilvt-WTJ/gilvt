@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose a new feature or a change in behavior.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How you would like gilvt to behave. Mockups welcome (no AI-generated images).
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Design principles
+      description: gilvt keeps agents in their native TUI and never types into them on your behalf.
+      options:
+        - label: My proposal fits these principles, or I explain above why it should be an exception.
+          required: true

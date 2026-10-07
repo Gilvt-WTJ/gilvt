@@ -1,0 +1,14 @@
+description = "A turn that spends 20 s thinking: a session that stays 思考中 long enough to observe and to try closing it (GUI case L1). The prompt is a step, as in long-tool: gilvt only sees 思考中 after a submitted prompt."
+
+[[step]]
+prompt = "Think for a while"
+
+[[step]]
+thinking = "Weighing the options before answering."
+ms = 20000
+
+[[step]]
+reply = "Done thinking."
+
+[[step]]
+idle = true

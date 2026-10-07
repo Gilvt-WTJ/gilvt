@@ -1,0 +1,12 @@
+[package]
+name = "gilvt-term"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+alacritty_terminal.workspace = true
+async-channel.workspace = true
+libc = "0.2"
+polling = "3.8"
+regex.workspace = true

@@ -1,0 +1,12 @@
+description = "Built-in default: the first prompt (from the command line, or typed) gets a short reply after 2 s of thinking, then idle."
+
+# A real turn takes seconds, and gilvt's lite discovery relies on it: it looks for transcripts written at or after
+# "agent first seen − 2 s", so a turn that ended within milliseconds of the start could be missed.
+[[step]]
+sleep = "2s"
+
+[[step]]
+reply = "OK: {prompt}"
+
+[[step]]
+idle = true

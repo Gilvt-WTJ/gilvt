@@ -1,0 +1,11 @@
+{"type":"system","subtype":"init","cwd":"/tmp/run","session_id":"s1","tools":["mcp__gilvt__list_sessions","mcp__gilvt__get_session","mcp__gilvt__get_timeline","mcp__gilvt__get_commands","mcp__gilvt__read_screen"],"mcp_servers":[{"name":"gilvt","status":"connected","source":"dynamic"}],"model":"claude-sonnet-4-6","permissionMode":"auto"}
+{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","role":"assistant","content":[]}},"session_id":"s1","parent_tool_use_id":null}
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"s1","parent_tool_use_id":null}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"我先看一下"}},"session_id":"s1","parent_tool_use_id":null}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"会话列表。"}},"session_id":"s1","parent_tool_use_id":null}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"我先看一下会话列表。"},{"type":"tool_use","id":"toolu_1","name":"mcp__gilvt__list_sessions","input":{}}]},"session_id":"s1","parent_tool_use_id":null}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"{\"gilvt_label\":\"已列出 1 个会话\",\"sessions\":[{\"key\":\"pane:3\",\"name\":\"zsh\"}]}"}],"is_error":false}]},"session_id":"s1","parent_tool_use_id":null}
+{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_2","role":"assistant","content":[]}},"session_id":"s1","parent_tool_use_id":null}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"只有 [zsh](gilvt://session/pane:3)。"}},"session_id":"s1","parent_tool_use_id":null}
+{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"text","text":"只有 [zsh](gilvt://session/pane:3)。"}]},"session_id":"s1","parent_tool_use_id":null}
+{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"只有 [zsh](gilvt://session/pane:3)。","session_id":"s1","total_cost_usd":0.01}

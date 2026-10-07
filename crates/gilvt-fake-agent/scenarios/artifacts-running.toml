@@ -1,0 +1,21 @@
+description = "A turn that writes live.txt and then keeps a tool running for 30 s (for the in-progress turn)."
+
+[[step]]
+prompt = "start something long"
+
+[[step]]
+thinking = "Working out what to change."
+ms = 1500
+
+[[step]]
+tool = "Write"
+input = { file_path = "{cwd}/live.txt", content = "live\n" }
+writes = [{ path = "{cwd}/live.txt", content = "live\n" }]
+result = "File created successfully at: {cwd}/live.txt"
+ms = 30000
+
+[[step]]
+reply = "Done."
+
+[[step]]
+idle = true

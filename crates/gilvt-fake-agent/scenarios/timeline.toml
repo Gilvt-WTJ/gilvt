@@ -1,0 +1,163 @@
+description = "Inspector timeline (H1–H5, H10, H18): a thinking block, file tools, an early command, a failing test run with error lines, a 100-line reply that scrolls the early rows off screen, a late command."
+
+[[step]]
+prompt = "Update README.md, then run the tests"
+
+[[step]]
+thinking = "Read README.md first, then edit it and run the tests."
+ms = 800
+
+[[step]]
+tool = "Read"
+input = { file_path = "{cwd}/README.md" }
+result = "     1\t# Demo\n     2\t\n     3\tOld line\n"
+ms = 200
+
+[[step]]
+tool = "Edit"
+input = { file_path = "{cwd}/README.md", old_string = "Old line", new_string = "New line\nHello!", replace_all = false }
+result = "The file {cwd}/README.md has been updated successfully."
+ms = 300
+
+[[step]]
+tool = "Write"
+input = { file_path = "{cwd}/hello.txt", content = "hello\n" }
+result = "File created successfully at: {cwd}/hello.txt"
+ms = 300
+
+[[step]]
+tool = "Bash"
+input = { command = "echo early", description = "Print a marker" }
+result = "early"
+ms = 1500
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test", description = "Run the tests" }
+result = """
+   Compiling demo v0.1.0 (/work/demo)
+Error: cannot find value `greeting` in this scope
+  --> src/lib.rs:3:5
+warning: unused import: `std::fmt`
+running 2 tests
+test tests::parses ... ok
+test tests::greets ... FAILED
+test result: FAILED. 1 passed; 1 failed; 0 ignored
+    Finished in 0.02s"""
+exit_code = 101
+ms = 500
+
+[[step]]
+reply = """
+The test run failed. Here is what happened, step by step:
+line 002 of the long reply
+line 003 of the long reply
+line 004 of the long reply
+line 005 of the long reply
+line 006 of the long reply
+line 007 of the long reply
+line 008 of the long reply
+line 009 of the long reply
+line 010 of the long reply
+line 011 of the long reply
+line 012 of the long reply
+line 013 of the long reply
+line 014 of the long reply
+line 015 of the long reply
+line 016 of the long reply
+line 017 of the long reply
+line 018 of the long reply
+line 019 of the long reply
+line 020 of the long reply
+line 021 of the long reply
+line 022 of the long reply
+line 023 of the long reply
+line 024 of the long reply
+line 025 of the long reply
+line 026 of the long reply
+line 027 of the long reply
+line 028 of the long reply
+line 029 of the long reply
+line 030 of the long reply
+line 031 of the long reply
+line 032 of the long reply
+line 033 of the long reply
+line 034 of the long reply
+line 035 of the long reply
+line 036 of the long reply
+line 037 of the long reply
+line 038 of the long reply
+line 039 of the long reply
+line 040 of the long reply
+line 041 of the long reply
+line 042 of the long reply
+line 043 of the long reply
+line 044 of the long reply
+line 045 of the long reply
+line 046 of the long reply
+line 047 of the long reply
+line 048 of the long reply
+line 049 of the long reply
+line 050 of the long reply
+line 051 of the long reply
+line 052 of the long reply
+line 053 of the long reply
+line 054 of the long reply
+line 055 of the long reply
+line 056 of the long reply
+line 057 of the long reply
+line 058 of the long reply
+line 059 of the long reply
+line 060 of the long reply
+line 061 of the long reply
+line 062 of the long reply
+line 063 of the long reply
+line 064 of the long reply
+line 065 of the long reply
+line 066 of the long reply
+line 067 of the long reply
+line 068 of the long reply
+line 069 of the long reply
+line 070 of the long reply
+line 071 of the long reply
+line 072 of the long reply
+line 073 of the long reply
+line 074 of the long reply
+line 075 of the long reply
+line 076 of the long reply
+line 077 of the long reply
+line 078 of the long reply
+line 079 of the long reply
+line 080 of the long reply
+line 081 of the long reply
+line 082 of the long reply
+line 083 of the long reply
+line 084 of the long reply
+line 085 of the long reply
+line 086 of the long reply
+line 087 of the long reply
+line 088 of the long reply
+line 089 of the long reply
+line 090 of the long reply
+line 091 of the long reply
+line 092 of the long reply
+line 093 of the long reply
+line 094 of the long reply
+line 095 of the long reply
+line 096 of the long reply
+line 097 of the long reply
+line 098 of the long reply
+line 099 of the long reply
+line 100: end of the long reply"""
+
+[[step]]
+tool = "Bash"
+input = { command = "echo late", description = "Print another marker" }
+result = "late"
+ms = 300
+
+[[step]]
+reply = "Done: README.md updated, hello.txt written; one test fails."
+
+[[step]]
+idle = true

@@ -1,0 +1,13 @@
+description = "The turn fails with an API error (StopFailure, no Stop)."
+
+[[step]]
+prompt = "reply ok"
+
+[[step]]
+sleep = "500ms"
+
+[[step]]
+api_error = "Network connection lost"
+
+[[step]]
+idle = true

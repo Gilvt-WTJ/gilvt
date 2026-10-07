@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "pid": 4242,
+  "front": false,
+  "dock_badge": "1",
+  "dock_bounces": 2,
+  "windows": [
+    {
+      "id": 151702,
+      "key": false,
+      "title": "bash — sandbox",
+      "sidebar": {
+        "visible": true,
+        "group_by": "project",
+        "sections": [{ "name": "needs_you", "title": "需要你 · 1", "collapsed": false, "count": 1 },
+                     { "name": "project:sandbox", "title": "sandbox", "collapsed": false, "count": 1 },
+                     { "name": "project:old", "title": "old", "collapsed": true, "count": 1, "rect": [0, 300, 239, 27.5] }],
+        "rows": [
+          { "session": "claude:aaaa", "agent": "claude", "name": "Cats or dogs", "status": "awaiting_answer",
+            "detail": "Cats or dogs?", "line": "在问你", "muted": false, "lite": false, "pane": 3, "focused": false,
+            "section": "needs_you", "visible": true, "rect": [8, 96, 224, 76] },
+          { "session": "claude:aaaa", "agent": "claude", "name": "Cats or dogs", "status": "awaiting_answer",
+            "detail": "Cats or dogs?", "line": "在问你", "muted": false, "lite": false, "pane": 3, "focused": false,
+            "section": "project:sandbox", "visible": true, "rect": null },
+          { "session": "claude:bbbb", "agent": "claude", "name": "old one", "status": "idle",
+            "detail": "", "line": "空闲", "muted": false, "lite": false, "pane": 1, "focused": false,
+            "section": "project:old", "visible": false, "rect": null }
+        ],
+        "trash_confirm": null
+      },
+      "tabs": [
+        { "title": "old", "active": false, "dot": null, "panes": [
+          { "id": 1, "kind": "terminal", "focused": false, "rect": null, "foreground": "shell", "session": null,
+            "border": null, "cwd": "/tmp", "screen_tail": ["sandbox$"] } ] },
+        { "title": "Cats or dogs", "active": true, "dot": "amber", "panes": [
+          { "id": 2, "kind": "terminal", "focused": true, "rect": [240, 58, 400, 600], "foreground": "shell",
+            "session": null, "border": "focus", "cwd": "/tmp",
+            "screen_tail": ["sandbox$ echo \"CHK:$(type -P claude):$(type -P codex):$HOME:END\"",
+                            "CHK:/sbx/bin/claude:/sbx/bin/co", "dex:/sbx/home:END", "sandbox$"] },
+          { "id": 3, "kind": "terminal", "focused": false, "rect": [641, 58, 400, 600], "foreground": "agent:claude",
+            "session": "claude:aaaa", "border": "amber", "cwd": "/tmp", "screen_tail": ["❯ 1. Cats", "  2. Dogs"] }
+        ] }
+      ],
+      "context_menu": { "items": [
+        { "label": "重命名…", "checked": false, "enabled": true, "rect": [122, 164, 188, 26] },
+        { "label": "静音这个会话的通知", "checked": false, "enabled": true, "rect": [122, 190, 188, 26] },
+        { "label": "hidden", "checked": false, "enabled": true, "rect": null }
+      ] },
+      "overlay": null,
+      "inspector": { "visible": true, "tab": "process", "card": null, "banner": null, "timeline_rows": 0 }
+    }
+  ]
+}

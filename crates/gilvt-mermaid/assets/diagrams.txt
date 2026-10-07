@@ -1,0 +1,53 @@
+flowchart
+flowchart LR
+  A[开始 Start] --> B{Is it ok?}
+  B -->|yes| C[做事情]
+  B -->|no| D[(Database)]
+---
+sequence
+sequenceDiagram
+  participant U as 用户
+  U->>gilvt: tv view
+  gilvt-->>U: Quick Look
+  Note over U,gilvt: 中文注释
+---
+class
+classDiagram
+  class Animal {
+    +String name
+    +eat() void
+  }
+  Animal <|-- Duck
+---
+state
+stateDiagram-v2
+  [*] --> Running
+  Running --> Interrupted: 网络错误
+  Interrupted --> Running
+  Running --> [*]
+---
+er
+erDiagram
+  CUSTOMER ||--o{ ORDER : places
+  ORDER ||--|{ LINE_ITEM : contains
+---
+gantt
+gantt
+  title 计划
+  dateFormat YYYY-MM-DD
+  section M2
+  M2a :done, 2026-09-20, 3d
+  M2b :active, 2026-09-24, 5d
+---
+pie
+pie title 语言
+  "Rust" : 80
+  "Shell" : 20
+---
+mindmap
+mindmap
+  root((gilvt))
+    终端
+      分屏
+    Quick Look
+      Markdown

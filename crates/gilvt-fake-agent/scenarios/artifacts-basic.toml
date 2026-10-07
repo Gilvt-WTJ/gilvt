@@ -1,0 +1,34 @@
+description = "One turn that writes two files and runs a passing test; the artifacts card has 2 files, a ✓ and a closing sentence."
+
+[[step]]
+prompt = "add a greeting to README.md and a hello.txt"
+
+[[step]]
+thinking = "Working out what to change."
+ms = 1500
+
+[[step]]
+tool = "Write"
+input = { file_path = "{cwd}/hello.txt", content = "hello\n" }
+writes = [{ path = "{cwd}/hello.txt", content = "hello\n" }]
+result = "File created successfully at: {cwd}/hello.txt"
+ms = 200
+
+[[step]]
+tool = "Edit"
+input = { file_path = "{cwd}/README.md", old_string = "# Demo", new_string = "# Demo\n\nHello!", replace_all = false }
+writes = [{ path = "{cwd}/README.md", content = "# Demo\n\nHello!\n" }]
+result = "The file {cwd}/README.md has been updated successfully."
+ms = 200
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test", description = "Run the tests" }
+result = "test result: ok. 3 passed"
+ms = 300
+
+[[step]]
+reply = "Added hello.txt and updated README.md."
+
+[[step]]
+idle = true

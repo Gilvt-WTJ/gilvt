@@ -1,0 +1,61 @@
+description = "Three turns: edits a.txt and fails a test; only explains; edits a.txt again (so turn 1 is 「后被改动」)."
+
+[[step]]
+prompt = "change a.txt"
+
+[[step]]
+thinking = "Working out what to change."
+ms = 1500
+
+[[step]]
+tool = "Write"
+input = { file_path = "{cwd}/a.txt", content = "turn one\n" }
+writes = [{ path = "{cwd}/a.txt", content = "turn one\n" }]
+result = "File created successfully at: {cwd}/a.txt"
+ms = 200
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test", description = "Run the tests" }
+result = "test tests::it_works ... FAILED\n\ntest result: FAILED. 0 passed; 1 failed"
+exit_code = 101
+ms = 300
+
+[[step]]
+reply = "Changed a.txt, one test fails."
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "explain what you did"
+
+[[step]]
+thinking = "Working out what to change."
+ms = 1500
+
+[[step]]
+reply = "I changed a.txt and the test run failed."
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "change a.txt again"
+
+[[step]]
+thinking = "Working out what to change."
+ms = 1500
+
+[[step]]
+tool = "Write"
+input = { file_path = "{cwd}/a.txt", content = "turn three\n" }
+writes = [{ path = "{cwd}/a.txt", content = "turn three\n" }]
+result = "File created successfully at: {cwd}/a.txt"
+ms = 200
+
+[[step]]
+reply = "Rewrote a.txt."
+
+[[step]]
+idle = true

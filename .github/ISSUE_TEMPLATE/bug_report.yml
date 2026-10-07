@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in gilvt doesn't work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go through [SECURITY.md](../blob/main/SECURITY.md), not issues.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a new tab
+        2. Run `claude` in a git repository
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: gilvt
+    attributes:
+      label: gilvt version or commit
+      placeholder: 0.1.0 / a1b2c3d
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: macOS 15.4, Apple M2
+    validations:
+      required: true
+  - type: input
+    id: agents
+    attributes:
+      label: Agent CLI versions (if an agent is involved)
+      description: Output of `claude --version` and `codex --version`.
+      placeholder: claude 2.1.289, codex 0.145.0
+  - type: dropdown
+    id: shell
+    attributes:
+      label: Shell
+      options: [zsh, bash, fish, other]
+  - type: textarea
+    id: extra
+    attributes:
+      label: Logs, screenshots, config
+      description: Relevant parts of `~/.config/gilvt/config.toml`, screenshots, or `gilvt debug state` output. Remove anything private.
+  - type: textarea
+    id: ai
+    attributes:
+      label: AI disclosure
+      description: Did you use AI to write this report? See AI_POLICY.md.

@@ -1,0 +1,15 @@
+[package]
+name = "gilvt-editor"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+chardetng = "1.0"
+encoding_rs = "0.8"
+ropey = { version = "1.6", default-features = false, features = ["simd"] }
+unicode-segmentation = "1.12"
+unicode-width = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true

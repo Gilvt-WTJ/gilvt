@@ -1,0 +1,322 @@
+description = "Inspector timeline order (H20–H22): 40 quick Bash calls fill the list past one screen, then 12 slow ones (2 s each) keep adding rows while the user watches or has scrolled down."
+
+[[step]]
+prompt = "Run the numbered steps"
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 01", description = "Step 01" }
+result = "step 01"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 02", description = "Step 02" }
+result = "step 02"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 03", description = "Step 03" }
+result = "step 03"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 04", description = "Step 04" }
+result = "step 04"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 05", description = "Step 05" }
+result = "step 05"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 06", description = "Step 06" }
+result = "step 06"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 07", description = "Step 07" }
+result = "step 07"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 08", description = "Step 08" }
+result = "step 08"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 09", description = "Step 09" }
+result = "step 09"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 10", description = "Step 10" }
+result = "step 10"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 11", description = "Step 11" }
+result = "step 11"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 12", description = "Step 12" }
+result = "step 12"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 13", description = "Step 13" }
+result = "step 13"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 14", description = "Step 14" }
+result = "step 14"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 15", description = "Step 15" }
+result = "step 15"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 16", description = "Step 16" }
+result = "step 16"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 17", description = "Step 17" }
+result = "step 17"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 18", description = "Step 18" }
+result = "step 18"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 19", description = "Step 19" }
+result = "step 19"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 20", description = "Step 20" }
+result = "step 20"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 21", description = "Step 21" }
+result = "step 21"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 22", description = "Step 22" }
+result = "step 22"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 23", description = "Step 23" }
+result = "step 23"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 24", description = "Step 24" }
+result = "step 24"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 25", description = "Step 25" }
+result = "step 25"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 26", description = "Step 26" }
+result = "step 26"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 27", description = "Step 27" }
+result = "step 27"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 28", description = "Step 28" }
+result = "step 28"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 29", description = "Step 29" }
+result = "step 29"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 30", description = "Step 30" }
+result = "step 30"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 31", description = "Step 31" }
+result = "step 31"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 32", description = "Step 32" }
+result = "step 32"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 33", description = "Step 33" }
+result = "step 33"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 34", description = "Step 34" }
+result = "step 34"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 35", description = "Step 35" }
+result = "step 35"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 36", description = "Step 36" }
+result = "step 36"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 37", description = "Step 37" }
+result = "step 37"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 38", description = "Step 38" }
+result = "step 38"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 39", description = "Step 39" }
+result = "step 39"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 40", description = "Step 40" }
+result = "step 40"
+ms = 30
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 41", description = "Step 41" }
+result = "step 41"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 42", description = "Step 42" }
+result = "step 42"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 43", description = "Step 43" }
+result = "step 43"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 44", description = "Step 44" }
+result = "step 44"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 45", description = "Step 45" }
+result = "step 45"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 46", description = "Step 46" }
+result = "step 46"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 47", description = "Step 47" }
+result = "step 47"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 48", description = "Step 48" }
+result = "step 48"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 49", description = "Step 49" }
+result = "step 49"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 50", description = "Step 50" }
+result = "step 50"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 51", description = "Step 51" }
+result = "step 51"
+ms = 2000
+
+[[step]]
+tool = "Bash"
+input = { command = "echo step 52", description = "Step 52" }
+result = "step 52"
+ms = 2000
+
+[[step]]
+reply = "All steps done."
+
+[[step]]
+idle = true

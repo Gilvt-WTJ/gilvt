@@ -1,0 +1,373 @@
+{
+ "version": 1,
+ "pid": 4242,
+ "front": false,
+ "dock_badge": null,
+ "dock_bounces": 0,
+ "windows": [
+  {
+   "id": 999,
+   "key": true,
+   "title": "second",
+   "sidebar": {
+    "visible": false,
+    "group_by": "project",
+    "sections": [],
+    "rows": [],
+    "trash_confirm": null
+   },
+   "tabs": [
+    {
+     "title": "x",
+     "active": true,
+     "dot": null,
+     "panes": [],
+     "rect": [
+      250,
+      30,
+      100,
+      26
+     ]
+    }
+   ],
+   "context_menu": null,
+   "overlay": null,
+   "inspector": {
+    "visible": false,
+    "tab": "process",
+    "card": null,
+    "banner": null,
+    "timeline_rows": 0,
+    "banner_rect": null,
+    "width": 340,
+    "filter": "全部",
+    "chips": [],
+    "toast": null,
+    "rows": []
+   },
+   "error_banner": "无法启动 shell：boom",
+   "dividers": []
+  },
+  {
+   "id": 151702,
+   "key": false,
+   "title": "claude — sandbox",
+   "sidebar": {
+    "visible": true,
+    "group_by": "project",
+    "sections": [
+     {
+      "name": "project:h2",
+      "title": "h2",
+      "collapsed": false,
+      "count": 1,
+      "rect": [
+       0,
+       90,
+       240,
+       22
+      ]
+     },
+     {
+      "name": "ended",
+      "title": "已结束 · 2",
+      "collapsed": true,
+      "count": 2,
+      "rect": [
+       0,
+       200,
+       240,
+       22
+      ]
+     }
+    ],
+    "rows": [],
+    "trash_confirm": {
+     "sessions": [
+      "claude:0ld"
+     ],
+     "buttons": [
+      {
+       "label": "取消",
+       "rect": [
+        100,
+        700,
+        50,
+        20
+       ]
+      },
+      {
+       "label": "移到废纸篓",
+       "rect": [
+        156,
+        700,
+        80,
+        20
+       ]
+      }
+     ]
+    }
+   },
+   "tabs": [
+    {
+     "title": "one",
+     "active": false,
+     "dot": null,
+     "panes": [],
+     "rect": [
+      248,
+      30,
+      140,
+      26
+     ]
+    },
+    {
+     "title": "two",
+     "active": true,
+     "dot": null,
+     "panes": [],
+     "rect": [
+      392,
+      30,
+      140,
+      26
+     ]
+    }
+   ],
+   "context_menu": null,
+   "overlay": {
+    "kind": "sessions",
+    "query": "",
+    "selected": 1,
+    "items": 2,
+    "filter": {
+     "scope": "current",
+     "stale": true
+    },
+    "rows": [
+     {
+      "session": "claude:c1",
+      "title": "i9 第一个",
+      "agent": "claude",
+      "meta": "2 轮",
+      "right": "8 天前",
+      "live": false,
+      "selected": false,
+      "marked": false,
+      "rect": [
+       300,
+       150,
+       640,
+       28
+      ]
+     },
+     {
+      "session": "claude:c2",
+      "title": "i9 第二个",
+      "agent": "claude",
+      "meta": "2 轮",
+      "right": "● 运行中 · 标签 2",
+      "live": true,
+      "selected": true,
+      "marked": false,
+      "rect": null
+     }
+    ],
+    "chips": [
+     {
+      "label": "i6",
+      "active": true,
+      "rect": [
+       700,
+       70,
+       30,
+       16
+      ]
+     },
+     {
+      "label": "全部项目",
+      "active": false,
+      "rect": [
+       734,
+       70,
+       60,
+       16
+      ]
+     },
+     {
+      "label": "≥ 7 天未活动",
+      "active": true,
+      "rect": [
+       798,
+       70,
+       80,
+       16
+      ]
+     }
+    ],
+    "confirm": {
+     "text": "1 个会话 · 64 KB 将移到废纸篓（可从废纸篓还原）",
+     "buttons": [
+      {
+       "label": "取消",
+       "rect": [
+        800,
+        500,
+        50,
+        20
+       ]
+      },
+      {
+       "label": "移到废纸篓",
+       "rect": [
+        856,
+        500,
+        80,
+        20
+       ]
+      }
+     ]
+    },
+    "banner": null
+   },
+   "inspector": {
+    "visible": true,
+    "tab": "process",
+    "card": {
+     "status": "idle",
+     "turn": 2
+    },
+    "banner": "claude · h16 在问你",
+    "timeline_rows": 4,
+    "banner_rect": [
+     1000,
+     80,
+     330,
+     50
+    ],
+    "width": 340,
+    "filter": "全部",
+    "chips": [
+     {
+      "label": "全部",
+      "active": true,
+      "rect": [
+       1000,
+       180,
+       40,
+       16
+      ]
+     },
+     {
+      "label": "Bash",
+      "active": false,
+      "rect": [
+       1044,
+       180,
+       40,
+       16
+      ]
+     }
+    ],
+    "toast": null,
+    "rows": [
+     {
+      "kind": "title",
+      "label": "时间线 · 第 2 轮",
+      "status": null,
+      "anchored": false,
+      "expanded": false,
+      "lines": null,
+      "nested": false,
+      "history": false,
+      "error": [],
+      "rect": [
+       1000,
+       160,
+       330,
+       16
+      ],
+      "toggle": null,
+      "file": null,
+      "copy": null
+     },
+     {
+      "kind": "tool",
+      "label": "Bash echo early",
+      "status": "ok",
+      "anchored": true,
+      "expanded": false,
+      "lines": null,
+      "nested": false,
+      "history": false,
+      "error": [],
+      "rect": [
+       1000,
+       200,
+       330,
+       20
+      ],
+      "toggle": [
+       1004,
+       203,
+       12,
+       14
+      ],
+      "file": null,
+      "copy": null
+     },
+     {
+      "kind": "tool",
+      "label": "Update README.md +2 −1",
+      "status": "ok",
+      "anchored": true,
+      "expanded": false,
+      "lines": {
+       "added": 2,
+       "removed": 1
+      },
+      "nested": false,
+      "history": false,
+      "error": [],
+      "rect": null,
+      "toggle": null,
+      "file": null,
+      "copy": null
+     },
+     {
+      "kind": "history_turn",
+      "label": "第 1 轮 · fix it · 3 步 · 2s ✓",
+      "status": null,
+      "anchored": false,
+      "expanded": false,
+      "lines": null,
+      "nested": false,
+      "history": false,
+      "error": [],
+      "rect": [
+       1000,
+       400,
+       330,
+       20
+      ],
+      "toggle": null,
+      "file": null,
+      "copy": null
+     }
+    ]
+   },
+   "error_banner": null,
+   "dividers": [
+    {
+     "between": "center|inspector",
+     "rect": [
+      998,
+      30,
+      4,
+      770
+     ]
+    }
+   ]
+  }
+ ]
+}

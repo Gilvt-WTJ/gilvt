@@ -1,0 +1,16 @@
+description = "A long first prompt and a long running command: the sidebar row's title wraps to two lines and its status line is cut (GUI cases Q5, Q6)."
+
+[[step]]
+prompt = "Add terminal rows to the sidebar and keep every agent row exactly as it was, then make sure that long titles wrap onto a second line instead of being cut off"
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test -p gilvt-app --lib sidebar::model::tests::terminals_follow_agents_in_their_project_group -- --nocapture", description = "Run one very specific test" }
+result = ""
+ms = 40000
+
+[[step]]
+reply = "Done."
+
+[[step]]
+idle = true

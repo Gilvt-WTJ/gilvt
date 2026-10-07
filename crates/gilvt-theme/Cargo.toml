@@ -1,0 +1,11 @@
+[package]
+name = "gilvt-theme"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+gilvt-term.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

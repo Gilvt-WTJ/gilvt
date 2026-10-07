@@ -1,0 +1,95 @@
+%YAML 1.2
+---
+name: TOML
+file_extensions:
+  - toml
+scope: source.toml
+
+contexts:
+  main:
+    - match: '^\s*(\[\[)\s*([^\]\n]*?)\s*(\]\])\s*(?=#|$)'
+      captures:
+        1: punctuation.definition.table.begin.toml
+        2: markup.heading.table.toml
+        3: punctuation.definition.table.end.toml
+    - match: '^\s*(\[)\s*([^\]\n]*?)\s*(\])\s*(?=#|$)'
+      captures:
+        1: punctuation.definition.table.begin.toml
+        2: markup.heading.table.toml
+        3: punctuation.definition.table.end.toml
+    - match: '^\s*((?:[A-Za-z0-9_-]+|"[^"\n]*"|''[^''\n]*'')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"\n]*"|''[^''\n]*''))*)\s*(=)'
+      captures:
+        1: entity.name.key.toml
+        2: keyword.operator.assignment.toml
+    - include: values
+
+  values:
+    - match: '#.*$'
+      scope: comment.line.number-sign.toml
+    - match: '"""'
+      scope: punctuation.definition.string.begin.toml
+      push: ml-basic-string
+    - match: "'''"
+      scope: punctuation.definition.string.begin.toml
+      push: ml-literal-string
+    - match: '"'
+      scope: punctuation.definition.string.begin.toml
+      push: basic-string
+    - match: "'"
+      scope: punctuation.definition.string.begin.toml
+      push: literal-string
+    - match: '\b\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})?)?\b'
+      scope: constant.numeric.datetime.toml
+    - match: '\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b'
+      scope: constant.numeric.time.toml
+    - match: '[+-]?\b(?:0x[0-9A-Fa-f_]+|0o[0-7_]+|0b[01_]+)\b'
+      scope: constant.numeric.integer.toml
+    - match: '[+-]?\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d[\d_]*)?\b'
+      scope: constant.numeric.toml
+    - match: '[+-]?\b(?:inf|nan)\b'
+      scope: constant.numeric.toml
+    - match: '\b(?:true|false)\b'
+      scope: constant.language.boolean.toml
+    - match: '\{'
+      push: inline-table
+
+  inline-table:
+    - match: '\}'
+      pop: true
+    - match: '((?:[A-Za-z0-9_-]+|"[^"\n]*"|''[^''\n]*'')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"\n]*"|''[^''\n]*''))*)\s*(=)'
+      captures:
+        1: entity.name.key.toml
+        2: keyword.operator.assignment.toml
+    - include: values
+
+  basic-string:
+    - meta_scope: string.quoted.double.toml
+    - match: '\\(?:[btnfr"\\]|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})'
+      scope: constant.character.escape.toml
+    - match: '"'
+      scope: punctuation.definition.string.end.toml
+      pop: true
+    - match: '$'
+      pop: true
+
+  ml-basic-string:
+    - meta_scope: string.quoted.triple.double.toml
+    - match: '\\(?:[btnfr"\\]|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})'
+      scope: constant.character.escape.toml
+    - match: '"""'
+      scope: punctuation.definition.string.end.toml
+      pop: true
+
+  literal-string:
+    - meta_scope: string.quoted.single.toml
+    - match: "'"
+      scope: punctuation.definition.string.end.toml
+      pop: true
+    - match: '$'
+      pop: true
+
+  ml-literal-string:
+    - meta_scope: string.quoted.triple.single.toml
+    - match: "'''"
+      scope: punctuation.definition.string.end.toml
+      pop: true

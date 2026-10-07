@@ -1,0 +1,12 @@
+[package]
+name = "gilvt-shell"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true
+gilvt-term.workspace = true

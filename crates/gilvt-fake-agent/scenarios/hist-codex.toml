@@ -1,0 +1,26 @@
+description = "A finished two-turn Codex session for `drive.sh seed` (past sessions in the 会话 palette, I section)."
+agent = "codex"
+
+[[step]]
+prompt = "历史会话：检查测试"
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo test" }
+result = "test result: ok. 2 passed; 0 failed"
+ms = 300
+
+[[step]]
+reply = "测试都通过了。"
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "历史会话：总结改动"
+
+[[step]]
+reply = "只改了 README。"
+
+[[step]]
+idle = true

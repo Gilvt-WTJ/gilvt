@@ -1,0 +1,45 @@
+description = "精简模式 timeline (H13): no hooks; a command, a failed build, a rejected approval (n skips it), then a long command to interrupt with Esc."
+lite = true
+
+[[step]]
+prompt = "精简模式：检查仓库"
+
+[[step]]
+tool = "Bash"
+input = { command = "git status", description = "Show the status" }
+result = "nothing to commit, working tree clean"
+ms = 300
+
+[[step]]
+tool = "Bash"
+input = { command = "cargo build", description = "Build" }
+result = "error: could not compile `demo` (lib) due to 1 previous error"
+exit_code = 101
+ms = 300
+
+[[step]]
+approve = { tool = "Bash", input = { command = "rm -rf target", description = "Remove the build output" } }
+result = ""
+ms = 200
+on_no = "skip_tool"
+
+[[step]]
+reply = "构建失败，target 没有清理。"
+
+[[step]]
+idle = true
+
+[[step]]
+prompt = "精简模式：长任务"
+
+[[step]]
+tool = "Bash"
+input = { command = "sleep 30", description = "Wait" }
+result = ""
+ms = 30000
+
+[[step]]
+reply = "完成。"
+
+[[step]]
+idle = true

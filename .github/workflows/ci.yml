@@ -1,0 +1,16 @@
+# Build and test, run by hand from the Actions tab (macOS minutes count 10x on private repos).
+# GUI acceptance (tests/gui/) needs a desktop session and screen permissions, so it stays local.
+name: ci
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo test --workspace --locked

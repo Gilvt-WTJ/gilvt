@@ -1,0 +1,15 @@
+description = "AskUserQuestion: the pane shows the options; the answer is echoed in the reply."
+
+[[step]]
+prompt = "Ask me: cats or dogs?"
+
+[[step]]
+ask = "Cats or dogs?"
+header = "Pet"
+options = ["Cats", "Dogs"]
+
+[[step]]
+reply = "You picked {answer}."
+
+[[step]]
+idle = true

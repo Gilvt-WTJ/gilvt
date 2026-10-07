@@ -1,0 +1,22 @@
+[package]
+name = "gilvt-mermaid"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-channel.workspace = true
+block2.workspace = true
+objc2.workspace = true
+objc2-foundation = { workspace = true, features = ["std", "NSDictionary", "NSError", "NSGeometry", "NSObject", "NSString", "NSURL", "NSURLRequest", "objc2-core-foundation"] }
+objc2-web-kit = { workspace = true, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKContentWorld", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKUserContentController", "WKUserScript", "WKWebView", "WKWebViewConfiguration"] }
+resvg.workspace = true
+
+[dev-dependencies]
+objc2-app-kit = { workspace = true, features = ["std", "NSApplication", "NSResponder"] }
+objc2-foundation = { workspace = true, features = ["NSDate", "NSRunLoop"] }
+tempfile.workspace = true
+
+[[test]]
+name = "webview"
+harness = false

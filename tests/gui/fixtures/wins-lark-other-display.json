@@ -1,0 +1,55 @@
+{
+ "locked": false,
+ "screens": [
+  {
+   "x": 0,
+   "y": 0,
+   "w": 1920,
+   "h": 1080
+  },
+  {
+   "x": -1920,
+   "y": -35,
+   "w": 1920,
+   "h": 1080
+  }
+ ],
+ "windows": [
+  {
+   "alpha": 1,
+   "h": 800,
+   "id": 151702,
+   "layer": 0,
+   "onscreen": true,
+   "owner": "gilvt",
+   "pid": 4242,
+   "w": 1280,
+   "x": 100,
+   "y": 50
+  },
+  {
+   "alpha": 1,
+   "h": 1080,
+   "id": 53215,
+   "layer": 0,
+   "onscreen": true,
+   "owner": "Lark",
+   "pid": 38868,
+   "w": 1920,
+   "x": -1920,
+   "y": -35
+  },
+  {
+   "alpha": 1,
+   "h": 900,
+   "id": 53216,
+   "layer": 0,
+   "onscreen": true,
+   "owner": "Lark",
+   "pid": 38868,
+   "w": 1920,
+   "x": -1920,
+   "y": -35
+  }
+ ]
+}
