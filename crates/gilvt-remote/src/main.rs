@@ -2,13 +2,14 @@
 //! `login`, `bridge`, `daemon`. Called as `gilvt` (the symlink in `<version>/bin/`) it will answer the
 //! `gilvt hook|view|diff` commands (R2).
 
-// Items here are used by the daemon, login and bridge (Tasks 3-4); until then they are dead code.
+// `client::login/connect` and `sys::tty` are used by login and bridge (Task 4); until then dead code.
 #[allow(dead_code)]
+mod client;
+mod daemon;
 mod links;
-#[allow(dead_code)]
 mod paths;
-#[allow(dead_code)]
 mod peer;
+mod sys;
 
 use std::process::ExitCode;
 
@@ -22,6 +23,22 @@ fn main() -> ExitCode {
             }
             None => ExitCode::from(1),
         },
+        Some("daemon") => {
+            let mut build = std::env::current_exe().ok().and_then(|e| paths::build_id_of(&e));
+            let mut foreground = false;
+            let mut it = argv[1..].iter();
+            while let Some(a) = it.next() {
+                match a.as_str() {
+                    "--build-id" => build = it.next().cloned(),
+                    "--foreground" => foreground = true,
+                    _ => return ExitCode::from(2),
+                }
+            }
+            let (Some(build_id), Some(layout)) = (build, paths::Layout::current()) else { return ExitCode::from(1) };
+            if !foreground { unsafe { libc::setsid(); } }
+            let cfg = daemon::Config { layout, build_id, hostname: sys::hostname(), uname: sys::uname(), reap_every: std::time::Duration::from_secs(1), idle_exit: std::time::Duration::from_secs(24 * 3600) };
+            match daemon::run(cfg) { Ok(()) => ExitCode::SUCCESS, Err(e) => { eprintln!("gilvt-remote daemon: {e}"); ExitCode::from(1) } }
+        }
         _ => {
             eprintln!("usage: gilvt-remote login|bridge|daemon");
             ExitCode::from(2)
