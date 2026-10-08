@@ -47,7 +47,8 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [ ] 在一台没装过 gilvt 的 Mac 上从浏览器下载 dmg 打开（Intel 机器更好），确认没有 Gatekeeper 提示、通知 / Apple Events 授权弹窗文案正常。
 - [x] 两轮公证：`GILVT_NOTARIZE=1 scripts/package.sh` 先公证并装订 `Gilvt.app`，再用它打 dmg、公证并装订 dmg（release workflow 同样如此），dmg 里的 app 自带票据，离线首次启动也能通过 Gatekeeper。
 
-- [ ] GitHub 仓库设置：打开 Private vulnerability reporting（`SECURITY.md` 依赖它）；填 About（简介、topics、主页）和社交预览图。
+- [x] 仓库已公开（2026-10-08）；Private vulnerability reporting 已打开，About 已填（简介、topics、主页 gilvt.com）。
+- [ ] 社交预览图（Settings → Social preview，1280×640）。
 
 - [x] 官网 `site/`（中英双语，`sh site/build.sh` → `dist-site/`），`/download` 由 `site/_redirects` 转到最新 Release 的 `Gilvt.dmg`；release workflow 每次额外上传固定名字的 `Gilvt.dmg`。
 - [x] `gilvt.com` / `www.gilvt.com` 上线（2026-10-07）：Cloudflare Worker `gilvt` 只提供静态资源，`sh site/build.sh && npx wrangler deploy -c site/wrangler.jsonc` 部署（见 `site/README.md`）。仓库公开（或 dmg 搬到 R2）之前，`/download` 转到的 GitHub 地址对外是 404。
