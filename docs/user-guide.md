@@ -114,6 +114,7 @@ The window has three columns: the sidebar is the session overview, the center ho
 | `⌘⌥←↑→↓` | Move pane focus |
 | `⌘⌃←↑→↓` | Resize the pane; you can also drag the divider |
 | `⌘⇧⏎` | Maximize / restore the current pane |
+| `⌘⇧T` | Move the current pane to a new tab; press it again in that tab to put the pane back into its split |
 | `⌘W` / `⌘⇧W` | Close pane / close tab |
 
 **Shell integration.** zsh, bash and fish in new panes load gilvt's hook: it reports the current directory (new panes inheriting the directory and relative-path recognition both depend on it) and marks prompt and command boundaries. Your own rc files load as usual and are not modified. To turn it off, set `shell_integration = false` in the configuration.
@@ -563,6 +564,7 @@ gilvt's own state (renames, mutes, interface widths, session index cache) is sto
 | `⌘⌥←↑→↓` | Move pane focus |
 | `⌘⌃←↑→↓` | Resize pane |
 | `⌘⇧⏎` | Maximize / restore pane |
+| `⌘⇧T` | Move pane to a new tab / back |
 | `⌘W` / `⌘⇧W` | Close pane / tab |
 | `⌘1…9`, `⌘⇧[` `⌘⇧]` | Switch tabs |
 | `⌘P` | Search files |

@@ -116,11 +116,13 @@ struct Tab {
     id: u64,
     /// For a file tab (an editor opened in a new tab): the tab it was opened from, activated again when it closes.
     origin_tab: Option<u64>,
+    /// For a pane moved out of a split (`pane_drag.rs`): where it goes back to in `origin_tab`.
+    return_to: Option<pane_drag::Return>,
 }
 
 impl Tab {
     fn new(tree: PaneTree, focused: PaneId) -> Self {
-        Tab { tree, focused, zoomed: false, id: next_tab_id(), origin_tab: None }
+        Tab { tree, focused, zoomed: false, id: next_tab_id(), origin_tab: None, return_to: None }
     }
 }
 
@@ -911,6 +913,7 @@ impl Render for Workspace {
                 }
                 ws.focus_active(window, cx);
             }))
+            .on_action(cx.listener(|ws, _: &MovePaneToTab, window, cx| ws.toggle_pane_tab(window, cx)))
             .on_action(cx.listener(|ws, _: &NextTab, window, cx| {
                 let n = ws.tabs.len();
                 if n == 0 {
