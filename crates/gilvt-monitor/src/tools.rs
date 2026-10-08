@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gilvt_agent::{Item, Turn};
+use gilvt_i18n::english;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -269,7 +270,12 @@ pub fn respond(call: &ToolCall, src: &dyn Source) -> Result<ToolText, String> {
     match call {
         ToolCall::ListSessions => {
             let items: Vec<Value> = sessions.iter().map(|s| json!(s)).collect();
-            let label = |kept: usize, omitted: usize| if omitted == 0 { format!("已列出 {kept} 个会话") } else { format!("已列出 {kept} 个会话（另有 {omitted} 个放不下）") };
+            let label = |kept: usize, omitted: usize| match (english(), omitted) {
+                (true, 0) => format!("Listed {}", sessions_count(kept)),
+                (true, _) => format!("Listed {} ({omitted} more did not fit)", sessions_count(kept)),
+                (false, 0) => format!("已列出 {kept} 个会话"),
+                (false, _) => format!("已列出 {kept} 个会话（另有 {omitted} 个放不下）"),
+            };
             Ok(fitted_list(label, |items| json!({"sessions": items}), items, false))
         }
         ToolCall::GetSession { key } => {
@@ -283,7 +289,8 @@ pub fn respond(call: &ToolCall, src: &dyn Source) -> Result<ToolText, String> {
                 json!({"session": v})
             };
             // The oldest turns go first.
-            Ok(fitted_list(|_, _| format!("已读取 {} 的概况", s.name), build, items, true))
+            let label = |_, _| if english() { format!("Read the overview of {}", s.name) } else { format!("已读取 {} 的概况", s.name) };
+            Ok(fitted_list(label, build, items, true))
         }
         ToolCall::GetTimeline { key, turns } => {
             let s = find(key)?;
@@ -293,8 +300,14 @@ pub fn respond(call: &ToolCall, src: &dyn Source) -> Result<ToolText, String> {
             let picked = turns.pick(&src.turns(key).unwrap_or_default());
             let (Some(first), Some(last)) = (picked.first(), picked.last()) else { return Err(format!("{} 没有这些轮", s.name)) };
             let tools: usize = picked.iter().map(|t| t.items.iter().filter(|i| matches!(i, Item::Tool(_))).count()).sum();
-            let range = if first.index == last.index { format!("第 {} 轮", first.index) } else { format!("第 {}–{} 轮", first.index, last.index) };
-            let label = format!("已读取 {} {range}时间线（{tools} 个工具调用）", s.name);
+            let label = if english() {
+                let range = if first.index == last.index { format!("turn {}", first.index) } else { format!("turns {}–{}", first.index, last.index) };
+                let calls = if tools == 1 { "1 tool call".to_string() } else { format!("{tools} tool calls") };
+                format!("Read the timeline of {}, {range} ({calls})", s.name)
+            } else {
+                let range = if first.index == last.index { format!("第 {} 轮", first.index) } else { format!("第 {}–{} 轮", first.index, last.index) };
+                format!("已读取 {} {range}时间线（{tools} 个工具调用）", s.name)
+            };
             Ok(fitted(|cap| (label.clone(), json!({"key": key, "timeline": input::timeline_text_within(&s.name, &picked, cap)}))))
         }
         ToolCall::GetCommands { key, limit } => {
@@ -302,7 +315,13 @@ pub fn respond(call: &ToolCall, src: &dyn Source) -> Result<ToolText, String> {
             let commands = src.commands(key, *limit).ok_or_else(|| format!("{NOT_FOUND}：{key}"))?;
             let cwd = s.cwd.as_ref().map(PathBuf::from);
             let digest = TerminalDigest { name: &s.name, cwd: cwd.as_deref(), commands: &commands };
-            let label = format!("已读取 {} 最近 {} 条命令", s.name, commands.len().min(*limit));
+            let n = commands.len().min(*limit);
+            let label = if english() {
+                let commands = if n == 1 { "command".to_string() } else { format!("{n} commands") };
+                format!("Read the last {commands} of {}", s.name)
+            } else {
+                format!("已读取 {} 最近 {n} 条命令", s.name)
+            };
             Ok(fitted(|cap| (label.clone(), json!({"key": key, "commands": input::commands_text_within(&digest, *limit, cap)}))))
         }
         ToolCall::ReadScreen { key, lines } => {
@@ -311,10 +330,25 @@ pub fn respond(call: &ToolCall, src: &dyn Source) -> Result<ToolText, String> {
             Ok(fitted(|cap| {
                 let screen = input::clip_bytes_tail(&screen, cap);
                 let n = screen.lines().count();
-                (format!("已读取 {} 的屏幕（最后 {n} 行）", s.name), json!({"key": key, "lines": n, "screen": screen}))
+                let label = if english() {
+                    format!("Read the screen of {} (last {})", s.name, lines_count(n))
+                } else {
+                    format!("已读取 {} 的屏幕（最后 {n} 行）", s.name)
+                };
+                (label, json!({"key": key, "lines": n, "screen": screen}))
             }))
         }
     }
+}
+
+/// `1 session` / `N sessions`.
+fn sessions_count(n: usize) -> String {
+    if n == 1 { "1 session".into() } else { format!("{n} sessions") }
+}
+
+/// `1 line` / `N lines`.
+fn lines_count(n: usize) -> String {
+    if n == 1 { "1 line".into() } else { format!("{n} lines") }
 }
 
 /// The 「✓ …」 text of a finished call: the result's `gilvt_label`.
@@ -326,6 +360,28 @@ pub fn done_label(result: &str) -> Option<String> {
 pub fn pending_label(tool: &str, args: &Value, name_of: &dyn Fn(&str) -> Option<String>) -> String {
     let tool = tool.strip_prefix(CLAUDE_PREFIX).unwrap_or(tool);
     let name = |key: &str| name_of(key).unwrap_or_else(|| key.to_string());
+    if english() {
+        return match parse_call(tool, args) {
+            Ok(ToolCall::ListSessions) => "Listing sessions…".into(),
+            Ok(ToolCall::GetSession { key }) => format!("Reading the overview of {}…", name(&key)),
+            Ok(ToolCall::GetTimeline { key, turns: TurnSel::Last(1) }) => {
+                format!("Reading the timeline of {}, last turn…", name(&key))
+            }
+            Ok(ToolCall::GetTimeline { key, turns: TurnSel::Last(n) }) => {
+                format!("Reading the timeline of {}, last {n} turns…", name(&key))
+            }
+            Ok(ToolCall::GetTimeline { key, turns: TurnSel::Turns(t) }) => {
+                let list: Vec<String> = t.iter().map(u32::to_string).collect();
+                let turns = if t.len() == 1 { "turn" } else { "turns" };
+                format!("Reading the timeline of {}, {turns} {}…", name(&key), list.join(", "))
+            }
+            Ok(ToolCall::GetCommands { key, .. }) => format!("Reading the commands of {}…", name(&key)),
+            Ok(ToolCall::ReadScreen { key, lines }) => {
+                format!("Reading the screen of {} (last {})…", name(&key), lines_count(lines))
+            }
+            Err(_) => format!("Calling {tool}…"),
+        };
+    }
     match parse_call(tool, args) {
         Ok(ToolCall::ListSessions) => "正在列出会话…".into(),
         Ok(ToolCall::GetSession { key }) => format!("正在读取 {} 的概况…", name(&key)),
@@ -488,6 +544,47 @@ mod tests {
         // An excluded session is one the source does not list, even if it could read it.
         let excluded = respond(&ToolCall::ReadScreen { key: "pane:99".into(), lines: 10 }, &fake()).unwrap_err();
         assert_eq!(excluded, "没有这个会话：pane:99");
+    }
+
+    #[test]
+    fn labels_in_english() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let name = |k: &str| (k == "agent:claude:a1").then(|| "web-login".to_string());
+        let (done, pending) = with_language(Language::English, || {
+            let calls = [
+                ToolCall::ListSessions,
+                ToolCall::GetSession { key: "agent:claude:a1".into() },
+                ToolCall::GetTimeline { key: "agent:claude:a1".into(), turns: TurnSel::Last(2) },
+                ToolCall::GetTimeline { key: "agent:claude:a1".into(), turns: TurnSel::Turns(vec![3]) },
+                ToolCall::GetCommands { key: "pane:9".into(), limit: 20 },
+                ToolCall::ReadScreen { key: "pane:9".into(), lines: 2 },
+            ];
+            let done: Vec<String> = calls.iter().map(|c| done_label(&respond(c, &fake()).unwrap().text).unwrap()).collect();
+            let pending: Vec<String> = [
+                ("mcp__gilvt__list_sessions", json!({})),
+                ("get_session", json!({"key": "agent:claude:a1"})),
+                ("get_timeline", json!({"key": "agent:claude:a1", "turns": "last:2"})),
+                ("get_timeline", json!({"key": "agent:claude:a1", "turns": "2,3"})),
+                ("get_commands", json!({"key": "pane:9"})),
+                ("read_screen", json!({"key": "pane:9"})),
+                ("frob", json!({})),
+            ]
+            .iter()
+            .map(|(tool, args)| pending_label(tool, args, &name))
+            .collect();
+            (done, pending)
+        });
+        assert_eq!(done[0], "Listed 2 sessions");
+        assert_eq!(done[2], "Read the timeline of web-login, turns 4–5 (9 tool calls)");
+        assert_eq!(done[3], "Read the timeline of web-login, turn 3 (3 tool calls)");
+        assert_eq!(pending[0], "Listing sessions…");
+        assert_eq!(pending[3], "Reading the timeline of web-login, turns 2, 3…");
+        assert_eq!(pending[5], "Reading the screen of pane:9 (last 60 lines)…");
+        for label in done.iter().chain(&pending) {
+            assert!(!has_chinese(label), "{label}");
+        }
+        assert_eq!(pending_label("mcp__gilvt__list_sessions", &json!({}), &name), "正在列出会话…");
+        assert_eq!(with_language(Language::English, || crate::input::Covers::Turns(2, 3).label()), "Covers turns 2–3");
     }
 
     #[test]

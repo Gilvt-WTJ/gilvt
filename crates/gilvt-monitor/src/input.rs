@@ -37,7 +37,16 @@ pub enum Covers {
 }
 
 impl Covers {
+    /// For the card (not the model): follows the interface language.
     pub fn label(&self) -> String {
+        if gilvt_i18n::english() {
+            return match *self {
+                Covers::Turns(a, b) if a == b => format!("Covers turn {a}"),
+                Covers::Turns(a, b) => format!("Covers turns {a}–{b}"),
+                Covers::Commands(1) => "Covers the last command".into(),
+                Covers::Commands(n) => format!("Covers the last {n} commands"),
+            };
+        }
         match *self {
             Covers::Turns(a, b) if a == b => format!("覆盖第 {a} 轮"),
             Covers::Turns(a, b) => format!("覆盖第 {a}–{b} 轮"),

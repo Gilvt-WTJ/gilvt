@@ -52,10 +52,17 @@ pub fn check_features(list: &str) -> Result<Features, ProviderError> {
     let usable = |name: &str| features.iter().any(|(n, stage)| n == name && stage != "removed");
     let lacking: Vec<&str> = REQUIRED_FEATURES.iter().copied().filter(|f| !usable(f)).collect();
     if !lacking.is_empty() {
-        return Err(ProviderError::Unsupported(format!(
-            "当前 Codex 里找不到 {} 这个开关。为了保证监控官只能通过 gilvt 的只读工具查数据，对话已停用（✦ 总结不受影响）。可以在设置里改用 Claude，或升级 gilvt。",
-            lacking.join("、")
-        )));
+        return Err(ProviderError::Unsupported(if gilvt_i18n::english() {
+            format!(
+                "This Codex has no {} switch. To make sure the Monitor can only read data through gilvt's read-only tools, chat is turned off (✦ summaries are not affected). Switch to Claude in Settings, or update gilvt.",
+                lacking.join(", ")
+            )
+        } else {
+            format!(
+                "当前 Codex 里找不到 {} 这个开关。为了保证监控官只能通过 gilvt 的只读工具查数据，对话已停用（✦ 总结不受影响）。可以在设置里改用 Claude，或升级 gilvt。",
+                lacking.join("、")
+            )
+        }));
     }
     let (disable, missing): (Vec<&str>, Vec<&str>) = OPTIONAL_FEATURES.iter().partition(|f| usable(f));
     Ok(Features { disable: disable.into_iter().map(String::from).collect(), missing: missing.into_iter().map(String::from).collect() })
@@ -214,7 +221,7 @@ impl Codex {
                 Some("agentMessage") => d.events.push(ChatEvent::TextDone { message: s("/item/id").unwrap_or("").into(), text: s("/item/text").unwrap_or("").into() }),
                 Some("mcpToolCall") if s("/item/server") == Some("gilvt") => {
                     let ok = s("/item/status") == Some("completed");
-                    let text = if ok { content_text(p.pointer("/item/result/content")) } else { s("/item/error/message").unwrap_or("工具调用失败").to_string() };
+                    let text = if ok { content_text(p.pointer("/item/result/content")) } else { s("/item/error/message").unwrap_or(gilvt_i18n::text("工具调用失败", "The tool call failed")).to_string() };
                     d.events.push(ChatEvent::ToolDone { id: s("/item/id").unwrap_or("").into(), ok, text });
                 }
                 _ => {}
@@ -225,7 +232,7 @@ impl Codex {
                 let end = match s("/turn/status") {
                     Some("interrupted") => TurnEnd::Interrupted,
                     Some("failed") => {
-                        let message = s("/turn/error/message").map(str::to_string).or_else(|| self.last_error.take()).unwrap_or_else(|| "这一轮失败了".into());
+                        let message = s("/turn/error/message").map(str::to_string).or_else(|| self.last_error.take()).unwrap_or_else(|| gilvt_i18n::text("这一轮失败了", "This turn failed").into());
                         TurnEnd::Failed(classify(&message, None))
                     }
                     _ => TurnEnd::Done,
@@ -234,8 +241,12 @@ impl Codex {
             }
             "error" if p.get("willRetry").and_then(Value::as_bool) != Some(true) => self.last_error = s("/error/message").map(str::to_string),
             "mcpServer/startupStatus/updated" if s("/name") == Some("gilvt") && s("/status") == Some("failed") => {
-                let why = s("/error").or(s("/failureReason")).unwrap_or("未知原因");
-                d.events.push(ChatEvent::Notice(format!("gilvt 工具没有连上：{why}")));
+                let why = s("/error").or(s("/failureReason")).unwrap_or(gilvt_i18n::text("未知原因", "unknown reason"));
+                d.events.push(ChatEvent::Notice(if gilvt_i18n::english() {
+                    format!("gilvt's tools did not connect: {why}")
+                } else {
+                    format!("gilvt 工具没有连上：{why}")
+                }));
             }
             _ => {}
         }

@@ -360,4 +360,24 @@ mod tests {
         assert!(ProviderError::Auth("x".into()).message().starts_with("认证失败"));
         assert_eq!(ProviderError::Exited { code: Some(2), stderr_tail: "bad flag".into() }.message(), "退出码 2：bad flag");
     }
+
+    #[test]
+    fn messages_in_english() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let all = [
+            ProviderError::NotFound { program: "claude".into() },
+            ProviderError::Auth("x".into()),
+            ProviderError::Timeout,
+            ProviderError::Exited { code: Some(2), stderr_tail: "bad flag".into() },
+            ProviderError::Exited { code: Some(2), stderr_tail: String::new() },
+            ProviderError::Exited { code: None, stderr_tail: String::new() },
+            ProviderError::Protocol("x".into()),
+        ];
+        let english: Vec<String> = with_language(Language::English, || all.iter().map(ProviderError::message).collect());
+        assert!(english.iter().all(|m| !has_chinese(m)), "{english:?}");
+        assert_eq!(english[0], "claude not found (set its full path in [monitor] command)");
+        assert_eq!(english[3], "Exit code 2: bad flag");
+        let unsupported = with_language(Language::English, || crate::chat::codex::check_features("").unwrap_err().message());
+        assert!(!has_chinese(&unsupported), "{unsupported}");
+    }
 }

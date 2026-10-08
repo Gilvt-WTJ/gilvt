@@ -40,12 +40,12 @@ pub fn parse(out: &Output) -> Result<String, ProviderError> {
             if v.get("is_error").and_then(|e| e.as_bool()).unwrap_or(false) || out.code.is_some_and(|c| c != 0) {
                 Err(classify(&format!("{text}\n{}", out.stderr), out.code))
             } else if text.trim().is_empty() {
-                Err(ProviderError::Protocol("result 为空".into()))
+                Err(ProviderError::Protocol(gilvt_i18n::text("result 为空", "the result is empty").into()))
             } else {
                 Ok(text)
             }
         }
-        None if out.code == Some(0) => Err(ProviderError::Protocol("没有 result 行".into())),
+        None if out.code == Some(0) => Err(ProviderError::Protocol(gilvt_i18n::text("没有 result 行", "no result line").into())),
         None => Err(classify(&format!("{}\n{}", out.stdout, out.stderr), out.code)),
     }
 }

@@ -85,7 +85,7 @@ pub fn parse(out: &Output, last_message: Option<String>) -> Result<String, Provi
     if out.code == Some(0) {
         return match last_message.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()) {
             Some(m) => Ok(m),
-            None => Err(ProviderError::Protocol("没有最后一条消息".into())),
+            None => Err(ProviderError::Protocol(gilvt_i18n::text("没有最后一条消息", "no last message").into())),
         };
     }
     let messages: Vec<String> = out
