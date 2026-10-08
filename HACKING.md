@@ -32,6 +32,65 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 
 授权属于从 `Gilvt.app` 启动的进程：请用 `open target/debug/Gilvt.app` 启动；直接运行 `./target/debug/gilvt-app` 时，授权算在启动它的终端头上。
 
+## 发版与更新网站
+
+一次性的准备（Apple 开发者账号、Developer ID 证书、公证凭据、CI Secrets）见 [`docs/release-setup.md`](docs/release-setup.md)。下面是日常操作。
+
+### 发一个新版本
+
+1. **改版本号**：`Cargo.toml` 的 `[workspace.package] version`。`CHANGELOG.md` 里把 `## [Unreleased]` 改成 `## [0.2.0] - 2026-11-01` 这样的版本与日期，上面再留一个空的 `[Unreleased]`，文末的链接一起改。
+2. **提交、推送、打 tag**：
+
+   ```bash
+   git commit -am "release: 0.2.0" && git push origin main
+   git tag v0.2.0 && git push origin v0.2.0
+   ```
+
+3. **打包并公证**（在有 Developer ID 证书的 Mac 上，约 2 分钟）：
+
+   ```bash
+   GILVT_NOTARIZE=1 scripts/package.sh      # → target/dist/Gilvt-0.2.0.dmg
+   ```
+
+   它自动用钥匙串里的 `Developer ID Application` 证书签名、打开硬化运行时、用钥匙串里的 `gilvt-notary` 公证：先公证并装订 `Gilvt.app`，再用它打 dmg、公证并装订 dmg（显式设置的 `GILVT_SIGN_IDENTITY` / `NOTARY_PROFILE` / `NOTARY_KEY_*` 优先）。`hdiutil create` 偶尔失败，脚本会重试。
+
+4. **建 GitHub Release**（现阶段在本机手动做）：
+
+   ```bash
+   cd target/dist
+   cp Gilvt-0.2.0.dmg Gilvt.dmg
+   shasum -a 256 Gilvt-0.2.0.dmg Gilvt.dmg > SHA256SUMS
+   gh release create v0.2.0 Gilvt-0.2.0.dmg Gilvt.dmg SHA256SUMS \
+     --title "gilvt 0.2.0" --notes "<这一版 CHANGELOG 的内容>" --draft
+   gh release edit v0.2.0 --draft=false      # 在网页上检查过草稿后再发布
+   ```
+
+   **固定名字的 `Gilvt.dmg` 不能少**：官网的 `https://gilvt.com/download` 指向 `releases/latest/download/Gilvt.dmg`；带版本号的文件给 Homebrew cask 用。
+
+5. **以后改为自动发布**：仓库 Secrets 配好之后（名字见 `.github/workflows/release.yml` 开头），第 2 步推送 tag 就会在 GitHub Actions 上自动完成第 3、4 步，并更新 Homebrew tap 里的 cask，不用再在本机打包。
+
+### 更新官网（gilvt.com）
+
+网站在 `site/`：`index.html`（英文）、`zh-CN/index.html`（中文）、`style.css`，以及 `_redirects`（`/download` 的转发）。它部署在 Cloudflare 账号里名为 `gilvt` 的 Worker 上（只提供静态资源），配置是 `site/wrangler.jsonc`，里面也绑定了 `gilvt.com` 和 `www.gilvt.com`。
+
+1. **改内容**：中英文两页一起改。截图和动图直接替换 `docs/images/` 里的文件，构建时会复制过去，网站里不另存一份。
+2. **本地预览**：
+
+   ```bash
+   sh site/build.sh && python3 -m http.server -d dist-site 8000    # 打开 http://localhost:8000
+   ```
+
+3. **部署**（立即生效；第一次在这台 Mac 上先运行一次 `npx --registry=https://registry.npmjs.org wrangler@4 login`，用 Cloudflare 账号授权）：
+
+   ```bash
+   sh site/build.sh && npx --registry=https://registry.npmjs.org wrangler@4 deploy -c site/wrangler.jsonc
+   ```
+
+   `--registry` 是因为本机 npm 默认指向公司内网镜像，换一台机器可以去掉。
+4. **推送代码**：网站部署和 `git push` 互相独立，推送不会更新网站，部署也不需要先推送。改完 `site/` 两件事都做，让仓库和线上一致。
+
+**下载地址**：对外（README、文章、帖子）只发布 `https://gilvt.com/download`。以后安装包改放到别处（比如 Cloudflare R2），只改 `site/_redirects` 那一行再部署，已经发出去的链接不受影响。
+
 ## 目录
 
 | 路径 | 说明 |
@@ -59,6 +118,9 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 | `docs/compat-checklist.md` | 兼容性验收清单 |
 | `docs/debug-state.md` | `gilvt debug state` 的字段与条件语法 |
 | `docs/release-setup.md` | 发版准备：申请 Developer ID、创建证书、配置公证与 CI secrets |
+| `scripts/package.sh` / `scripts/notarize.sh` | universal dmg；`GILVT_NOTARIZE=1` 时签名并两轮公证（app、dmg），见「发版与更新网站」 |
+| `packaging/entitlements.plist` | 硬化运行时的 entitlements（Apple Events，供「跳到外部终端」） |
+| `site/` | 官网 gilvt.com（中英双语）：`build.sh` 构建到 `dist-site/`，`wrangler.jsonc` 部署到 Cloudflare Worker `gilvt`，`_redirects` 管 `/download` |
 | `tests/gui/` | GUI 验收：沙盒、驱动脚本、用例、剧本（见下文「GUI 验收测试」） |
 | `.claude/skills/gilvt-acceptance/` | 让 Claude 执行 GUI 验收并写报告的 skill |
 

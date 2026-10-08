@@ -13,3 +13,5 @@ also binds the custom domains `gilvt.com` and `www.gilvt.com`):
 
 Only publish `https://gilvt.com/download` as the download link, so the host behind it can change later
 (Cloudflare R2 at `release.gilvt.com` once auto-update arrives) without breaking links.
+
+The full routine (and how releases feed `/download`) is in `HACKING.md`, section 「发版与更新网站」.
