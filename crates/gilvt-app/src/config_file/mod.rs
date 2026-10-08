@@ -331,7 +331,7 @@ fn take_step(step: Step, cx: &mut App) {
                 write_unsaved_theme(cx);
             }
             let all: Vec<String> = warning.into_iter().chain(theme_errors).collect();
-            (!all.is_empty()).then(|| all.join("；"))
+            (!all.is_empty()).then(|| all.join(crate::i18n::text("；", "; ")))
         }
         Step::Report(e) => Some(
             if crate::i18n::current() == crate::i18n::Language::English {
@@ -484,7 +484,7 @@ pub fn set_theme(sel: Selection, cx: &mut App) -> Result<(), String> {
     settings.theme = ThemeSetting::from(&sel);
     let errors = apply_settings(settings, cx);
     if !errors.is_empty() {
-        show_banner(errors.join("；"), cx);
+        show_banner(errors.join(crate::i18n::text("；", "; ")), cx);
     }
     cx.update_global::<ConfigFile, _>(|f, _| f.unsaved.theme = Some(sel));
     let task = cx.spawn(async move |cx| {

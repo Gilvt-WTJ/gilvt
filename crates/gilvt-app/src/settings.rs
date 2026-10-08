@@ -76,7 +76,11 @@ impl MonitorSettings {
 
     fn sanitize(&mut self, errors: &mut Vec<String>) {
         if parse_interval(&self.summary_interval).is_none() {
-            errors.push(format!("monitor.summary_interval = {:?} 无法解析（例：90s、2m、1h），改用 \"2m\"", self.summary_interval));
+            errors.push(if crate::i18n::english() {
+                format!("monitor.summary_interval = {:?} could not be parsed (e.g. 90s, 2m, 1h); using \"2m\"", self.summary_interval)
+            } else {
+                format!("monitor.summary_interval = {:?} 无法解析（例：90s、2m、1h），改用 \"2m\"", self.summary_interval)
+            });
             self.summary_interval = "2m".into();
         }
     }
@@ -169,7 +173,11 @@ impl ColorsSetting {
         for (key, value) in singles {
             if let Some(v) = value.as_deref() {
                 if parse_hex(v).is_none() {
-                    errors.push(format!("colors.{key} = {v:?} 不是颜色，已忽略"));
+                    errors.push(if crate::i18n::english() {
+                        format!("colors.{key} = {v:?} is not a color; ignored")
+                    } else {
+                        format!("colors.{key} = {v:?} 不是颜色，已忽略")
+                    });
                     *value = None;
                 }
             }
@@ -177,7 +185,11 @@ impl ColorsSetting {
         self.palette.retain(|k, v| {
             let ok = k.parse::<usize>().is_ok_and(|n| n <= 15) && parse_hex(v).is_some();
             if !ok {
-                errors.push(format!("colors.palette.{k} = {v:?} 无效（序号 0–15，值为颜色），已忽略"));
+                errors.push(if crate::i18n::english() {
+                    format!("colors.palette.{k} = {v:?} is invalid (the index is 0–15, the value a color); ignored")
+                } else {
+                    format!("colors.palette.{k} = {v:?} 无效（序号 0–15，值为颜色），已忽略")
+                });
             }
             ok
         });
@@ -374,7 +386,11 @@ impl AgentSettings {
             ("codex_launch", &mut self.codex_launch, defaults.codex_launch),
         ] {
             if !command_name_ok(value) {
-                errors.push(format!("agent.{key} = {value:?} 不是合法的命令名，改用默认值 {default:?}"));
+                errors.push(if crate::i18n::english() {
+                    format!("agent.{key} = {value:?} is not a valid command name; using the default {default:?}")
+                } else {
+                    format!("agent.{key} = {value:?} 不是合法的命令名，改用默认值 {default:?}")
+                });
                 *value = default;
             }
         }
@@ -429,7 +445,8 @@ impl Settings {
         let s = toml::from_str::<Settings>(text).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut errors = Vec::new();
         let s = s.sanitized(&mut errors);
-        let warning = (!errors.is_empty()).then(|| format!("{}: {}", path.display(), errors.join("；")));
+        let separator = s.language.text("；", "; ");
+        let warning = (!errors.is_empty()).then(|| format!("{}: {}", path.display(), errors.join(separator)));
         Ok((s, warning))
     }
 
@@ -453,9 +470,12 @@ impl Settings {
         if self.font_family.trim().is_empty() {
             self.font_family = Settings::default().font_family;
         }
-        self.agent.sanitize(errors);
-        self.monitor.sanitize(errors);
-        self.colors.sanitize(errors);
+        // In the language this file asks for: the warning is shown once it is in effect.
+        crate::i18n::with_language(self.language, || {
+            self.agent.sanitize(errors);
+            self.monitor.sanitize(errors);
+            self.colors.sanitize(errors);
+        });
         self
     }
 }
@@ -575,6 +595,20 @@ mod tests {
         assert!(s.agent.claude_commands.is_empty(), "an empty list wraps nothing");
         let (_, err) = load_str("[agent]\nclaude = [\"x\"]\n");
         assert!(err.unwrap().contains("claude"), "unknown [agent] keys are errors");
+    }
+
+    #[test]
+    fn warnings_are_in_the_language_the_file_asks_for() {
+        let bad = "[agent]\ncodex_launch = \"bad name\"\n[monitor]\nsummary_interval = \"5x\"\n[colors]\nbackground = \"black\"\npalette = { \"16\" = \"#fff\" }\n";
+        let (_, err) = load_str(&format!("language = \"en\"\n{bad}"));
+        let err = err.unwrap();
+        assert!(!crate::i18n::has_chinese(&err), "{err}");
+        assert!(err.contains("is not a valid command name; using the default \"codex\"; monitor.summary_interval"), "{err}");
+        assert!(err.contains("colors.background = \"black\" is not a color; ignored"), "{err}");
+        let (_, err) = load_str(&format!("language = \"zh-CN\"\n{bad}"));
+        let err = err.unwrap();
+        assert!(err.contains("不是合法的命令名，改用默认值 \"codex\"；monitor.summary_interval"), "{err}");
+        assert!(err.contains("colors.background = \"black\" 不是颜色，已忽略"), "{err}");
     }
 
     #[test]
