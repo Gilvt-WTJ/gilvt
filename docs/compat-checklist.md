@@ -503,12 +503,16 @@ Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。
 
 ## S. 界面语言
 
-`language = "zh-CN" | "en"` 控制 gilvt 自身界面语言；默认简体中文，终端内容不参与翻译。设置窗口「文A 语言」页的选择立即应用到所有窗口并写回 `config.toml`，手改配置也会热重载。
+`language = "zh-CN" | "en"` 控制 gilvt 自身界面语言；不写时跟随 macOS 首选语言（`zh` 开头用简体中文，其他用英文），终端内容不参与翻译。设置窗口「文A 语言」页的选择立即应用到所有窗口并写回 `config.toml`，手改配置也会热重载。
+沙盒配置固定 `language = "zh-CN"`；S3–S4 删掉它、用 `GILVT_TEST_SYSTEM_LANGUAGE` 假装系统语言。来源看 `settings.language_source`（`config` / `system`）。
 
 | # | 操作 | 期望 | 用例 |
 |---|------|------|------|
 | S1 | 用 `language = "en"` 启动并打开设置窗口 | DebugState 为 `en`；设置页导航、外观页和监控官页显示英文；侧栏与检查器的主要界面文案显示英文 | [S1](../tests/gui/cases/S/S1.md) |
 | S2 | 在「语言」页点击 English，再点「简体中文」 | 每次选择都立即重绘所有窗口并写回 `language`；切回中文后原有界面文案恢复 | [S2](../tests/gui/cases/S/S2.md) |
+| S3 | `config.toml` 不写 `language`，系统首选语言为英文（`en-US`）启动 | 界面英文，`settings.language == "en"`、`language_source == "system"` | [S3](../tests/gui/cases/S/S3.md) |
+| S4 | `config.toml` 不写 `language`，系统首选语言为中文（`zh-Hans-CN`）启动 | 界面简体中文，`language_source == "system"` | [S4](../tests/gui/cases/S/S4.md) |
+| S5 | `config.toml` 写 `language = "zh-CN"`，系统首选语言为英文 | 以配置为准：界面简体中文，`language_source == "config"` | [S5](../tests/gui/cases/S/S5.md) |
 
 ## AA. 从临时位置运行（移到「应用程序」）
 

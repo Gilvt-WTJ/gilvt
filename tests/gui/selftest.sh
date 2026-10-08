@@ -519,7 +519,7 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
   if grep -q "^shell = \"$d/bin/bash\"$" "$d/home/.config/gilvt/config.toml" &&
     grep -q '^dock_bounce = true$' "$d/home/.config/gilvt/config.toml"; then ok; else bad "config.toml"; fi
   if python3 -c 'import tomllib' 2>/dev/null; then
-    check "config.toml parses" "ok" python3 -c 'import sys,tomllib; c=tomllib.load(open(sys.argv[1],"rb")); assert c["shell_integration"] and c["notify"]["dock_bounce"]; print("ok")' "$d/home/.config/gilvt/config.toml"
+    check "config.toml parses" "ok" python3 -c 'import sys,tomllib; c=tomllib.load(open(sys.argv[1],"rb")); assert c["shell_integration"] and c["notify"]["dock_bounce"] and c["language"] == "zh-CN"; print("ok")' "$d/home/.config/gilvt/config.toml"
   fi
 
   # With a built workspace: the fake passes check_fake, and the headless Codex trust warm-up (gilvt

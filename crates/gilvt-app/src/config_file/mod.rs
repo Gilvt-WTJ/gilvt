@@ -161,6 +161,7 @@ pub fn merge_file_change(previous: Option<&Settings>, new: Settings, memory: &Se
     }
     // Every field: a new one that is missing here does not compile.
     merged!(
+        language_setting,
         language,
         font_family,
         font_size,
@@ -390,10 +391,12 @@ pub fn set_language(language: crate::i18n::Language, cx: &mut App) -> Result<(),
         )
         .into());
     }
-    if cx.global::<AppSettings>().0.language == language {
+    // Picking the language that only follows macOS still writes it: from then on it stays put.
+    if cx.global::<AppSettings>().0.language_setting == Some(language) {
         return Ok(());
     }
     let mut settings = cx.global::<AppSettings>().0.clone();
+    settings.language_setting = Some(language);
     settings.language = language;
     apply_settings(settings, cx);
     let change = Changes {

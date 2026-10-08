@@ -68,6 +68,7 @@ pub fn build(
         key,
         page: page.page.id(),
         language: settings.language.id(),
+        language_source: if settings.language_setting.is_some() { "config" } else { "system" },
         languages: Language::ALL
             .iter()
             .enumerate()
@@ -181,6 +182,7 @@ mod tests {
         );
         assert_eq!(s.page, "appearance");
         assert_eq!(s.language, "zh-CN");
+        assert_eq!(s.language_source, "system", "no language in config.toml");
         assert_eq!(
             s.languages
                 .iter()
@@ -217,6 +219,7 @@ mod tests {
         let mut p = page();
         p.page = Page::Language;
         let mut settings = settings(MonitorSettings::default());
+        settings.language_setting = Some(Language::English);
         settings.language = Language::English;
         let rects = HashMap::from([
             (RectId::SettingsLanguage(0), [170.0, 60.0, 500.0, 40.0]),
@@ -226,6 +229,7 @@ mod tests {
         let state = build(&p, &settings, file(None), None, true, 28.0, &rects);
         assert_eq!(state.page, "language");
         assert_eq!(state.language, "en");
+        assert_eq!(state.language_source, "config");
         assert_eq!(
             state
                 .pages

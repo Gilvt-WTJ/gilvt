@@ -174,7 +174,7 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 路径可用 `XDG_CONFIG_HOME` 覆盖（`$XDG_CONFIG_HOME/gilvt/config.toml`）；`scrollback` 上限为 1000000，字号范围 6–72，行高范围 1.0–2.0。
 
 ```toml
-language = "zh-CN"      # zh-CN | en；也可在「设置 → 语言」中切换
+language = "zh-CN"      # zh-CN | en；不写时跟随系统首选语言；也可在「设置 → 语言」中切换
 font_family = "Menlo"
 font_size = 13.0
 line_height = 1.25
@@ -203,7 +203,7 @@ mode = "download"         # download：后台下载、退出时安装 | check：
 # palette = { 1 = "#ff5f5f" }
 ```
 
-`language` 控制 gilvt 自身界面的语言，不影响终端内程序的输出。默认保持简体中文；在 `⌘,` 设置窗口的「语言」页选择 English 后立即应用到所有窗口，并写回 `config.toml`。手动修改该键也会热重载。
+`language` 控制 gilvt 自身界面的语言，不影响终端内程序的输出。不写时跟随 macOS 首选语言列表的第一项（`NSLocale.preferredLanguages`）：`zh` 开头（简体、繁体都算）用简体中文，其他一律英文；`GILVT_TEST_SYSTEM_LANGUAGE=<tag>` 可以假装系统语言（GUI 用例用它），单元测试里 `Language::system()` 固定为中文。`Settings::language_setting` 是文件里写的值，`Settings::language` 是生效的语言。在 `⌘,` 设置窗口的「语言」页选择一项后立即应用到所有窗口，并写回 `config.toml`（选的和跟随系统得到的一样时也写，从此固定）。手动修改该键也会热重载。GUI 沙盒的 `config.toml` 固定写 `language = "zh-CN"`，用例的中文断言不受本机语言影响。
 
 ## 主题
 
