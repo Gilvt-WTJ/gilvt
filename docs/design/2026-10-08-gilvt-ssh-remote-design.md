@@ -110,29 +110,34 @@ Mac (Gilvt.app)                                      远端 Linux
 1. **登记**：经 app 的 socket 发 `RemoteBegin { pane, argv }`，app 分配 link id `L` 并回复。app 不可达时，直接 `exec ssh <原参数>`。
 2. **解析主机**：运行 `ssh -G <原参数>`，取 `user`、`hostname`、`port`，得到 `HostId = user@hostname:port`。显示名用用户输入的别名。
 3. **建立 master 连接**：
-   - control path 为 `$TMPDIR/gilvt-<uid>/cm-%C`；先用 `ssh -O check` 检查是否已有 master，有就复用，不必再认证。
+   - control path 为 `/tmp/gilvt-<uid>/cm-%C`。**不能放在 `$TMPDIR` 下**：macOS 的 Unix socket 路径上限是 104 字节，`$TMPDIR` 本身就有 49 字节，再加上 `%C`（40 字节）和 ssh 的临时后缀，总长 119 字节（探针实测）。`/tmp` 是共享目录，所以目录创建后要检查属主是自己、权限是 0700，否则拒绝使用，并按「增强不可用」处理。
+   - 先用 `ssh -O check` 检查是否已有 master，有就复用，不必再认证。
    - 没有就运行 `ssh -o ControlMaster=yes -o ControlPath=<ctl> -o ControlPersist=60 -f -N <原参数>`：
      - ssh 在认证完成后才进入后台，所以密码、2FA、host key 确认照常显示在 pane 里。
+     - **master 必须放在独立的进程组里**：`gilvt ssh` 先 fork，子进程 `setpgid(0,0)` 后再 exec ssh；父进程用 `tcsetpgrp` 把终端交给子进程的进程组，等认证结束、子进程退出后再收回（这期间忽略 SIGTTOU）。原因：探针实测，如果 master 和后面的交互 ssh 在同一个进程组，用户在 ssh 会话中途关掉 pane 时，内核发给前台进程组的 SIGHUP 会杀掉 ProxyJump 的子进程，同一主机上所有 pane 的 master 随之断开。直连时不受影响。
      - 命令行的 `-o` 优先于 `~/.ssh/config`，因此用户自己的 ControlMaster 配置不会冲突。
      - ProxyJump、IdentityFile 等其他配置照常生效。
    - 认证失败时退出，退出码沿用 ssh 的。
 4. **探测**：`ssh -S <ctl> <host> sh -c '<probe>'`，返回 `uname -s -m`，以及 `~/.gilvt-server/<版本>-<sha8>/gilvt-remote` 是否存在、sha 是多少。
+   - 每次复用 master 新开一个会话，在约 270 ms RTT 的链路上要 0.5–0.75 s（探针实测）。所以 `remote.json` 会记下每台主机已安装的 `<版本>-<sha8>` 和架构；**记录与当前构建一致时跳过探测**，直接到第 6 步。
+   - 记录可能过期（远端被清理过）。为此第 7 步的远端命令自带检查：版本目录里的二进制不存在时，打印一行提示、进入普通登录 shell，并清掉这条记录，下次连接时重新探测。
 5. **询问与上传**（远端没有，或 sha 不一致时）：
    - 询问策略：先向 app 查询这台主机的安装策略（§3.3）。需要询问时，在 pane 里显示：
 
      ```
-     gilvt: 要在 devbox 上安装远端组件吗？（~/.gilvt-server，约 9 MB，常驻一个 daemon）
+     gilvt: 要在 devbox 上安装远端组件吗？（~/.gilvt-server，约 4 MB，常驻一个 daemon）
             安装后可在 ssh 里使用 Agent 检测、检查器、⌘P、编辑等功能。
             [Y] 安装  [n] 这次不用  [N] 这台主机永不安装
      ```
 
      用户的回答通过 app 记住。
-   - 已有其他版本、只是需要升级时，不询问，只显示一行 `gilvt: 正在更新远端组件（9 MB）…`，完成后清掉这一行。
-   - 上传方式：`ssh -S <ctl> <host> sh -c 'umask 077; mkdir -p …; cat > …tmp && chmod 700 …tmp && mv …tmp …/gilvt-remote && ln -sfn … ~/.gilvt-server/bin/gilvt-remote'`，二进制从 stdin 传入。
+   - 已有其他版本、只是需要升级时，不询问，只显示一行 `gilvt: 正在更新远端组件…`，完成后清掉这一行。
+   - 上传方式：`ssh -S <ctl> <host> sh -c 'umask 077; mkdir -p …; gzip -dc > …tmp && chmod 700 …tmp && mv …tmp …/gilvt-remote && ln -sfn … ~/.gilvt-server/bin/gilvt-remote'`，gzip 压缩后的二进制从 stdin 传入。
+   - 体积：探针里同样依赖 finder / snapshot / shell / ipc、开启 LTO 并 strip 的二进制是 1.4 MB，gzip 后 675 KB。预计完整的 `gilvt-remote` 在 3–5 MB，gzip 后 1–2 MB，在 270 ms 的链路上上传约 1 秒。作为参照，未压缩的 9 MB 实测需要 3.6 s。
    - 架构不支持、上传失败、用户选了 n 或 N，都跳到第 7 步，以普通方式登录。
 6. **建立旁路通道**：发 `RemoteReady { link, host, control_path, remote_bin }` 给 app。app 如果还没有到这台主机的 bridge，就启动 `ssh -S <ctl> -T <host> ~/.gilvt-server/bin/gilvt-remote bridge` 并握手（§5）。bridge 失败只影响增强功能，不影响登录。
 7. **进入远端**：
-   - 增强可用时：`exec ssh -S <ctl> -t <原参数去掉远端命令> -- '~/.gilvt-server/bin/gilvt-remote login --link L [--exec <原远端命令>]'`。
+   - 增强可用时：`exec ssh -S <ctl> -t <原参数去掉远端命令> -- 'B=~/.gilvt-server/<版本>-<sha8>/gilvt-remote; [ -x "$B" ] && exec "$B" login --link L [--exec <原远端命令>]; echo "gilvt: 远端组件不存在，以普通方式登录" >&2; exec "$SHELL" -l'`。这里用版本目录里的路径，不用稳定入口，因为别的 Mac 可能已经把稳定入口换成了其他版本。
    - 不可用时：`exec ssh -S <ctl> <原参数>`，并先打印一行原因。
 8. **退出**：
    - 第 7 步用的是 `exec`，所以 `gilvt ssh` 本身不在了。link 是否结束由两方面判断：app 发现 pane 的前台进程不再是 ssh，以及 daemon 发现这个 link 的 login shell 已经退出。
@@ -142,7 +147,7 @@ Mac (Gilvt.app)                                      远端 Linux
 ### 3.3 安装策略
 
 - 配置项 `remote.install = "ask" | "always" | "never"`，默认 `ask`。
-- 每台主机的选择记在 `~/Library/Application Support/gilvt/state/remote.json`：`{ hosts: { <HostId>: { install: "allowed" | "never", last_seen } } }`。
+- 每台主机的选择和安装记录写在 `~/Library/Application Support/gilvt/state/remote.json`：`{ hosts: { <HostId>: { install: "allowed" | "never", installed: "<版本>-<sha8>", arch, last_seen } } }`。
 - 「这次不用」只对这一次连接有效，不写入文件。
 
 ### 3.4 远端 shell 集成（R1）
@@ -151,7 +156,8 @@ Mac (Gilvt.app)                                      远端 Linux
   - zsh：设置 `ZDOTDIR`，并用 `GILVT_USER_ZDOTDIR` 记住用户原来的值；
   - bash：用 `--rcfile`；
   - fish：用 `XDG_DATA_DIRS`。
-- 这些脚本在远端会发出 OSC 7（带 `hostname`）和 OSC 133。
+- 这些脚本在远端会发出 OSC 7（带 `hostname`）和 OSC 133。探针在 Debian 10 的 bash 5.0 上验证过：原样加载，OSC 7 / 133（包括 `cmdline_url` 和退出码）都正确。
+- 已有的 agent 包装函数是否启用，看 `GILVT_SOCKET` 和 `$GILVT_BIN_DIR/gilvt`。远端只需设置 `GILVT_BIN_DIR=~/.gilvt-server/<版本>-<sha8>/bin`，其中放一个 `gilvt -> ../gilvt-remote` 的 symlink；再设置 `GILVT_SOCKET=~/.gilvt-server/run/daemon.sock`，**脚本本身不用改**。`gilvt-remote` 按 argv0 分派：以 `gilvt` 名字调用时，提供 `hook` / `view` / `diff` 等与本地相同的子命令。R1 先不设置 `GILVT_SOCKET`，所以包装函数不会启用；R2 设置后启用。
 - R1 阶段远端不定义 claude / codex 的包装函数，这部分在 R2 做。
 - `login` 会带上 `GILVT_LINK`、`TERM_PROGRAM=gilvt`，以及指向稳定入口的 `GILVT_REMOTE_BIN`。
 
@@ -172,6 +178,9 @@ Mac (Gilvt.app)                                      远端 Linux
 | 在 tmux 里 | `(TMUX socket, TMUX_PANE)` 定位到 tmux pane `%N`；此时 `GILVT_LINK` 不可信 | 这个 tmux pane 单独成为一项，见 §4.3 |
 
 **tmux client 与 link 的对应**：`login` 会记下每个 link 的 ssh tty。只要有 link 在运行 tmux client，daemon 就每秒查询一次 `tmux list-clients` / `list-panes`，收到 hook 时也立即查询一次。由此得到：「link L 的 tty 上的 client 正在看 session X 的窗口 W，激活的是 `%N`」。这份信息推送给 app。
+- 探针实测（tmux 3.3a）：`client_tty` 与 login shell 的 tty 一致；两个查询合计约 1.7 ms，每秒一次的开销可以忽略。
+- tty 编号会被复用：断线重连后，新 link 可能拿到同一个 `/dev/pts/N`。所以 tty 到 link 的映射以最近一次 `LinkUp` 为准；link 结束时立即删除，不按 tty 编号去推断 link。
+- 探针也证实了 `GILVT_LINK` 在 tmux 里不可信：重连后新开的 pane，继承的仍是第一次启动 tmux server 时的旧 link。
 
 ### 4.3 tmux 里的 agent 在界面上的呈现（R2）
 
@@ -199,7 +208,7 @@ Mac (Gilvt.app)                                      远端 Linux
 
 ### 4.5 cwd
 
-- **普通 shell 里（R1）**：接受 OSC 7，前提是它的主机名与 link 的远端主机名一致（`login` 握手时会上报 `hostname`）。cwd 记为 `HostPath { Remote(h), path }`，不再回退到本地 `ssh` 进程的 cwd。
+- **普通 shell 里（R1）**：接受 OSC 7，前提是它带的主机名与 link 的远端主机名一致。用来比较的必须是 `login` 上报的 `gethostname()`，也就是 shell 的 `$HOSTNAME`，例如 `n37-026-177`。它和 ssh 的目标（IP 或别名）、`hostname -f`（FQDN）都不一样，探针实测如此。cwd 记为 `HostPath { Remote(h), path }`，不再回退到本地 `ssh` 进程的 cwd。
 - **tmux 里（R2）**：用 daemon 报告的激活 pane 的 `pane_current_path`。
 
 ### 4.6 重连（R2）
@@ -250,6 +259,7 @@ trait TranscriptSource { fn subscribe(..); fn range(..); }
 - **迁移顺序**：R2 检查器与历史；R3 Quick Look / ⌘P / ⌘点击 / 编辑器 / git；R4 快照 / 配置摘要 / Session Center 补全。
 - **远端编辑（R3）**：
   - 读取时一次取回整个文件，上限沿用 10 MB。
+  - **延迟预算**：真实远端的 RTT 约 270 ms。所以在远端，任何「用户等着看」的操作都不能每次都发请求再等结果。⌘P 的文件列表由 daemon 预先建好，有变化时增量推送（探针在约 1.2 万个文件的仓库上：缓存为空时首次遍历要 3.9 s，有缓存时 20–370 ms）；git 状态由 daemon 推送；打开文件时先显示加载中的状态。
   - 保存时带上读取时的 mtime 和 sha；远端发现文件已被修改则拒绝，编辑器按现有冲突流程处理。
   - 实时预览依靠 daemon 用 inotify 推送的 `FileChanged`。
 
@@ -271,6 +281,7 @@ trait TranscriptSource { fn subscribe(..); fn range(..); }
   - 不监听 TCP；socket 所在目录 0700，并校验 `SO_PEERCRED`；
   - bridge 只能经已认证的 ssh 启动；
   - RPC 是固定的操作集合。
+- **多台 Mac 装的 gilvt 版本不同**：稳定入口会指向最后一次上传的版本，两边的 daemon 会来回交接。第一版把这一点列为已知限制：同一台远端，请在多台 Mac 上使用同一个 gilvt 版本。
 - **daemon 生命周期**：没有 bridge 也没有存活 agent 的状态持续 24 小时后，daemon 自行退出。
 
 ## 8. 里程碑
@@ -316,9 +327,25 @@ trait TranscriptSource { fn subscribe(..); fn range(..); }
 - 本系列属于基础设施改动，合入前运行 `tests/gui/selftest.sh --repeat 20`。
 - **清理**（每轮测试结束后）：`remote.sh down` 删除容器，删除编译用的 docker 卷，`docker image prune` 清理测试镜像。
 
-## 10. 待实施阶段确认的细节
+## 10. 探针结论（2026-10-08）
 
-- `ssh -f -N` 与 `ControlPersist` 一起使用时，在 ProxyJump 和 2FA 下的行为，需要在容器加跳板容器的环境里验证一次。
-- fish 下 `ssh` 包装函数的参数透传（`$argv`）是否需要特殊处理。
-- `tmux list-clients` 每秒一次轮询的开销。如有需要，改用 `tmux -C` 控制模式订阅 `%window-pane-changed` 等通知。
-- 远端 shell 集成对 `TERM` 的处理：远端缺少 `xterm-256color` 的 terminfo 时是否需要回退。
+在写实施计划之前做了一轮探针（代码不保留）。环境有两个：一台真实远端（Debian 10、glibc 2.28、内核 5.4、x86_64、bash，从 Mac 过去的 RTT 约 270 ms）；本机 colima 里的 Debian 12 容器（openssh、tmux 3.3a、跳板容器加密码认证）。下表中写明的改动已经合入上文。
+
+| 问题 | 结论 | 对设计的影响 |
+|---|---|---|
+| 复用的 crate 能否编译成 Linux musl 静态二进制 | `gilvt-finder`、`gilvt-snapshot`、`gilvt-shell`、`gilvt-ipc`、`gilvt-fake-agent` 都能直接编过。`gilvt-agent` 只有 3 处报错：`install_location.rs:73` 的 `MNT_RDONLY`，`runtime.rs:301,305` 的 `KERN_PROCARGS2` / `sysctl` | R1 给这 3 处加 `cfg(target_os)`；Linux 上改用 `ST_RDONLY` 和读取 `/proc/<pid>/cmdline` |
+| musl 静态二进制能否在老发行版上运行 | 在 Debian 10、内核 5.4 上可以运行；`SO_PEERCRED` 和 `/proc/<pid>/stat` 的 `tpgid` 都正确 | 无 |
+| 二进制体积与上传耗时 | 探针二进制 1.4 MB（gzip 后 675 KB）；未压缩的 9 MB 上传要 3.6 s | 用 gzip 上传；安装提示里的体积改为约 4 MB（§3.2） |
+| control path 的长度 | `$TMPDIR` 下的路径是 119 字节，超过 104 字节的上限，ssh 直接报错 | 改用 `/tmp/gilvt-<uid>/`，并检查属主和权限（§3.2） |
+| `-f -N` 加 ControlPersist 在跳板机和密码认证下的表现 | 跳板和目标两次密码提示都出现在 pane 里；认证失败时退出码是 255，与 ssh 一致；第二个 pane 复用 master，不需要再认证；命令行的 `ControlPath` 优先于用户配置 | 无 |
+| 关闭 pane 时 master 是否存活 | 直连时存活。经过 ProxyJump 时，如果 master 和交互 ssh 在同一个进程组，**master 会被 SIGHUP 杀掉** | master 放进独立进程组，认证期间由它占用前台（§3.2），修正后实测存活 |
+| 每次连接的固定开销 | 新开一个复用会话要 0.5–0.75 s | 本地记录已安装的版本，命中时跳过探测（§3.2） |
+| 现有 bash 集成在远端是否可用 | 原样可用，OSC 7 / 133 正确；包装函数的启用条件可以通过 `GILVT_BIN_DIR` 和 `GILVT_SOCKET` 满足 | 不改脚本；`gilvt-remote` 按 argv0 分派（§3.4） |
+| OSC 7 里的主机名 | 是 `$HOSTNAME` 的短名，与 ssh 目标、FQDN 都不同 | 用 `login` 上报的主机名做比较（§4.5） |
+| tmux 的对应关系 | `client_tty` 与 login 的 tty 一致；hook 里能拿到 `TMUX_PANE`；`GILVT_LINK` 会过期；OSC 7 / 133 默认传不出 tmux；轮询一次 1.7 ms；tty 编号会被复用 | 印证了 §4.2 和 §4.5；映射以 `LinkUp` 为准（§4.2）；不需要 tmux 控制模式 |
+| ⌘P 的遍历耗时 | 约 1.2 万个文件：缓存为空时 3.9 s，有缓存时 20–370 ms | R3 的文件列表由 daemon 预先建好并推送（§6） |
+
+仍未验证、留到实施时处理的：
+- 2FA：它和密码一样走 keyboard-interactive / `/dev/tty`，这次的密码测试已经覆盖了这条交互路径。实施后在 GSSAPI / 2FA 环境里再手动确认一次。
+- fish 的 `ssh` 包装函数如何透传 `$argv`：风险低，用 `real_shells` 测试覆盖。
+- 远端缺少 `xterm-256color` 的 terminfo 时是否需要回退：真实远端和容器里都有这个 terminfo，暂不处理，列为已知限制。
