@@ -357,6 +357,43 @@ pre {
 .principles li { break-inside: avoid; margin-bottom: 10px; color: var(--ink-soft); }
 .principles strong { color: var(--ink); }
 
+/* Search guides and comparison pages */
+.explore { background: var(--surface); border-block: 1px solid var(--line); }
+.explore .grid { margin-top: 28px; }
+.explore .card { display: block; text-decoration: none; }
+.explore .card:hover { border-color: var(--accent); }
+.explore .card span { display: block; margin-top: 12px; color: var(--accent); font: 600 13px/1 var(--mono); }
+.article-head { padding-block: 48px 24px; }
+.article-head .kicker { margin-bottom: 16px; }
+.article-head h1 { max-width: 22ch; margin: 0 0 16px; font-size: clamp(34px, 5.5vw, 56px); line-height: 1.08; letter-spacing: -0.025em; }
+.article-head .lead { max-width: 44em; margin: 0; color: var(--ink-soft); font-size: clamp(17px, 2vw, 20px); }
+.article-meta { margin-top: 18px; color: var(--ink-soft); font: 13px/1.5 var(--mono); }
+.article { max-width: 800px; padding-bottom: 72px; }
+.article h2 { margin-top: 48px; font-size: clamp(25px, 3.5vw, 32px); }
+.article h3 { margin: 30px 0 8px; font-size: 19px; }
+.article p, .article li { color: var(--ink-soft); }
+.article strong { color: var(--ink); }
+.article ul, .article ol { padding-left: 1.25em; }
+.article li { margin-bottom: 8px; }
+.article .summary, .callout {
+  margin: 24px 0;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--surface);
+}
+.article .summary p, .callout p { margin: 0; color: var(--ink); }
+.article table { width: 100%; border-collapse: collapse; margin: 20px 0 28px; font-size: 14px; }
+.article th, .article td { padding: 11px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.article th { background: var(--surface); }
+.article td { color: var(--ink-soft); }
+.article figure { margin: 30px 0; }
+.article figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.article figcaption { margin-top: 10px; text-align: center; color: var(--ink-soft); font-size: 13px; }
+.related { margin-top: 52px; padding-top: 28px; border-top: 1px solid var(--line); }
+.related h2 { margin-top: 0; }
+
 /* Footer */
 footer {
   border-top: 1px solid var(--line);
@@ -381,4 +418,5 @@ footer p { margin: 10px 0 0; }
   .top nav a[href^="https://github"] { display: none; }
   .top nav { gap: 14px; }
   section { padding-block: 44px; }
+  .article table { display: block; overflow-x: auto; }
 }

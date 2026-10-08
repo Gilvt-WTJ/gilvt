@@ -3,11 +3,11 @@
 <h1 align="center">gilvt</h1>
 
 <p align="center">
-  One terminal for you and all your agents.
+  A native macOS terminal for running and monitoring parallel coding agents.
   <br />
   Run Claude Code and Codex in their own TUIs, see which session needs you, and review each turn in place.
   <br />
-  <a href="https://gilvt.com">Website</a>
+  <a href="https://gilvt.com">Website and guides</a>
   ·
   <a href="https://gilvt.com/download">Download</a>
   ·
@@ -102,6 +102,8 @@ certificate as described in [HACKING.md](HACKING.md) (稳定签名). Builds from
 ## Documentation
 
 - [User guide](docs/user-guide.md) (a formatted edition is in `docs/user-guide.html`; open it in a browser)
+- [Coding-agent guides](https://gilvt.com/guides/) and
+  [Claude Code / Codex integrations](https://gilvt.com/integrations/)
 - [Developing gilvt](HACKING.md): build, layout and implementation notes (Chinese)
 - [Acceptance checklist](docs/compat-checklist.md) and [GUI tests](tests/gui/README.md)
 - [Design documents](docs/design/)

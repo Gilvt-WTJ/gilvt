@@ -17,6 +17,9 @@ breaking changes; they are called out under **Changed**.
 - The interface language now follows macOS when `config.toml` has no `language` key: Simplified Chinese
   when the Mac's first preferred language is Chinese, English otherwise. It used to always default to
   Simplified Chinese. Setting `language` (or picking one in Settings → Language) still overrides it.
+- Website: added canonical and bilingual search metadata, an automatically generated sitemap,
+  structured application data, focused coding-agent guides, Claude Code / Codex integration pages,
+  and a build-time SEO and local-link check.
 
 ## [0.1.0] - 2026-10-08
 

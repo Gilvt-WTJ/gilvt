@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Run Claude Code and Codex in Parallel · gilvt</title>
+<meta name="description" content="Run Claude Code and Codex in parallel safely with Git worktrees, explicit task ownership, separate verification and a terminal that tracks both Agent sessions.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/"><link rel="alternate" hreflang="en" href="https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/run-claude-code-and-codex-in-parallel/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/"><meta property="og:title" content="How to Run Claude Code and Codex in Parallel"><meta property="og:description" content="A safe multi-agent workflow using worktrees and clear task boundaries."><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"How to Run Claude Code and Codex in Parallel","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/"},"mainEntityOfPage":"https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/features/">Features</a><a href="/docs/">Docs</a><a href="/install/">Download</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/zh-CN/guides/run-claude-code-and-codex-in-parallel/" hreflang="zh-CN" lang="zh-CN">简体中文</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Multi-agent guide</span><h1>How to run Claude Code and Codex in parallel</h1><p class="lead">Use the agents as independent workers, not two cursors inside the same checkout. Separate their files and objectives, then review each result through one attention queue.</p><p class="article-meta">Published October 8, 2026 · 6 minute read</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>Safe default:</strong> one Git worktree and branch per Agent. Give Claude Code and Codex tasks with different ownership, run verification inside each worktree, and merge only after reviewing each diff.</p></div>
+
+    <h2>Create two independent worktrees</h2>
+    <pre>git worktree add ../project-feature -b agent/feature
+git worktree add ../project-review -b agent/review
+
+# Terminal 1
+cd ../project-feature && claude
+
+# Terminal 2
+cd ../project-review && codex</pre>
+    <p>This avoids the most common failure mode: one Agent reading or replacing a file while the other is still changing it.</p>
+
+    <h2>Choose complementary roles</h2>
+    <p>Parallel work is safest when the outputs can be evaluated independently. Useful pairings include:</p>
+    <ul>
+      <li>Claude Code implements a feature while Codex writes regression tests in a separate branch.</li>
+      <li>One Agent investigates a failure and produces a report while the other works on an unrelated fix.</li>
+      <li>One Agent makes the change while the other reviews the resulting commit without editing it.</li>
+      <li>Frontend and backend work proceed in separate directories with an agreed interface.</li>
+    </ul>
+    <p>Avoid telling both agents to “fix the same bug” in the same checkout unless you explicitly want competing solutions.</p>
+
+    <h2>Give both agents the same completion contract</h2>
+    <p>Each prompt should identify the target, boundaries and proof:</p>
+    <pre>Implement the parser change in crates/example.
+Do not edit the public API or generated fixtures.
+Add regression tests for the two supplied cases.
+Run cargo test -p example and summarize the changed files.</pre>
+    <p>The tools may take different approaches, but their results become comparable because both must satisfy the same observable contract.</p>
+
+    <h2>Keep verification local to each worktree</h2>
+    <p>Run tests before merging branches together. Shared caches are usually fine, but shared ports, databases and generated files can still conflict. Allocate different port numbers or isolated temporary directories when both tasks start local services.</p>
+
+    <h2>Manage attention across both TUIs</h2>
+    <p>Claude Code and Codex expose different hooks and session formats. A normal terminal treats them as unrelated text screens. gilvt normalizes their high-level state while leaving both native interfaces untouched.</p>
+    <p>The same sidebar can show that Claude is awaiting approval while Codex is still running. Notifications and <kbd>⇧⌘J</kbd> take you to the session that needs input, regardless of which Agent produced it.</p>
+    <figure><img src="/images/features/monitor.jpg" width="1600" height="964" loading="lazy" alt="gilvt Monitor showing Claude Code, Codex and terminal sessions in one activity view."><figcaption>The Monitor combines Claude Code, Codex and ordinary terminal activity without replacing their TUIs.</figcaption></figure>
+
+    <h2>Merge deliberately</h2>
+    <ol>
+      <li>Review each Agent's commands, diff and test result.</li>
+      <li>Commit the accepted result in its own branch.</li>
+      <li>Merge or cherry-pick one branch at a time.</li>
+      <li>Resolve semantic conflicts with the full test suite, not only Git's text conflict markers.</li>
+    </ol>
+    <p>If the second branch was a review task, feed its findings back to the implementation session rather than merging edits automatically.</p>
+
+    <div class="callout"><p><strong>In gilvt:</strong> use <kbd>⇧⌘N</kbd> to launch either Agent in a fresh worktree, <kbd>⌥⌘2</kbd> to inspect per-turn artifacts, and <kbd>⇧⌘R</kbd> to find or resume older sessions.</p></div>
+    <section class="related"><h2>Related guides</h2><ul><li><a href="/guides/manage-multiple-claude-code-sessions/">Manage multiple Claude Code sessions</a></li><li><a href="/agent-terminal/">What is an agent terminal?</a></li><li><a href="/install/">Download gilvt for macOS</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/docs/">User guide</a> · <a href="/install/">Download</a></span></div><p>gilvt is an independent project, not affiliated with Anthropic or OpenAI.</p></div></footer>
+</body>
+</html>

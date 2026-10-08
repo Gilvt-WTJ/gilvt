@@ -3,11 +3,11 @@
 <h1 align="center">gilvt</h1>
 
 <p align="center">
-  一个终端，装下你和 Agent 的全部工作。
+  为并行运行和监控编程 Agent 设计的原生 macOS 终端。
   <br />
   Claude Code 和 Codex 照常在自己的 TUI 里运行；谁在等你一眼看到，每一轮的改动点一下就能 review。
   <br />
-  <a href="https://gilvt.com/zh-CN/">官网</a>
+  <a href="https://gilvt.com/zh-CN/">官网与指南</a>
   ·
   <a href="https://gilvt.com/download">下载</a>
   ·
@@ -86,6 +86,8 @@ macOS 的隐私授权仍然有效，按 [HACKING.md](HACKING.md) 的「稳定签
 ## 文档
 
 - [产品手册](docs/user-guide.zh-CN.md)（排版版：用浏览器打开 `docs/user-guide.zh-CN.html`）
+- [编程 Agent 指南](https://gilvt.com/zh-CN/guides/) 与
+  [Claude Code / Codex 集成](https://gilvt.com/zh-CN/integrations/)
 - [开发 gilvt](HACKING.md)：构建、目录结构与实现细节
 - [验收清单](docs/compat-checklist.md) 与 [GUI 验收测试](tests/gui/README.md)
 - [设计文档](docs/design/)
