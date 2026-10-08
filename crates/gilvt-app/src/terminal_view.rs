@@ -270,7 +270,6 @@ impl TerminalView {
 
     pub fn remote(&self) -> Option<&crate::remote::PaneRemote> { self.remote.as_ref().map(|r| &r.remote) }
 
-    #[allow(dead_code)]
     pub fn remote_cwd(&self) -> Option<PathBuf> { self.remote.as_ref().and_then(|r| r.cwd().map(std::path::Path::to_path_buf)) }
 
     pub fn set_remote(&mut self, r: Option<crate::remote::PaneRemote>, cx: &mut Context<Self>) {

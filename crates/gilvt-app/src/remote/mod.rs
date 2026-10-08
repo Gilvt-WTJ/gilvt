@@ -21,8 +21,6 @@ use prefs::RemotePrefs;
 pub enum BridgeStatus { None, Connecting, Up, Down, Mismatch }
 
 impl BridgeStatus {
-    // used by Task 9 / DebugState
-    #[allow(dead_code)]
     pub fn id(self) -> &'static str {
         match self { BridgeStatus::None => "none", BridgeStatus::Connecting => "connecting", BridgeStatus::Up => "up", BridgeStatus::Down => "down", BridgeStatus::Mismatch => "mismatch" }
     }
@@ -30,7 +28,6 @@ impl BridgeStatus {
 
 #[derive(Clone, Debug)]
 pub struct HostEntry {
-    #[allow(dead_code)] // read by DebugState (later task)
     pub display: String,
     pub hostname: Option<String>,
     pub bridge: BridgeStatus,

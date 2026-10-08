@@ -279,6 +279,17 @@ impl Workspace {
             },
             commands,
             running_command,
+            host: match view {
+                Some(PaneView::Terminal(t)) => Some(t.read(cx).remote().map_or("local".to_string(), |r| r.host.clone())),
+                _ => None,
+            },
+            remote: match view {
+                Some(PaneView::Terminal(v)) => {
+                    let t = v.read(cx);
+                    t.remote().map(|r| ds::PaneRemoteState { link: r.link.clone(), host: r.host.clone(), display: r.display.clone(), hostname: r.hostname.clone(), enhanced: r.enhanced, cwd: t.remote_cwd().map(|p| p.display().to_string()) })
+                }
+                _ => None,
+            },
         }
     }
 
