@@ -7,6 +7,7 @@ mod debug;
 mod hook;
 mod integrate;
 mod mcp;
+mod ssh;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -133,6 +134,9 @@ fn main() -> ExitCode {
     }
     if argv.first().is_some_and(|a| a == "mcp") {
         return mcp::run(&argv[1..]);
+    }
+    if argv.first().is_some_and(|a| a == "ssh") {
+        return ssh::run(&argv[1..]);
     }
     let cmd = match args::parse(&argv) {
         Ok(c) => c,
