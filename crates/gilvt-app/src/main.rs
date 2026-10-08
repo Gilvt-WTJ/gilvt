@@ -22,6 +22,7 @@ mod persist;
 mod preview_element;
 mod preview_select;
 mod preview_view;
+mod remote;
 pub mod review;
 mod session_center;
 mod session_review;

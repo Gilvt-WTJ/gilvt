@@ -17,6 +17,8 @@ pub const MAX_CONTENT_BYTES: usize = 10 * 1024 * 1024;
 /// Environment variables gilvt sets in every pane.
 pub const ENV_SOCKET: &str = "GILVT_SOCKET";
 pub const ENV_PANE: &str = "GILVT_PANE_ID";
+/// Test-only override of the ssh control directory (default `/tmp/gilvt-<uid>`).
+pub const ENV_SSH_CONTROL_DIR: &str = "GILVT_SSH_CONTROL_DIR";
 /// The token `gilvt mcp` passes with every tool call (set by the app in the chat process's environment / MCP config).
 pub const ENV_MONITOR_TOKEN: &str = "GILVT_MONITOR_TOKEN";
 /// What `gilvt mcp` tells the model when the app did not answer a tool call.
@@ -46,6 +48,26 @@ pub enum Request {
     /// A 监控官 tool call from `gilvt mcp` (S2 §6.1): answered by the app's main thread, always (debug state or not),
     /// and only for the token the app gave its current chat process. See [`Server::start_with_monitor`].
     Monitor { token: String, tool: String, args: serde_json::Value },
+    /// `gilvt ssh` starts a link (spec §3.2 step 1). Answered by the app's main thread with Response::RemoteBegin.
+    RemoteBegin { pane: Option<u64>, host: String, display: String },
+    /// What `gilvt ssh` learned or the user chose for a host (fire-and-forget).
+    RemoteRecord { host: String, install: Option<String>, installed: Option<String>, arch: Option<String>, hostname: Option<String>, forget_installed: bool },
+    /// The link is about to exec ssh (step 6): with `bridge`, the app starts one; without, the login is plain.
+    RemoteLinked { link: String, hostname: Option<String>, bridge: Option<BridgeSpec>, note: Option<String> },
+    /// `gilvt ssh` gave up before exec (auth failed etc.).
+    RemoteEnd { link: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeSpec {
+    /// The `ssh` program `gilvt ssh` used.
+    pub ssh: PathBuf,
+    pub control_path: PathBuf,
+    /// The user's options and destination (no remote command), for `ssh -S <control_path> <args…> <cmd>`.
+    pub args: Vec<String>,
+    /// The versioned remote binary, e.g. `~/.gilvt-server/0.1.0-1a2b3c4d/gilvt-remote`.
+    pub remote_bin: String,
+    pub build_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +80,8 @@ pub enum Response {
     DebugState { state: serde_json::Value },
     /// The answer to [`Request::Monitor`]: the tool result text, and whether it is an error for the model.
     Tool { text: String, is_error: bool },
+    /// The answer to RemoteBegin. `install`: "ask" | "always" | "never" (the effective policy for this host).
+    RemoteBegin { link: String, install: String, installed: Option<String>, arch: Option<String>, hostname: Option<String> },
 }
 
 /// How long a connection waits for the app to answer a [`Query`]. Below the client's 5 s read
@@ -234,7 +258,7 @@ fn ask(request: Request, queries: &Queries, timeout: Duration) -> Response {
 
 /// Reads one request, queues it, and answers (except hooks, whose sender has already hung up).
 /// Queries wait for the app's answer. Runs on its own thread per connection.
-fn serve(mut stream: UnixStream, requests: &async_channel::Sender<Request>, queries: &Queries, monitor: &Queries, query_timeout: Duration) {
+fn serve(mut stream: UnixStream, requests: &async_channel::Sender<Request>, queries: &Queries, monitor: &Queries, remote: &Queries, query_timeout: Duration) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let response = match read_line::<Request>(&stream) {
@@ -244,6 +268,7 @@ fn serve(mut stream: UnixStream, requests: &async_channel::Sender<Request>, quer
         }
         Ok(req @ Request::DebugState { .. }) => ask(req, queries, query_timeout),
         Ok(req @ Request::Monitor { .. }) => ask(req, monitor, query_timeout),
+        Ok(req @ Request::RemoteBegin { .. }) => ask(req, remote, query_timeout),
         Ok(req) => match requests.try_send(req) {
             Ok(()) => Response::Ok,
             Err(_) => Response::Error { message: "gilvt is shutting down".into() },
@@ -258,32 +283,32 @@ impl Server {
     /// Replies `Ok` once the request is queued, or `Error` for malformed input; hooks get no reply.
     /// Queries are refused with `Error` (see [`Server::start_with_queries`]).
     pub fn start(path: &Path, requests: async_channel::Sender<Request>) -> io::Result<Server> {
-        Server::start_inner(path, requests, Queries::Unsupported, Queries::Unsupported, QUERY_TIMEOUT)
+        Server::start_inner(path, requests, Queries::Unsupported, Queries::Unsupported, Queries::Unsupported, QUERY_TIMEOUT)
     }
 
     /// Like [`Server::start`], and forwards [`Query`]s to `queries`, replying with the app's answer. Make
     /// `queries` bounded ([`QUERY_QUEUE`]): a query that finds it full is answered "busy".
     pub fn start_with_queries(path: &Path, requests: async_channel::Sender<Request>, queries: async_channel::Sender<Query>) -> io::Result<Server> {
-        Server::start_inner(path, requests, Queries::Answered(queries), Queries::Unsupported, QUERY_TIMEOUT)
+        Server::start_inner(path, requests, Queries::Answered(queries), Queries::Unsupported, Queries::Unsupported, QUERY_TIMEOUT)
     }
 
     /// Like [`Server::start`], answering every query with `Error { message }` on the connection's own
     /// thread (the app never sees it), e.g. [`DEBUG_STATE_DISABLED`].
     pub fn start_refusing_queries(path: &Path, requests: async_channel::Sender<Request>, message: &'static str) -> io::Result<Server> {
-        Server::start_inner(path, requests, Queries::Refused(message), Queries::Unsupported, QUERY_TIMEOUT)
+        Server::start_inner(path, requests, Queries::Refused(message), Queries::Unsupported, Queries::Unsupported, QUERY_TIMEOUT)
     }
 
     /// Like [`Server::start`], with `debug state` queries per `debug`, and 监控官 tool calls ([`Request::Monitor`])
     /// always handed to `monitor` (make it bounded: [`QUERY_QUEUE`]).
-    pub fn start_with_monitor(path: &Path, requests: async_channel::Sender<Request>, debug: DebugQueries, monitor: async_channel::Sender<Query>) -> io::Result<Server> {
+    pub fn start_with_monitor(path: &Path, requests: async_channel::Sender<Request>, debug: DebugQueries, monitor: async_channel::Sender<Query>, remote: async_channel::Sender<Query>) -> io::Result<Server> {
         let debug = match debug {
             DebugQueries::Answered(q) => Queries::Answered(q),
             DebugQueries::Refused(m) => Queries::Refused(m),
         };
-        Server::start_inner(path, requests, debug, Queries::Answered(monitor), QUERY_TIMEOUT)
+        Server::start_inner(path, requests, debug, Queries::Answered(monitor), Queries::Answered(remote), QUERY_TIMEOUT)
     }
 
-    fn start_inner(path: &Path, requests: async_channel::Sender<Request>, queries: Queries, monitor: Queries, query_timeout: Duration) -> io::Result<Server> {
+    fn start_inner(path: &Path, requests: async_channel::Sender<Request>, queries: Queries, monitor: Queries, remote: Queries, query_timeout: Duration) -> io::Result<Server> {
         if let Some(dir) = path.parent() {
             secure_dir(dir)?;
         }
@@ -294,10 +319,10 @@ impl Server {
                 match stream {
                     Ok(stream) => {
                         // One thread per connection: a stalled client cannot block other panes.
-                        let (requests, queries, monitor) = (requests.clone(), queries.clone(), monitor.clone());
+                        let (requests, queries, monitor, remote) = (requests.clone(), queries.clone(), monitor.clone(), remote.clone());
                         let _ = std::thread::Builder::new()
                             .name("gilvt-ipc-conn".into())
-                            .spawn(move || serve(stream, &requests, &queries, &monitor, query_timeout));
+                            .spawn(move || serve(stream, &requests, &queries, &monitor, &remote, query_timeout));
                     }
                     // e.g. EMFILE: back off instead of spinning.
                     Err(_) => std::thread::sleep(Duration::from_millis(50)),
@@ -508,7 +533,7 @@ mod tests {
         let path = dir.path().join("t.sock");
         let (tx, _rx) = async_channel::unbounded();
         let (qtx, qrx) = async_channel::unbounded::<Query>();
-        let _server = Server::start_inner(&path, tx, Queries::Answered(qtx), Queries::Unsupported, Duration::from_millis(100)).unwrap();
+        let _server = Server::start_inner(&path, tx, Queries::Answered(qtx), Queries::Unsupported, Queries::Unsupported, Duration::from_millis(100)).unwrap();
         let started = Instant::now();
         let resp = send(&path, &Request::DebugState { tail_lines: 1 }).unwrap();
         assert!(matches!(&resp, Response::Error { message } if message.contains("did not answer")), "{resp:?}");
@@ -529,7 +554,7 @@ mod tests {
         let path = dir.path().join("t.sock");
         let (tx, _rx) = async_channel::unbounded();
         let (qtx, qrx) = async_channel::bounded::<Query>(QUERY_QUEUE);
-        let _server = Server::start_inner(&path, tx, Queries::Answered(qtx), Queries::Unsupported, Duration::from_millis(100)).unwrap();
+        let _server = Server::start_inner(&path, tx, Queries::Answered(qtx), Queries::Unsupported, Queries::Unsupported, Duration::from_millis(100)).unwrap();
         let sent = Instant::now();
         let client = std::thread::spawn({
             let path = path.clone();
@@ -548,7 +573,7 @@ mod tests {
         let path = dir.path().join("t.sock");
         let (tx, _rx) = async_channel::unbounded();
         let (qtx, qrx) = async_channel::bounded::<Query>(1);
-        let _server = Server::start_inner(&path, tx, Queries::Answered(qtx), Queries::Unsupported, Duration::from_secs(3)).unwrap();
+        let _server = Server::start_inner(&path, tx, Queries::Answered(qtx), Queries::Unsupported, Queries::Unsupported, Duration::from_secs(3)).unwrap();
         let first = std::thread::spawn({
             let path = path.clone();
             move || send(&path, &Request::DebugState { tail_lines: 1 }).unwrap()
@@ -635,7 +660,7 @@ mod tests {
         let path = dir.path().join("m.sock");
         let (tx, _rx) = async_channel::unbounded();
         let (mtx, mrx) = async_channel::bounded(QUERY_QUEUE);
-        let _server = Server::start_with_monitor(&path, tx, DebugQueries::Refused(DEBUG_STATE_DISABLED), mtx).unwrap();
+        let _server = Server::start_with_monitor(&path, tx, DebugQueries::Refused(DEBUG_STATE_DISABLED), mtx, async_channel::bounded(QUERY_QUEUE).0).unwrap();
         std::thread::spawn(move || {
             let q = mrx.recv_blocking().unwrap();
             let Request::Monitor { token, tool, .. } = &q.request else { panic!("unexpected {:?}", q.request) };
@@ -664,10 +689,34 @@ mod tests {
         let path = dir.path().join("t.sock");
         let (tx, _rx) = async_channel::unbounded();
         let (mtx, _mrx) = async_channel::bounded(QUERY_QUEUE);
-        let _server = Server::start_inner(&path, tx, Queries::Unsupported, Queries::Answered(mtx), Duration::from_millis(200)).unwrap();
+        let _server = Server::start_inner(&path, tx, Queries::Unsupported, Queries::Answered(mtx), Queries::Unsupported, Duration::from_millis(200)).unwrap();
         let t = Instant::now();
         let req = Request::Monitor { token: "t".into(), tool: "list_sessions".into(), args: serde_json::Value::Null };
         assert!(matches!(send(&path, &req).unwrap(), Response::Error { .. }));
         assert!(t.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn remote_begin_is_answered_by_the_remote_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sock");
+        let (tx, _rx) = async_channel::unbounded();
+        let (dtx, _drx) = async_channel::bounded(QUERY_QUEUE);
+        let (mtx, _mrx) = async_channel::bounded(QUERY_QUEUE);
+        let (rtx, rrx) = async_channel::bounded::<Query>(QUERY_QUEUE);
+        let _s = Server::start_with_monitor(&path, tx, DebugQueries::Answered(dtx), mtx, rtx).unwrap();
+        std::thread::spawn(move || {
+            let q = rrx.recv_blocking().unwrap();
+            assert!(matches!(q.request, Request::RemoteBegin { .. }));
+            q.respond(Response::RemoteBegin { link: "i-1".into(), install: "ask".into(), installed: None, arch: None, hostname: None });
+        });
+        let r = send(&path, &Request::RemoteBegin { pane: Some(1), host: "dev@h:22".into(), display: "h".into() }).unwrap();
+        assert_eq!(r, Response::RemoteBegin { link: "i-1".into(), install: "ask".into(), installed: None, arch: None, hostname: None });
+    }
+
+    #[test]
+    fn remote_linked_json_shape() {
+        let req = Request::RemoteEnd { link: "i-1".into() };
+        assert_eq!(serde_json::to_string(&req).unwrap(), r#"{"type":"remote_end","link":"i-1"}"#);
     }
 }

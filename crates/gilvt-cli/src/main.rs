@@ -39,7 +39,7 @@ fn send_to_app(request: &Request) -> Result<bool, String> {
     match gilvt_ipc::send(Path::new(&socket), request) {
         Ok(Response::Ok) => Ok(true),
         Ok(Response::Error { message }) => Err(message),
-        Ok(Response::DebugState { .. } | Response::Tool { .. }) => Err("unexpected reply from the gilvt app".into()),
+        Ok(Response::DebugState { .. } | Response::Tool { .. } | Response::RemoteBegin { .. }) => Err("unexpected reply from the gilvt app".into()),
         Err(e) => {
             eprintln!("gilvt: cannot reach the gilvt app ({e}); printing instead");
             Ok(false)

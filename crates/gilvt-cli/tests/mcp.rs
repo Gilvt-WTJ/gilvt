@@ -17,7 +17,7 @@ fn app(dir: &std::path::Path) -> (Server, std::path::PathBuf) {
     let path = dir.join("app.sock");
     let (tx, _rx) = async_channel::unbounded();
     let (mtx, mrx) = async_channel::bounded(QUERY_QUEUE);
-    let server = Server::start_with_monitor(&path, tx, DebugQueries::Refused(DEBUG_STATE_DISABLED), mtx).unwrap();
+    let server = Server::start_with_monitor(&path, tx, DebugQueries::Refused(DEBUG_STATE_DISABLED), mtx, async_channel::bounded(gilvt_ipc::QUERY_QUEUE).0).unwrap();
     std::thread::spawn(move || {
         while let Ok(q) = mrx.recv_blocking() {
             let Request::Monitor { token, tool, .. } = &q.request else { continue };
@@ -90,7 +90,7 @@ fn an_app_that_went_away_is_busy() {
     let (tx, _rx) = async_channel::unbounded();
     let (mtx, mrx) = async_channel::bounded::<gilvt_ipc::Query>(QUERY_QUEUE);
     drop(mrx); // the app side is gone: every query is answered "shutting down"
-    let _server = Server::start_with_monitor(&path, tx, DebugQueries::Refused(DEBUG_STATE_DISABLED), mtx).unwrap();
+    let _server = Server::start_with_monitor(&path, tx, DebugQueries::Refused(DEBUG_STATE_DISABLED), mtx, async_channel::bounded(gilvt_ipc::QUERY_QUEUE).0).unwrap();
     let (replies, _) = session(&path, "good", &handshake_and_call());
     assert_eq!(replies[2]["result"]["isError"], true);
     assert!(replies[2]["result"]["content"][0]["text"].as_str().unwrap().starts_with(MONITOR_BUSY));
