@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use gilvt_agent::{truncate_chars, AgentKind, PaneId, Session, SessionKey, Status};
 
+use crate::i18n::text;
 use crate::sidebar::model::duration_label;
 
 /// A finished turn notifies only when it took at least this long.
@@ -243,6 +244,12 @@ pub fn agent_label(a: AgentKind) -> &'static str {
     }
 }
 
+/// `what` with its first letter in upper case.
+fn capitalized(what: &str) -> String {
+    let mut chars = what.chars();
+    chars.next().map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
+}
+
 fn thread(s: &Session) -> String {
     format!("gilvt.{}.{}", s.agent().name(), s.session_id())
 }
@@ -250,18 +257,25 @@ fn thread(s: &Session) -> String {
 /// Copy per m3a-part3: title 「Claude 等待审批 · <project>」, body the detail, subtitle the session name.
 fn own_post(s: &Session, project: &str, kind: Kind) -> Post {
     let agent = agent_label(s.agent());
+    let english = crate::i18n::english();
     let (what, detail) = match (&s.status, kind) {
-        (Status::NeedsApproval { action }, Kind::Approval) => ("等待审批".to_string(), action.clone()),
-        (Status::Asking { question }, Kind::Question) => ("在问你".to_string(), question.clone()),
-        (Status::Error { message }, Kind::Error) => ("出错".to_string(), message.clone()),
-        (_, Kind::Done) => ("完成".to_string(), s.last_turn.map(|d| format!("用时 {}", duration_label(d))).unwrap_or_default()),
+        (Status::NeedsApproval { action }, Kind::Approval) => (text("等待审批", "needs approval").to_string(), action.clone()),
+        (Status::Asking { question }, Kind::Question) => (text("在问你", "is asking you").to_string(), question.clone()),
+        (Status::Error { message }, Kind::Error) => (text("出错", "hit an error").to_string(), message.clone()),
+        (_, Kind::Done) => {
+            let took = s.last_turn.map(|d| if english { format!("Took {}", duration_label(d)) } else { format!("用时 {}", duration_label(d)) });
+            (text("完成", "finished").to_string(), took.unwrap_or_default())
+        }
         (_, Kind::Context) => {
             let pct = s.context_ratio().map_or(90, |r| (r * 100.0).floor() as u32);
-            ("上下文快满了".to_string(), format!("已用 {pct}%"))
+            let used = if english { format!("{pct}% used") } else { format!("已用 {pct}%") };
+            (text("上下文快满了", "is running out of context").to_string(), used)
         }
         (_, k) => (k.word().to_string(), String::new()),
     };
     let body = match detail.trim() {
+        // English: the title's verb phrase as a sentence ("Needs approval").
+        "" if english => capitalized(&what),
         "" => what.clone(),
         d => truncate_chars(d, BODY_MAX),
     };

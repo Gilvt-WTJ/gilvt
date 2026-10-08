@@ -349,3 +349,42 @@ fn a_session_that_moved_is_followed_by_key() {
     let other = session_in_pane("b", 3);
     assert_eq!(click_target(3, Some(&a_key), Some(&other), Some(&a)), Some(8));
 }
+
+#[test]
+fn notifications_in_english() {
+    use crate::i18n::{has_chinese, with_language, Language};
+    let t0 = Instant::now();
+    let posts = with_language(Language::English, || {
+        let mut out = Vec::new();
+        let (mut c, mut s) = (Chain::default(), session(AgentKind::Claude, t0));
+        out.push(observe(&mut c, &mut s, approval(""), AWAY, t0, 0).expect("approval"));
+        let (mut c, mut s) = (Chain::default(), session(AgentKind::Claude, t0));
+        out.push(observe(&mut c, &mut s, Status::Asking { question: "Which database?".into() }, AWAY, t0, 0).expect("question"));
+        let (mut c, mut s) = (Chain::default(), session(AgentKind::Codex, t0));
+        observe(&mut c, &mut s, Status::Thinking, AWAY, t0, 0);
+        s.status = Status::Error { message: "".into() };
+        out.push(c.observe(&s, "acme_web_monorepo", AWAY, t0).expect("error"));
+        let (mut c, mut s) = (Chain::default(), session(AgentKind::Claude, t0));
+        observe(&mut c, &mut s, Status::Thinking, AWAY, t0, 0);
+        s.last_turn = Some(Duration::from_secs(45));
+        out.push(observe(&mut c, &mut s, Status::Idle, AWAY, t0, 45).expect("done"));
+        let (mut c, mut s) = (Chain::default(), session(AgentKind::Claude, t0));
+        s.context = Some((184_000, Some(200_000)));
+        out.push(observe(&mut c, &mut s, Status::Thinking, AWAY, t0, 1).expect("context"));
+        out
+    });
+    let shown: Vec<(&str, &str)> = posts.iter().map(|p| (p.title.as_str(), p.body.as_str())).collect();
+    assert_eq!(
+        shown,
+        [
+            ("Claude needs approval · acme_web_monorepo", "Needs approval"),
+            ("Claude is asking you · acme_web_monorepo", "Which database?"),
+            ("Codex hit an error · acme_web_monorepo", "Hit an error"),
+            ("Claude finished · acme_web_monorepo", "Took 45s"),
+            ("Claude is running out of context · acme_web_monorepo", "92% used"),
+        ]
+    );
+    for (title, body) in shown {
+        assert!(!has_chinese(title) && !has_chinese(body), "{title} / {body}");
+    }
+}
