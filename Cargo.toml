@@ -49,3 +49,11 @@ gilvt-editor = { path = "crates/gilvt-editor" }
 # in debug builds too. Workspace crates keep fast incremental debug builds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# gilvt-remote ships to ssh hosts (spec §10: small and static).
+[profile.release-remote]
+inherits = "release"
+lto = true
+strip = true
+opt-level = "s"
+codegen-units = 1

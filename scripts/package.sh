@@ -46,13 +46,15 @@ done
 
 rm -rf "$dist"
 mkdir -p "$dist/bin"
+"$root/scripts/build-remote.sh" --zig --out "$dist"
+
 for bin in gilvt-app gilvt; do
   lipo -create -output "$dist/bin/$bin" \
     "$target/aarch64-apple-darwin/release/$bin" "$target/x86_64-apple-darwin/release/$bin"
 done
 
 # bundle.sh assembles into $CARGO_TARGET_DIR/<profile>; stage it under dist/ and move the app out.
-GILVT_SPARKLE=1 GILVT_BIN_DIR="$dist/bin" CARGO_TARGET_DIR="$dist/stage" "$root/scripts/bundle.sh" release >/dev/null
+GILVT_REMOTE_DIR="$dist/remote" GILVT_SPARKLE=1 GILVT_BIN_DIR="$dist/bin" CARGO_TARGET_DIR="$dist/stage" "$root/scripts/bundle.sh" release >/dev/null
 app="$dist/Gilvt.app"
 mv "$dist/stage/release/Gilvt.app" "$app"
 rm -rf "$dist/stage"

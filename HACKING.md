@@ -154,7 +154,9 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 | `crates/gilvt-finder` | `⌘P` 文件搜索（不依赖 gpui）：搜索根判定、`git ls-files` / 目录遍历、nucleo 模糊匹配与排序、shell 转义 |
 | `crates/gilvt-cli` | `gilvt` 命令行（含 `gilvt hook`：hook 转发、Claude / Codex 参数生成、Codex 信任哈希缓存） |
 | `crates/gilvt-app` | gpui 应用：窗口、标签、分屏、终端渲染元素、IME、Quick Look、设置、会话栏、系统通知、检查器、会话 / 新建 Agent 浮层、清理向导（`launcher/`）、Dock 角标、工作现场持久化（`persist/`、`workspace/restore.rs`）、关闭确认（`workspace/close.rs`） |
+| `crates/gilvt-remote` | 远端小程序（Linux 静态 musl 二进制，随 Gilvt.app 以 gzip 形式携带，`gilvt ssh` 上传到 ssh 主机运行；`release-remote` profile 求小求静态） |
 | `crates/gilvt-fake-agent` | 测试用：按剧本扮演 claude / codex（写真实格式的会话记录、调用 hooks），不进 app bundle |
+| `scripts/build-remote.sh` | 构建 `gilvt-remote` 的 x86_64 / aarch64 静态 musl 二进制（默认 docker `rust:1.95-alpine`，`--zig` 用 cargo-zigbuild），产出 `remote/<arch>/{gilvt-remote.gz,build-id}`，由 `bundle.sh` 放进 `Resources/remote/` |
 | `scripts/bundle.sh` | 构建并生成签名的 `Gilvt.app`（有 `gilvt-dev` 证书时用它，否则 ad-hoc，见「稳定签名」） |
 | `docs/compat-checklist.md` | 兼容性验收清单 |
 | `docs/debug-state.md` | `gilvt debug state` 的字段与条件语法 |

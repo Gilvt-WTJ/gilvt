@@ -71,6 +71,12 @@ for px in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
 
+# gilvt-remote for ssh hosts (scripts/build-remote.sh). Optional in dev builds: without it `gilvt ssh` logs in plainly.
+remote_src="${GILVT_REMOTE_DIR:-$target/remote-dist/remote}"
+if [ -d "$remote_src" ]; then
+  cp -R "$remote_src" "$app/Contents/Resources/remote"
+fi
+
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
