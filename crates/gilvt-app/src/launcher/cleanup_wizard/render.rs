@@ -115,7 +115,11 @@ impl CleanupWizard {
                 } else {
                     r.title.clone()
                 };
-                let mut subtitle = format!("{} · {} 轮 · {}", r.dir, r.turns, size_label(h.bytes));
+                let mut subtitle = if crate::i18n::english() {
+                    format!("{} · {} turns · {}", r.dir, r.turns, size_label(h.bytes))
+                } else {
+                    format!("{} · {} 轮 · {}", r.dir, r.turns, size_label(h.bytes))
+                };
                 if h.pinned {
                     subtitle.push_str(crate::i18n::text(
                         " · 置顶，默认不选",
