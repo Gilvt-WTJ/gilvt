@@ -42,6 +42,7 @@ _gilvt_precmd() {
   printf '\e]7;file://%s%s\e\\' "$HOST" "$(_gilvt_urlencode "$PWD")"
   printf '\e]133;A\e\\'
   [[ -n "${_gilvt_agents_checked-}" ]] || _gilvt_define_agents
+  [[ -n "${_gilvt_ssh_checked-}" ]] || _gilvt_define_ssh
   # Keep the input-start marker hook last so it runs after prompt themes rebuild PS1
   # (takes effect from the next prompt: zsh iterates a copy of the array).
   precmd_functions=(${precmd_functions:#_gilvt_mark_input} _gilvt_mark_input)
@@ -97,6 +98,21 @@ _gilvt_define_agents() {
       eval "function $name { gilvt_agent $kind $name \"\$@\" }"
     done
   done
+}
+
+# ssh: interactive logins go through `gilvt ssh` (remote features); GILVT_SSH=0 or `command ssh` bypass it.
+# Defined at the first prompt (this file loads from .zshenv, before .zshrc), so a user's own ssh alias or function wins.
+_gilvt_define_ssh() {
+  emulate -L zsh
+  typeset -g _gilvt_ssh_checked=1
+  (( $+aliases[ssh] || $+functions[ssh] )) && return 0
+  function ssh {
+    if [[ -n ${GILVT_SOCKET-} && ${GILVT_SSH-} != 0 && -x ${GILVT_BIN_DIR-}/gilvt ]]; then
+      "$GILVT_BIN_DIR/gilvt" ssh -- "$@"
+    else
+      command ssh "$@"
+    fi
+  }
 }
 
 # Run first so $? is the user's command status, before any theme hook runs.

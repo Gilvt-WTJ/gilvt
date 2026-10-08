@@ -210,10 +210,11 @@ fn install_fakes(home: &Path) {
     let files = [
         (
             "gilvt-bin/gilvt",
-            "#!/bin/sh\n[ \"$1\" = hook ] || exit 2\n[ -n \"$FAKE_GILVT_FAIL\" ] && exit 1\nkind=$2; shift 3\ncase \"$kind\" in\n  claude-args) printf '%s\\0' --settings /tmp/merged.json \"$@\" ;;\n  codex-args) printf '%s\\0' -c hooks.Stop=gilvt \"$@\" ;;\n  *) exit 2 ;;\nesac\n",
+            "#!/bin/sh\nif [ \"$1\" = ssh ]; then shift; echo \"ssh $*\" >> \"$HOME/ssh.log\"; exit 0; fi\n[ \"$1\" = hook ] || exit 2\n[ -n \"$FAKE_GILVT_FAIL\" ] && exit 1\nkind=$2; shift 3\ncase \"$kind\" in\n  claude-args) printf '%s\\0' --settings /tmp/merged.json \"$@\" ;;\n  codex-args) printf '%s\\0' -c hooks.Stop=gilvt \"$@\" ;;\n  *) exit 2 ;;\nesac\n",
         ),
         ("agents/claude", log_argv),
         ("agents/codex", log_argv),
+        ("agents/ssh", "#!/bin/sh\necho \"$*\" >> \"$HOME/plain-ssh.log\"\n"),
         ("agents/codex-w", "#!/bin/bash\nextra_args=(-c model_provider=x)\nexec codex \"${extra_args[@]}\" \"$@\"\n"),
     ];
     for (rel, body) in files {
@@ -529,4 +530,91 @@ fn zsh_command_block_end_to_end() {
     assert_eq!(b.exit, Some(1));
     let out = b.output_tail.clone().unwrap_or_default();
     assert!(out.contains("out1\nout2"), "{out:?}");
+}
+
+// ---- ssh wrapper -------------------------------------------------------------------------------
+
+fn read_lines(p: &Path) -> Vec<String> {
+    std::fs::read_to_string(p).unwrap_or_default().lines().map(str::to_string).collect()
+}
+
+/// Runs `calls` (sourced) in a shell with the fakes and returns the lines of ssh.log (fake
+/// `gilvt ssh`), plain-ssh.log (fake `ssh` on PATH) and user-ssh.log (the user's own ssh), once
+/// `expect` lines in total have been logged.
+fn run_ssh(d: &Dialect, in_gilvt: bool, user_defs: &str, calls: &[String], expect: usize) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let home = tempfile::tempdir().unwrap();
+    install_fakes(home.path());
+    std::fs::write(home.path().join("calls.sh"), format!("{}{}\n", d.path_line, calls.join("\n"))).unwrap();
+    let env = vec![
+        ("GILVT_BIN_DIR".to_string(), home.path().join("gilvt-bin").display().to_string()),
+        ("GILVT_SOCKET".to_string(), if in_gilvt { "/tmp/gilvt-test.sock".into() } else { String::new() }),
+    ];
+    let rc = format!("{}{user_defs}", d.path_line);
+    let (g, p, u) = (home.path().join("ssh.log"), home.path().join("plain-ssh.log"), home.path().join("user-ssh.log"));
+    let mut sh = start_in(home, &d.shell, d.rc_file, &rc, None, env);
+    sh.wait("first prompt", |ev, _| has(ev, PromptMark::PromptStart));
+    sh.run("source ~/calls.sh");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if read_lines(&g).len() + read_lines(&p).len() + read_lines(&u).len() >= expect {
+            std::thread::sleep(Duration::from_millis(150));
+            return (read_lines(&g), read_lines(&p), read_lines(&u));
+        }
+        assert!(Instant::now() < deadline, "timed out; screen:\n{}", sh.screen());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn ssh_wrapper_case(d: &Dialect) {
+    // In gilvt: the wrapper hands over to `gilvt ssh -- ...`; GILVT_SSH=0 and `command ssh` bypass it.
+    let calls = ["ssh -p 2222 devbox", "GILVT_SSH=0 ssh devbox", "command ssh devbox"].map(String::from);
+    let (gilvt_log, plain_log, user_log) = run_ssh(d, true, "", &calls, 3);
+    assert_eq!(gilvt_log, vec!["ssh -- -p 2222 devbox".to_string()]);
+    assert_eq!(plain_log, vec!["devbox".to_string(), "devbox".to_string()]);
+    assert!(user_log.is_empty());
+    // Outside gilvt: always plain.
+    let (gilvt_log, plain_log, _) = run_ssh(d, false, "", &["ssh devbox".to_string()], 1);
+    assert!(gilvt_log.is_empty());
+    assert_eq!(plain_log, vec!["devbox".to_string()]);
+}
+
+/// A function the user defined in their rc file keeps winning over the wrapper.
+fn ssh_user_function_case(d: &Dialect, def: &str) {
+    let (gilvt_log, plain_log, user_log) = run_ssh(d, true, def, &["ssh devbox".to_string()], 1);
+    assert!(gilvt_log.is_empty() && plain_log.is_empty(), "wrapper must not shadow the user's ssh: {gilvt_log:?} {plain_log:?}");
+    assert_eq!(user_log, vec!["mine devbox".to_string()]);
+}
+
+const USER_SSH_FN: &str = "ssh() { echo \"mine $*\" >> \"$HOME/user-ssh.log\"; }\n";
+const USER_SSH_ALIAS: &str = "alias ssh='echo mine >> \"$HOME/user-ssh.log\" #'\n";
+
+#[test]
+fn zsh_ssh_wrapper() { ssh_wrapper_case(&zsh()); }
+#[test]
+fn bash_ssh_wrapper() { ssh_wrapper_case(&bash()); }
+#[test]
+fn fish_ssh_wrapper() {
+    let Some(f) = find_fish() else { eprintln!("fish not installed; skipping"); return };
+    ssh_wrapper_case(&fish(&f));
+}
+#[test]
+fn zsh_user_ssh_function_wins() { ssh_user_function_case(&zsh(), USER_SSH_FN); }
+#[test]
+fn bash_user_ssh_function_wins() { ssh_user_function_case(&bash(), USER_SSH_FN); }
+#[test]
+fn fish_user_ssh_function_wins() {
+    let Some(f) = find_fish() else { eprintln!("fish not installed; skipping"); return };
+    ssh_user_function_case(&fish(&f), "function ssh; echo \"mine $argv\" >> $HOME/user-ssh.log; end\n");
+}
+#[test]
+fn zsh_user_ssh_alias_wins() {
+    let (g, p, u) = run_ssh(&zsh(), true, USER_SSH_ALIAS, &["ssh".to_string()], 1);
+    assert!(g.is_empty() && p.is_empty());
+    assert_eq!(u, vec!["mine".to_string()]);
+}
+#[test]
+fn bash_user_ssh_alias_wins() {
+    let (g, p, u) = run_ssh(&bash(), true, USER_SSH_ALIAS, &["ssh".to_string()], 1);
+    assert!(g.is_empty() && p.is_empty());
+    assert_eq!(u, vec!["mine".to_string()]);
 }

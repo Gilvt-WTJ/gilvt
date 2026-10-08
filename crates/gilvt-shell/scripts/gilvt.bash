@@ -103,6 +103,7 @@ __gilvt_prompt() {
   printf '\033]7;file://%s%s\033\\' "$HOSTNAME" "$(__gilvt_urlencode "$PWD")"
   printf '\033]133;A\033\\'
   [ -n "$__gilvt_agents_checked" ] || __gilvt_define_agents
+  [ -n "$__gilvt_ssh_checked" ] || __gilvt_define_ssh
   if [ -z "${__gilvt_last_hist+set}" ]; then
     __gilvt_hist_entry
     __gilvt_last_hist=$__gilvt_hnum
@@ -150,6 +151,23 @@ __gilvt_define_agents() {
       eval "function $name { gilvt_agent $kind $name \"\$@\"; }"
     done
   done
+}
+
+# ssh: interactive logins go through `gilvt ssh` (remote features); GILVT_SSH=0 or `command ssh` bypass it.
+# Defined at the first prompt, after every rc file ran, so a user's own ssh alias or function always wins.
+__gilvt_ssh_checked=
+__gilvt_define_ssh() {
+  __gilvt_ssh_checked=1
+  alias ssh >/dev/null 2>&1 && return 0
+  declare -F ssh >/dev/null 2>&1 && return 0
+  # eval: a literal `ssh() {` here would be parsed at load time, where a user's ssh alias would expand.
+  eval 'ssh() {
+    if [ -n "${GILVT_SOCKET-}" ] && [ "${GILVT_SSH-}" != 0 ] && [ -x "${GILVT_BIN_DIR-}/gilvt" ]; then
+      "$GILVT_BIN_DIR/gilvt" ssh -- "$@"
+    else
+      command ssh "$@"
+    fi
+  }'
 }
 
 # Runs last in PROMPT_COMMAND: after any prompt theme rebuilt PS1, and re-arms preexec.
