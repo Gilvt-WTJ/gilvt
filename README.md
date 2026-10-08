@@ -3,10 +3,14 @@
 <h1 align="center">gilvt</h1>
 
 <p align="center">
-  A native macOS terminal for the agent era.
+  One terminal for you and all your agents.
   <br />
-  It runs Claude Code and Codex in their own TUIs, and shows you which session needs you.
+  Run Claude Code and Codex in their own TUIs, see which session needs you, and review each turn in place.
   <br />
+  <a href="https://gilvt.com">Website</a>
+  ·
+  <a href="https://gilvt.com/download">Download</a>
+  ·
   <a href="#about">About</a>
   ·
   <a href="#install">Install</a>
@@ -23,7 +27,7 @@
 </p>
 
 > [!NOTE]
-> gilvt is pre-release software (0.1.0) and runs on macOS only. The interface defaults to Simplified
+> gilvt is an early release (0.1) and runs on macOS only. The interface defaults to Simplified
 > Chinese; switch to English in Settings (`⌘,`) → Language, or set `language = "en"` in
 > `~/.config/gilvt/config.toml`. The developer docs ([HACKING.md](HACKING.md)) are in Chinese for now.
 
@@ -74,8 +78,12 @@ Design principles:
 
 ## Install
 
-Signed and notarized builds (a `.dmg` on GitHub Releases and a Homebrew cask) are planned for the first
-release. Until then, build from source.
+**[Download gilvt for macOS](https://gilvt.com/download)** (macOS 11 or later, Apple silicon and Intel;
+signed and notarized). Open the disk image, drag Gilvt into Applications, and open it from there. Then run
+`claude` or `codex` in a pane: the sidebar and inspector pick up the session automatically. The app keeps
+itself up to date and installs updates when you quit. More on [gilvt.com](https://gilvt.com/install/).
+
+### Build from source
 
 Requirements: macOS, Xcode Command Line Tools, and Rust (the pinned toolchain in `rust-toolchain.toml`
 is selected automatically by `rustup`). A full Xcode install is not needed.
@@ -89,9 +97,7 @@ open target/release/Gilvt.app
 
 Build outside `/tmp` (macOS ignores app bundles there). Native notifications and the Dock badge need
 the app bundle. To keep macOS privacy grants across rebuilds, create a self-signed `gilvt-dev`
-certificate as described in [HACKING.md](HACKING.md) (稳定签名).
-
-Then run `claude` or `codex` in a pane. The sidebar and inspector pick up the session automatically.
+certificate as described in [HACKING.md](HACKING.md) (稳定签名). Builds from source have no updater.
 
 ## Documentation
 

@@ -9,7 +9,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [x] 仓库：`github.com/Gilvt-WTJ/gilvt`；`packaging/homebrew/gilvt.rb` 已指向它。
 - [x] bundle id：`com.gilvt.app`（对应域名 `gilvt.com`）。**发布后再改会让用户的权限授权全部失效**。
 - [x] Apple Developer 账号。证书与公证见 [`release-setup.md`](release-setup.md)。
-- [ ] 注册域名 `gilvt.com`。
+- [x] 注册域名 `gilvt.com`（Cloudflare）。
 - [ ] 商标 / 名称冲突检查。（README 的 Disclaimer 一节已声明 gilvt 与 Anthropic / OpenAI 无关。）
 
 ## 1. 代码与历史
@@ -52,7 +52,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [x] 官网 `site/`（中英双语，`sh site/build.sh` → `dist-site/`），`/download` 由 `site/_redirects` 转到最新 Release 的 `Gilvt.dmg`；release workflow 每次额外上传固定名字的 `Gilvt.dmg`。
 - [x] `gilvt.com` / `www.gilvt.com` 上线（2026-10-07）：Cloudflare Worker `gilvt` 只提供静态资源，`sh site/build.sh && npx wrangler deploy -c site/wrangler.jsonc` 部署（见 `site/README.md`）。仓库公开（或 dmg 搬到 R2）之前，`/download` 转到的 GitHub 地址对外是 404。
 - [ ] 网站自动部署：推送 `site/` 改动后自动 `wrangler deploy`（GitHub Actions + Cloudflare API token，或 Workers Builds 连接仓库）。现在是手动部署。
-- [ ] 对外只发布 `https://gilvt.com/download` 这一个下载地址；README 的安装一节在官网上线后改成指向它。
+- [x] 对外只发布 `https://gilvt.com/download` 这一个下载地址；README 的安装一节已指向它。
 
 ## 4. 分发渠道（按顺序）
 

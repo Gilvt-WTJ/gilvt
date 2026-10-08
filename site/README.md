@@ -19,7 +19,7 @@ also binds the custom domains `gilvt.com` and `www.gilvt.com`):
 
     sh site/build.sh && npx --registry=https://registry.npmjs.org wrangler@4 deploy -c site/wrangler.jsonc
 
-(`wrangler login` once first. The explicit registry is only needed where npm defaults to an internal mirror.)
+(`wrangler login` once first. The explicit registry is only needed where npm defaults to another mirror.)
 
 Only publish `https://gilvt.com/download` as the download link, so the host behind it can change later
 without breaking links.

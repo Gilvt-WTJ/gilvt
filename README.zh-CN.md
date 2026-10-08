@@ -3,10 +3,14 @@
 <h1 align="center">gilvt</h1>
 
 <p align="center">
-  面向 Agent 时代的原生 macOS 终端。
+  一个终端，装下你和 Agent 的全部工作。
   <br />
-  Claude Code 和 Codex 照常在自己的 TUI 里运行，gilvt 告诉你哪个会话在等你。
+  Claude Code 和 Codex 照常在自己的 TUI 里运行；谁在等你一眼看到，每一轮的改动点一下就能 review。
   <br />
+  <a href="https://gilvt.com/zh-CN/">官网</a>
+  ·
+  <a href="https://gilvt.com/download">下载</a>
+  ·
   <a href="#简介">简介</a>
   ·
   <a href="#安装">安装</a>
@@ -23,7 +27,7 @@
 </p>
 
 > [!NOTE]
-> gilvt 目前是预发布版本（0.1.0），只支持 macOS。界面默认简体中文，可以在设置（`⌘,`）→「语言」里切换成
+> gilvt 目前是早期版本（0.1），只支持 macOS。界面默认简体中文，可以在设置（`⌘,`）→「语言」里切换成
 > English，或在 `~/.config/gilvt/config.toml` 里写 `language = "en"`。
 
 ## 简介
@@ -63,7 +67,9 @@ gilvt 首先是一个完整的日常终端：标签页、分屏、真彩色、Ki
 
 ## 安装
 
-签名并公证过的安装包（GitHub Releases 上的 `.dmg` 和 Homebrew cask）会随第一个正式版本提供。在那之前请从源码构建。
+**[下载 macOS 版 gilvt](https://gilvt.com/download)**（macOS 11 及以上，Apple 芯片与 Intel 通用，已签名并公证）。打开磁盘映像，把 Gilvt 拖进「应用程序」再从那里打开，然后在 pane 里运行 `claude` 或 `codex`，左栏和检查器会自动识别这个会话。应用会自动保持最新，在你退出时安装更新。更多见 [gilvt.com](https://gilvt.com/zh-CN/install/)。
+
+### 从源码构建
 
 需要：macOS、Xcode Command Line Tools 和 Rust（`rustup` 会自动选用 `rust-toolchain.toml` 里固定的版本）。不需要完整的 Xcode。
 
@@ -75,9 +81,7 @@ open target/release/Gilvt.app
 ```
 
 请在 `/tmp` 以外的目录构建（macOS 会忽略 `/tmp` 下的 app）。原生通知和 Dock 角标需要从 app 启动。想让重新构建后
-macOS 的隐私授权仍然有效，按 [HACKING.md](HACKING.md) 的「稳定签名」创建一张自签名的 `gilvt-dev` 证书。
-
-然后在 pane 里运行 `claude` 或 `codex`，左栏和检查器会自动识别这个会话。
+macOS 的隐私授权仍然有效，按 [HACKING.md](HACKING.md) 的「稳定签名」创建一张自签名的 `gilvt-dev` 证书。从源码构建的版本没有自动更新。
 
 ## 文档
 

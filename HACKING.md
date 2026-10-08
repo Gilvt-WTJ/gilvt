@@ -127,7 +127,7 @@ cargo test --workspace                                # 单元测试 + PTY / 真
    sh site/build.sh && npx --registry=https://registry.npmjs.org wrangler@4 deploy -c site/wrangler.jsonc
    ```
 
-   `--registry` 是因为本机 npm 默认指向公司内网镜像，换一台机器可以去掉。
+   `--registry` 是因为本机 npm 默认指向另一个镜像源，换一台机器可以去掉。
 4. **推送代码**：网站部署和 `git push` 互相独立，推送不会更新网站，部署也不需要先推送。改完 `site/` 两件事都做，让仓库和线上一致。
 
 **下载地址**：对外（README、文章、帖子）只发布 `https://gilvt.com/download`。安装包放在哪里只由 `site/_redirects` 那一行决定（目标是 `https://release.gilvt.com/Gilvt.dmg`），改它再部署，已经发出去的链接不受影响。
