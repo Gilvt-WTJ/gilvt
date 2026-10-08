@@ -34,11 +34,26 @@ mv "$dist/stage/release/Gilvt.app" "$app"
 rm -rf "$dist/stage"
 lipo -archs "$app/Contents/MacOS/gilvt-app"
 
-version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n 1)"
+# The first `version = "…"` line (the workspace's); awk exits there, so no SIGPIPE under pipefail.
+version="$(awk -F'"' '/^version = "/ { print $2; exit }' "$root/Cargo.toml")"
 dmg="$dist/Gilvt-${version:-0.0.0}.dmg"
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
 cp -R "$app" "$staging/"
 ln -s /Applications "$staging/Applications"
-hdiutil create -quiet -volname "Gilvt" -srcfolder "$staging" -format UDZO -ov "$dmg"
+# hdiutil fails now and then ("Resource busy"); retry a couple of times and show why it failed.
+for attempt in 1 2 3; do
+  if hdiutil create -quiet -volname "Gilvt" -srcfolder "$staging" -format UDZO -ov "$dmg" 2>"$staging.err"; then
+    break
+  fi
+  echo "package.sh: hdiutil create failed (attempt $attempt): $(cat "$staging.err")" >&2
+  [ "$attempt" = 3 ] && exit 1
+  sleep 2
+done
+rm -f "$staging.err"
+# A Developer ID build also signs the dmg, so Gatekeeper can check the disk image itself before it is
+# opened (notarize.sh then staples the ticket to it).
+case "${GILVT_SIGN_IDENTITY:-}" in
+  "Developer ID Application:"*) codesign --force --timestamp --sign "$GILVT_SIGN_IDENTITY" "$dmg" ;;
+esac
 echo "$dmg"

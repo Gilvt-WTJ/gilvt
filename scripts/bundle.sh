@@ -79,6 +79,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Tongjue Wang</string>
+  <key>NSAppleEventsUsageDescription</key><string>gilvt brings the terminal app that runs an agent session to the front when you jump to that session.</string>
 </dict>
 </plist>
 PLIST
@@ -110,11 +112,12 @@ fi
 # which needs network access and a Developer ID identity.
 if [ "${GILVT_HARDENED:-0}" = 1 ]; then
   sign_flags=(--options runtime --timestamp)
+  app_flags=(--entitlements "$root/packaging/entitlements.plist")
 else
   sign_flags=(--timestamp=none)
 fi
 codesign --force "${sign_flags[@]}" --sign "$identity" "$app/Contents/MacOS/gilvt"
-codesign --force "${sign_flags[@]}" --sign "$identity" "$app"
+codesign --force "${sign_flags[@]}" ${app_flags[@]+"${app_flags[@]}"} --sign "$identity" "$app"
 codesign --verify --strict "$app"
 echo "signed with: $label"
 
