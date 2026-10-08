@@ -27,9 +27,9 @@
 </p>
 
 > [!NOTE]
-> gilvt is an early release (0.1) and runs on macOS only. The interface defaults to Simplified
-> Chinese; switch to English in Settings (`⌘,`) → Language, or set `language = "en"` in
-> `~/.config/gilvt/config.toml`. The developer docs ([HACKING.md](HACKING.md)) are in Chinese for now.
+> gilvt is an early release (0.1) and runs on macOS only. The interface follows your Mac's preferred
+> language: Simplified Chinese when it is Chinese, English otherwise. Pick one in Settings (`⌘,`) →
+> Language, or set `language = "en"` / `"zh-CN"` in `~/.config/gilvt/config.toml`. The developer docs ([HACKING.md](HACKING.md)) are in Chinese for now.
 
 ## About
 

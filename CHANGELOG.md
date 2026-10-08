@@ -7,6 +7,12 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Changed
+
+- The interface language now follows macOS when `config.toml` has no `language` key: Simplified Chinese
+  when the Mac's first preferred language is Chinese, English otherwise. It used to always default to
+  Simplified Chinese. Setting `language` (or picking one in Settings → Language) still overrides it.
+
 ## [0.1.0] - 2026-10-08
 
 First public release.

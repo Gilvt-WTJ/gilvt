@@ -195,6 +195,8 @@ write_home() {
   cat >"$home/.config/gilvt/config.toml" <<EOF
 # gilvt GUI test sandbox (tests/gui/sandbox.sh): fixed values so screenshots and states repeat.
 # The shell is a wrapper that undoes login(1)'s HOME reset (see $bin/bash).
+# Chinese whatever the Mac's language is: the cases assert Chinese labels (without it gilvt follows macOS).
+language = "zh-CN"
 shell = "$bin/bash"
 shell_integration = true
 theme = "light"

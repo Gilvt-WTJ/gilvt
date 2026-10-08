@@ -27,8 +27,8 @@
 </p>
 
 > [!NOTE]
-> gilvt 目前是早期版本（0.1），只支持 macOS。界面默认简体中文，可以在设置（`⌘,`）→「语言」里切换成
-> English，或在 `~/.config/gilvt/config.toml` 里写 `language = "en"`。
+> gilvt 目前是早期版本（0.1），只支持 macOS。界面语言默认跟随 Mac 的首选语言：中文时用简体中文，其他语言用英文。
+> 可以在设置（`⌘,`）→「语言」里选定，或在 `~/.config/gilvt/config.toml` 里写 `language = "en"` / `"zh-CN"`。
 
 ## 简介
 
