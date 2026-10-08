@@ -440,7 +440,10 @@ fn messages(view: &ChatView, pane: PaneId, wall: &MonitorModel, base: &Font, k: 
 /// grey line in the chat.
 fn open_log(cx: &mut App) {
     let Some(path) = chat::log_path() else {
-        chat::notice("无法打开日志：找不到 gilvt 的状态目录", cx);
+        chat::notice(
+            crate::i18n::text("无法打开日志：找不到 gilvt 的状态目录", "Could not open the log: gilvt's state folder was not found"),
+            cx,
+        );
         return;
     };
     if let Some(dir) = path.parent() {
@@ -454,6 +457,7 @@ fn open_log(cx: &mut App) {
                 let _ = child.wait();
             });
         }
+        Err(e) if crate::i18n::english() => chat::notice(&format!("Could not open the log: {e}"), cx),
         Err(e) => chat::notice(&format!("无法打开日志：{e}"), cx),
     }
 }
