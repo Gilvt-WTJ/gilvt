@@ -39,7 +39,6 @@ pub fn parse_probe(out: &str) -> Option<Probe> {
 }
 
 /// True when `ssh -G` output shows the user configured session/multiplexing behaviour we must not alter.
-#[allow(dead_code)] // used by Task 13
 pub fn g_forces_passthrough(ssh_g: &str) -> bool {
     ssh_g.lines().any(|l| {
         let (k, v) = l.split_once(' ').unwrap_or((l, ""));

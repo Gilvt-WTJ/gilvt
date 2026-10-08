@@ -13,6 +13,7 @@ gilvt-agent.workspace = true
 gilvt-ipc.workspace = true
 gilvt-monitor.workspace = true
 gilvt-viewer.workspace = true
+libc = "0.2"
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

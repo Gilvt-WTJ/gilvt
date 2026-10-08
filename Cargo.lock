@@ -2208,6 +2208,7 @@ dependencies = [
  "gilvt-monitor",
  "gilvt-shell",
  "gilvt-viewer",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
