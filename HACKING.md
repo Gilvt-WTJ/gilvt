@@ -36,6 +36,29 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 
 一次性的准备（Apple 开发者账号、Developer ID 证书、公证凭据、CI Secrets）见 [`docs/release-setup.md`](docs/release-setup.md)。下面是日常操作。
 
+### 版本规则
+
+**什么时候发版，只由维护者决定。** 服务器和 CI 不会自己发版：`scripts/publish.sh` 上传 `appcast.xml` 的那一刻才算发布。此后已安装的 gilvt 大约每 24 小时检查一次（启动时若距上次超过 24 小时也会检查），在后台下载，用户下次退出 gilvt 时安装；经常使用的人一两天内基本都会更新。设了 `[update] mode = "off"` 的人不会收到；`check` 的人看到 Sparkle 的弹窗，自己决定。
+
+**版本号**（[语义化版本](https://semver.org/lang/zh-CN/)，1.0 之前的约定）：
+
+| 改动 | 版本 | 什么时候发 |
+| --- | --- | --- |
+| 只修 bug，不改行为与配置 | 补丁：0.1.0 → 0.1.1 | 攒几个就发；崩溃、数据丢失、安全问题修好就发 |
+| 新功能，或 1.0 之前的不兼容改动（写在 CHANGELOG 的 **Changed** 下） | 小版本：0.1.x → 0.2.0 | 有一批新功能时，大约每 2–4 周 |
+| 功能与配置格式稳定、承诺长期兼容 | 1.0.0；之后不兼容改动才升主版本 | 维护者决定 |
+
+**Sparkle 只比较构建号**（`CFBundleVersion` = `git rev-list --count HEAD`），不看版本号，所以：
+
+- 每次发版都要从比上一版更晚的 `main` 提交打包；`main` 上发过版之后**不能改写历史**（squash、rebase 后 force push 会让提交数变少，之后的版本在已安装的 gilvt 看来就是旧版本）。
+- 补丁和大版本走同一个自动流程。破坏性的大版本（配置格式变了、需要更高的 macOS）应在 appcast 里加 `sparkle:minimumAutoupdateVersion`（低于它的用户改为弹窗确认，不静默安装），严重的安全修复可以加 `sparkle:criticalUpdate`。`publish.sh` 还不支持这两项，第一次需要时先给它加上。
+
+**撤不回**：已经装上的版本无法降级。发错了，立刻重新上传上一版的 `appcast.xml` 止损（还没下载的人就不会再拿到），再发一个构建号更大的修复版本。
+
+**平时的改动**：每个用户能感知到的改动，都在同一个提交里往 `CHANGELOG.md` 的 `## [Unreleased]` 下追加一条（**Added** / **Changed** / **Fixed** / **Removed**）；发版时这一节就是 appcast 里的更新说明，用户在 Sparkle 的弹窗里会看到。
+
+**发版前检查**：`cargo test`、`tests/gui/selftest.sh` 通过；工作区干净，HEAD 就是要打 tag 的提交；`package.sh` 打出的 dmg 先在本机装上试用；`publish.sh --dry-run` 看一眼 appcast（版本、构建号、更新说明）。
+
 ### 发一个新版本
 
 1. **改版本号**：`Cargo.toml` 的 `[workspace.package] version`。`CHANGELOG.md` 里把 `## [Unreleased]` 改成 `## [0.2.0] - 2026-11-01` 这样的版本与日期，上面再留一个空的 `[Unreleased]`，文末的链接一起改。
