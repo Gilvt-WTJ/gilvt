@@ -595,7 +595,7 @@ impl Builder<'_> {
 /// The bar of a deleted block: how many lines, and what a click does.
 fn deleted_label(lines: usize, open: bool) -> String {
     if crate::i18n::english() {
-        format!("− Deleted {lines} lines · {}", if open { "click to collapse" } else { "click to expand" })
+        format!("− Deleted {} · {}", crate::i18n::count(lines, "line", "lines"), if open { "click to collapse" } else { "click to expand" })
     } else {
         format!("− 已删除 {lines} 行 · {}", if open { "点击收起" } else { "点击展开" })
     }

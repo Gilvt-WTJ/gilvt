@@ -31,7 +31,7 @@ impl ArchiveReport {
             return (self.skipped_running > 0).then(|| running_not_archived().to_string());
         }
         let mut text = if english {
-            format!("Archived {} sessions", self.archived)
+            format!("Archived {}", crate::i18n::count(self.archived, "session", "sessions"))
         } else {
             format!("已归档 {} 个会话", self.archived)
         };

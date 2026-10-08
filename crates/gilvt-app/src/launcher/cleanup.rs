@@ -37,7 +37,7 @@ impl TrashReport {
     pub fn banner(&self) -> String {
         self.toast().unwrap_or_else(|| {
             if crate::i18n::english() {
-                format!("Moved {} sessions to Trash", self.moved)
+                format!("Moved {} to Trash", crate::i18n::count(self.moved, "session", "sessions"))
             } else {
                 format!("已移到废纸篓 {} 个会话", self.moved)
             }
@@ -123,6 +123,7 @@ mod tests {
             let failed = vec![("t".to_string(), "running".to_string())];
             assert_eq!(TrashReport { moved: 2, failed }.banner(), "Moved 2, 1 failed: running");
             assert_eq!(TrashReport { moved: 2, failed: Vec::new() }.banner(), "Moved 2 sessions to Trash");
+            assert_eq!(TrashReport { moved: 1, failed: Vec::new() }.banner(), "Moved 1 session to Trash");
         });
     }
 

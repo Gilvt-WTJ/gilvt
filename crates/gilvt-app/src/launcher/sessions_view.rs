@@ -543,7 +543,7 @@ impl SessionsView {
             Some(super::archive::save_failed(err))
         } else {
             (done > 0).then(|| {
-                if crate::i18n::english() { format!("Unarchived {done} sessions") } else { format!("已取消归档 {done} 个会话") }
+                if crate::i18n::english() { format!("Unarchived {}", crate::i18n::count(done as usize, "session", "sessions")) } else { format!("已取消归档 {done} 个会话") }
             })
         }
     }

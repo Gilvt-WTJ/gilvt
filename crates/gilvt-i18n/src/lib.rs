@@ -86,6 +86,11 @@ pub fn text(chinese: &'static str, english: &'static str) -> &'static str {
     current().text(chinese, english)
 }
 
+/// An English count with its noun: `count(1, "session", "sessions")` is "1 session", 2 gives "2 sessions".
+pub fn count(n: usize, singular: &str, plural: &str) -> String {
+    format!("{n} {}", if n == 1 { singular } else { plural })
+}
+
 /// Runs `f` with [`current`] returning `language` on this thread only (tests run one per thread, so they can
 /// check both languages in parallel without touching the process-wide setting).
 pub fn with_language<R>(language: Language, f: impl FnOnce() -> R) -> R {
@@ -150,6 +155,13 @@ mod tests {
         });
         assert_eq!(inner, Language::Chinese, "other threads are not affected");
         assert_eq!(current(), Language::Chinese);
+    }
+
+    #[test]
+    fn counts_agree_with_their_noun() {
+        assert_eq!(count(0, "session", "sessions"), "0 sessions");
+        assert_eq!(count(1, "session", "sessions"), "1 session");
+        assert_eq!(count(12, "line", "lines"), "12 lines");
     }
 
     #[test]

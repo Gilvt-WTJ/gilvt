@@ -205,7 +205,7 @@ impl Painter<'_> {
 /// A folded run of unchanged lines.
 fn fold_label(len: usize) -> String {
     if crate::i18n::english() {
-        format!("    ⋯ {len} unchanged lines (click to expand)")
+        format!("    ⋯ {} (click to expand)", crate::i18n::count(len, "unchanged line", "unchanged lines"))
     } else {
         format!("    ⋯ {len} 行未改动（点击展开）")
     }

@@ -116,7 +116,7 @@ impl CleanupWizard {
                     r.title.clone()
                 };
                 let mut subtitle = if crate::i18n::english() {
-                    format!("{} · {} turns · {}", r.dir, r.turns, size_label(h.bytes))
+                    format!("{} · {} · {}", r.dir, crate::i18n::count(r.turns as usize, "turn", "turns"), size_label(h.bytes))
                 } else {
                     format!("{} · {} 轮 · {}", r.dir, r.turns, size_label(h.bytes))
                 };
