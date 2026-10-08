@@ -48,20 +48,17 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
-      - name: Build, sign (hardened runtime) and package
+      - name: Build, sign, notarize and staple (the app, then the dmg)
         env:
           GILVT_SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
           GILVT_HARDENED: "1"
-        run: scripts/package.sh
-
-      - name: Notarize and staple
-        env:
+          GILVT_NOTARIZE: "1"
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
           NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
         run: |
           echo "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-          NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8" scripts/notarize.sh target/dist/Gilvt-*.dmg
+          NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8" scripts/package.sh
 
       - name: Checksum
         run: |

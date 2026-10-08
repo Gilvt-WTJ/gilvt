@@ -42,9 +42,9 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [ ] 决定是否统一 `cargo fmt` / 启用 `cargo clippy -D warnings`，再加进 CI（代码目前没有按 rustfmt 格式化）。
 - [ ] 建 `homebrew-gilvt` tap 仓库，放 `Casks/gilvt.rb`；release workflow 的 cask 更新步骤依赖它。
 - [ ] 在仓库 Secrets 里配好签名与公证的密钥（名字见 `release.yml` 开头的注释）。
-- [x] 本机演练：`GILVT_SIGN_IDENTITY="Developer ID Application: TONGJUE WANG (SNSTF72A9P)" GILVT_HARDENED=1 scripts/package.sh`，再 `NOTARY_PROFILE=gilvt-notary scripts/notarize.sh target/dist/Gilvt-<version>.dmg`。`package.sh` 现在也给 dmg 签名，`hdiutil` 失败会重试。
+- [x] 本机发版：`GILVT_SIGN_IDENTITY="Developer ID Application: TONGJUE WANG (SNSTF72A9P)" GILVT_HARDENED=1 GILVT_NOTARIZE=1 NOTARY_PROFILE=gilvt-notary scripts/package.sh`（约 2 分钟）。`package.sh` 现在也给 dmg 签名，`hdiutil` 失败会重试。
 - [ ] 在一台没装过 gilvt 的 Mac 上从浏览器下载 dmg 打开（Intel 机器更好），确认没有 Gatekeeper 提示、通知 / Apple Events 授权弹窗文案正常。
-- [ ] 两轮公证：先公证并装订 `Gilvt.app`，再打 dmg、公证并装订 dmg，让离线首次启动也能通过 Gatekeeper（现在票据只装订在 dmg 上，app 首次启动靠在线查询）。
+- [x] 两轮公证：`GILVT_NOTARIZE=1 scripts/package.sh` 先公证并装订 `Gilvt.app`，再用它打 dmg、公证并装订 dmg（release workflow 同样如此），dmg 里的 app 自带票据，离线首次启动也能通过 Gatekeeper。
 
 - [ ] GitHub 仓库设置：打开 Private vulnerability reporting（`SECURITY.md` 依赖它）；填 About（简介、topics、主页）和社交预览图。
 

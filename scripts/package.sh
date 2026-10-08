@@ -3,13 +3,25 @@
 #
 #   scripts/package.sh            →  target/dist/Gilvt-<version>.dmg  (+ target/dist/Gilvt.app)
 #
-# Signing follows scripts/bundle.sh ($GILVT_SIGN_IDENTITY / gilvt-dev / ad-hoc). This script does NOT
-# notarize: without a Developer ID certificate + notarytool, Gatekeeper blocks the app on other Macs
-# (right-click → Open, or `xattr -dr com.apple.quarantine Gilvt.app`, gets around it for testing).
+# Signing follows scripts/bundle.sh ($GILVT_SIGN_IDENTITY / gilvt-dev / ad-hoc). Without notarization
+# Gatekeeper blocks the app on other Macs (right-click → Open, or `xattr -dr com.apple.quarantine
+# Gilvt.app`, gets around it for testing).
+#
+# A release (two notarizations, so both the app and the dmg carry a stapled ticket):
+#   GILVT_SIGN_IDENTITY="Developer ID Application: …" GILVT_HARDENED=1 GILVT_NOTARIZE=1 \
+#     NOTARY_PROFILE=<keychain profile> scripts/package.sh      (or the NOTARY_KEY_* variables, see notarize.sh)
 # Needs: rustup targets aarch64-apple-darwin and x86_64-apple-darwin, lipo, hdiutil. bash 3.2 compatible.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+notarize="${GILVT_NOTARIZE:-0}"
+if [ "$notarize" = 1 ]; then
+  case "${GILVT_SIGN_IDENTITY:-}" in
+    "Developer ID Application:"*) ;;
+    *) echo "package.sh: GILVT_NOTARIZE=1 needs GILVT_SIGN_IDENTITY=\"Developer ID Application: …\"" >&2; exit 2 ;;
+  esac
+  [ "${GILVT_HARDENED:-0}" = 1 ] || { echo "package.sh: GILVT_NOTARIZE=1 needs GILVT_HARDENED=1" >&2; exit 2; }
+fi
 target="${CARGO_TARGET_DIR:-$root/target}"
 case "$target" in /*) ;; *) target="$root/$target" ;; esac
 dist="$target/dist"
@@ -33,6 +45,8 @@ app="$dist/Gilvt.app"
 mv "$dist/stage/release/Gilvt.app" "$app"
 rm -rf "$dist/stage"
 lipo -archs "$app/Contents/MacOS/gilvt-app"
+# First notarization: the app, so the ticket is stapled inside it before it goes into the dmg.
+if [ "$notarize" = 1 ]; then "$root/scripts/notarize.sh" "$app"; fi
 
 # The first `version = "…"` line (the workspace's); awk exits there, so no SIGPIPE under pipefail.
 version="$(awk -F'"' '/^version = "/ { print $2; exit }' "$root/Cargo.toml")"
@@ -56,4 +70,6 @@ rm -f "$staging.err"
 case "${GILVT_SIGN_IDENTITY:-}" in
   "Developer ID Application:"*) codesign --force --timestamp --sign "$GILVT_SIGN_IDENTITY" "$dmg" ;;
 esac
+# Second notarization: the dmg (its own ticket, stapled to the dmg).
+if [ "$notarize" = 1 ]; then "$root/scripts/notarize.sh" "$dmg"; fi
 echo "$dmg"

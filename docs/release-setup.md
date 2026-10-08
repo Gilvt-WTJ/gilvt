@@ -79,12 +79,13 @@
 ### 本机演练
 
 ```bash
-GILVT_SIGN_IDENTITY="Developer ID Application: <名字> (TEAMID)" GILVT_HARDENED=1 scripts/package.sh
-NOTARY_PROFILE=gilvt-notary scripts/notarize.sh target/dist/Gilvt-<version>.dmg
+GILVT_SIGN_IDENTITY="Developer ID Application: <名字> (TEAMID)" GILVT_HARDENED=1 GILVT_NOTARIZE=1 \
+  NOTARY_PROFILE=gilvt-notary scripts/package.sh
 spctl -a -vv target/dist/Gilvt.app      # 期望 source=Notarized Developer ID
+xcrun stapler validate target/dist/Gilvt.app    # app 自带票据（先公证 app，再公证 dmg）
 ```
 
-`bundle.sh` 的 `GILVT_HARDENED=1` 路径还没用真实 Developer ID 跑过，第一次可能要补 entitlements 或调整嵌套代码的签名顺序。最后把 dmg 拷到一台没装过 gilvt 的 Mac 上，从浏览器下载后打开，确认没有 Gatekeeper 提示。
+这条路径 2026-10-07 已用真实 Developer ID 走通（两轮公证都 `Accepted`，没有 issue）。硬化运行时需要的 entitlements 在 `packaging/entitlements.plist`。最后把 dmg 拷到一台没装过 gilvt 的 Mac 上，从浏览器下载后打开，确认没有 Gatekeeper 提示。
 
 ### 接入 CI
 
