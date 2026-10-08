@@ -35,6 +35,20 @@ pub const CHAT_INSTRUCTIONS: &str = "你是 gilvt 终端里的「监控官」。
 ### 整体\n\
 一段话概括其他会话的进展。";
 
+/// [`CHAT_INSTRUCTIONS`] for the interface language: in English the 监控官 answers in English and the standup
+/// brief's headings are English (they are shown as written).
+pub fn chat_instructions() -> String {
+    if !gilvt_i18n::english() {
+        return CHAT_INSTRUCTIONS.to_string();
+    }
+    CHAT_INSTRUCTIONS
+        .replace("用中文，简洁", "用英文（English）回答，简洁")
+        .replace("用户要「站会简报」时", "用户要「站会简报」（standup brief）时")
+        .replace("### 要你处理", "### Needs you")
+        .replace("：要用户做的事（每项一行；没有就写「- 暂时没有」）", ": what the user should do (one per line; if none, write \"- Nothing right now\")")
+        .replace("### 整体", "### Overall")
+}
+
 /// How the chat CLI reaches gilvt: `<gilvt> mcp` with the app's socket and the chat's token.
 #[derive(Clone, PartialEq, Eq)]
 pub struct McpLaunch {
@@ -621,6 +635,18 @@ pub fn probe(cfg: &ChatConfig, timeout: Duration) -> Result<Duration, ProviderEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_instructions_follow_the_interface_language() {
+        assert_eq!(gilvt_i18n::with_language(gilvt_i18n::Language::Chinese, chat_instructions), CHAT_INSTRUCTIONS);
+        let en = gilvt_i18n::with_language(gilvt_i18n::Language::English, chat_instructions);
+        for needle in ["用英文（English）回答", "standup brief", "### Needs you", "### Overall", "- Nothing right now"] {
+            assert!(en.contains(needle), "{needle}");
+        }
+        for gone in ["用中文", "### 要你处理", "### 整体", "暂时没有"] {
+            assert!(!en.contains(gone), "{gone}");
+        }
+    }
 
     #[test]
     fn instructions_cover_the_spec() {

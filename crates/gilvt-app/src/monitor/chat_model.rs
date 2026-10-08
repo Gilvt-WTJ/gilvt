@@ -18,6 +18,15 @@ pub const PRELUDE_BYTES: usize = 1024;
 /// The quick questions: (button, message sent).
 pub const QUICK: [(&str, &str); 3] = [("✦ 生成站会简报", "生成站会简报"), ("哪些需要我？", "哪些需要我？"), ("有什么出错了？", "有什么出错了？")];
 
+/// The quick questions as (label, what they send) in the interface language.
+pub fn quick() -> [(&'static str, &'static str); 3] {
+    if crate::i18n::english() {
+        [("✦ Generate Standup Brief", "Generate a standup brief"), ("What needs me?", "What needs me?"), ("What failed?", "What failed?")]
+    } else {
+        QUICK
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
     User,
@@ -138,6 +147,26 @@ pub struct Conversation {
     pub turns: u64,
 }
 
+/// A tool's error as the ✗ row shows it in English. The tools answer the model in Chinese (it reads them), so
+/// the common ones are said again in English and any other Chinese one becomes a generic line.
+fn tool_error_in_english(text: &str) -> String {
+    let text = text.trim();
+    if let Some(rest) = text.strip_prefix(tools::NOT_FOUND) {
+        let key = rest.trim_start_matches(['：', ':', ' ']);
+        return if key.is_empty() || crate::i18n::has_chinese(key) { "no such session".into() } else { format!("no such session: {key}") };
+    }
+    if text.starts_with(super::tools::DISABLED) {
+        return "Monitor is off".into();
+    }
+    if text.starts_with(super::tools::BAD_TOKEN) {
+        return "invalid token".into();
+    }
+    if crate::i18n::has_chinese(text) {
+        return "the tool reported an error".into();
+    }
+    text.to_string()
+}
+
 fn first_line(s: &str, max_chars: usize) -> String {
     gilvt_monitor::output::clip_chars(s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""), max_chars)
 }
@@ -248,7 +277,7 @@ impl Conversation {
                         (true, Some(l)) => format!("✓ {l}"),
                         (true, None) if english() => format!("✓ Called {}", row.name),
                         (true, None) => format!("✓ 已调用 {}", row.name),
-                        (false, _) if english() => format!("✗ {}: {}", row.name, first_line(text, 80)),
+                        (false, _) if english() => format!("✗ {}: {}", row.name, first_line(&tool_error_in_english(text), 80)),
                         (false, _) => format!("✗ {}：{}", row.name, first_line(text, 80)),
                     };
                 }

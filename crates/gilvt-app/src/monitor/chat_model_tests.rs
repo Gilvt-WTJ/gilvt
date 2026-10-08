@@ -233,3 +233,19 @@ fn status_tool_rows_and_errors_in_english() {
     assert_eq!(exit_text(Some(1), ""), "监控官进程已退出（退出码 1）");
     assert_eq!(Status::Answering.pill(), Some("回答中"));
 }
+
+#[test]
+fn tool_errors_read_in_english() {
+    assert_eq!(tool_error_in_english(&format!("{}：agent:claude:a1", tools::NOT_FOUND)), "no such session: agent:claude:a1");
+    assert_eq!(tool_error_in_english(super::super::tools::DISABLED), "Monitor is off");
+    assert_eq!(tool_error_in_english("turns 不能为空"), "the tool reported an error");
+    assert_eq!(tool_error_in_english("socket closed"), "socket closed");
+}
+
+#[test]
+fn quick_questions_send_what_they_say_in_english() {
+    assert_eq!(crate::i18n::with_language(crate::i18n::Language::Chinese, quick), QUICK);
+    let en = crate::i18n::with_language(crate::i18n::Language::English, quick);
+    assert_eq!(en.map(|(label, _)| label), ["✦ Generate Standup Brief", "What needs me?", "What failed?"]);
+    assert!(en.iter().all(|(label, text)| !crate::i18n::has_chinese(label) && !crate::i18n::has_chinese(text)));
+}

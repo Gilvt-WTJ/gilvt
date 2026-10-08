@@ -33,6 +33,8 @@ breaking changes; they are called out under **Changed**.
 - The English interface no longer shows Chinese: notifications, the close and quit confirmation, the
   terminal find bar, the file finder, previews, the editor's messages, the sessions palette, the inspector's
   configuration cards, theme warnings, and the monitor's chat, cards and connection test were still in Chinese.
+- In English, the monitor's chat answers and its ✦ summaries are written in English, and the quick questions
+  send English.
 - The New Agent panel showed its `⌘1 / ⌘2` hint twice, and monitor cards in English read "took" in Chinese.
 
 ## [0.1.0] - 2026-10-08

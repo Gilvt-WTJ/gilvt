@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gilvt_monitor::chat::{self, ChatConfig, ChatEvent, ChatHandle, McpLaunch, CHAT_INSTRUCTIONS};
+use gilvt_monitor::chat::{self, ChatConfig, ChatEvent, ChatHandle, McpLaunch};
 use gilvt_monitor::provider::{ProviderError, ProviderKind};
 use gpui::{App, Global};
 
@@ -300,7 +300,7 @@ fn config(m: &MonitorSettings, record: Option<PathBuf>, cx: &App) -> Result<Chat
         model: m.chat_model().map(String::from),
         run_dir: crate::settings_window::probe::run_dir(),
         path: None,
-        instructions: CHAT_INSTRUCTIONS.to_string(),
+        instructions: chat::chat_instructions(),
         mcp: McpLaunch { gilvt, socket, token: new_token() },
         log: log_path(),
         record,
