@@ -91,6 +91,8 @@ pub struct TerminalView {
     reported_cwd: Option<PathBuf>,
     /// Set while this pane is in an ssh link: no local cwd applies.
     remote: Option<crate::remote::pane::RemoteCwd>,
+    /// A link re-check timer is pending.
+    link_recheck: bool,
     /// Commands run at this pane's prompt (OSC 133).
     commands: CommandLog,
     /// What releasing the files dragged over this pane would do.
@@ -190,6 +192,7 @@ impl TerminalView {
             search: None,
             reported_cwd: None,
             remote: None,
+            link_recheck: false,
             commands: CommandLog::default(),
             drop_hint: None,
             hitbox: Rc::new(Cell::new(None)),
@@ -204,20 +207,41 @@ impl TerminalView {
         self.title.clone().unwrap_or_else(|| self.auto_title.clone())
     }
 
+    /// Ends the ssh link when ssh has left the foreground twice in a row. A first strike schedules a re-check,
+    /// since the terminal may go quiet after the local prompt and nothing else would run the second check.
+    fn check_link(&mut self, cx: &mut Context<Self>) {
+        let Some(r) = self.remote.as_mut() else { return };
+        let fg = self.session.foreground_name();
+        if !r.link_alive(fg.as_deref(), Instant::now()) {
+            let link = r.remote.link.clone();
+            self.remote = None;
+            self.auto_title_checked = None;
+            cx.emit(TerminalViewEvent::RemoteEnded { link });
+            self.refresh_auto_title(cx);
+            cx.notify();
+        } else if r.needs_recheck() && !self.link_recheck {
+            self.link_recheck = true;
+            cx.spawn(async move |view, cx| {
+                cx.background_executor().timer(Duration::from_millis(600)).await;
+                let _ = view.update(cx, |v, cx| {
+                    v.link_recheck = false;
+                    v.check_link(cx);
+                    // Local again: the title follows.
+                    v.auto_title_checked = None;
+                    v.refresh_auto_title(cx);
+                });
+            })
+            .detach();
+        }
+    }
+
     /// Recomputes the fallback title at most twice a second; emits TitleChanged when it changes.
     fn refresh_auto_title(&mut self, cx: &mut Context<Self>) {
         if self.auto_title_checked.is_some_and(|t| t.elapsed() < Duration::from_millis(500)) {
             return;
         }
         self.auto_title_checked = Some(Instant::now());
-        if let Some(r) = self.remote.as_mut() {
-            let fg = self.session.foreground_name();
-            if !r.link_alive(fg.as_deref(), Instant::now()) {
-                let link = r.remote.link.clone();
-                self.remote = None;
-                cx.emit(TerminalViewEvent::RemoteEnded { link });
-            }
-        }
+        self.check_link(cx);
         let next = match self.remote.as_ref() {
             Some(r) => gilvt_term::procinfo::auto_title(Some(&r.remote.display), r.cwd()),
             None => gilvt_term::procinfo::auto_title(self.session.foreground_name().as_deref(), self.cwd().as_deref()),
@@ -256,7 +280,13 @@ impl TerminalView {
                 cur.remote.enhanced = r.enhanced;
                 cur.set_hostname(h);
             }
-            (Some(r), _) => self.remote = Some(crate::remote::pane::RemoteCwd::new(r)),
+            (Some(r), old) => {
+                // A new link replaces the old one: tell the app, or RemoteHosts keeps the old link forever.
+                if let Some(old) = old {
+                    cx.emit(TerminalViewEvent::RemoteEnded { link: old.remote.link.clone() });
+                }
+                self.remote = Some(crate::remote::pane::RemoteCwd::new(r));
+            }
             (None, _) => self.remote = None,
         }
         self.auto_title_checked = None;

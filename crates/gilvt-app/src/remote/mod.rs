@@ -147,9 +147,20 @@ pub fn apply_to_pane(pane: u64, r: Option<PaneRemote>, cx: &mut App) {
     }
 }
 
+fn clear_pane_if_link(pane: u64, link: &str, cx: &mut App) {
+    for w in cx.windows().into_iter().filter_map(|w| w.downcast::<crate::workspace::Workspace>()) {
+        let _ = w.update(cx, |ws, _, cx| {
+            if ws.has_pane(pane) && ws.pane_remote(pane, cx).is_none_or(|r| r.link == link) {
+                ws.set_pane_remote(pane, None, cx);
+            }
+        });
+    }
+}
+
 pub fn link_ended(link: &str, cx: &mut App) {
     let pane = cx.global_mut::<RemoteHosts>().end(link);
-    if let Some(p) = pane { apply_to_pane(p, None, cx); }
+    // Not when the pane has already moved on to another link (a replaced link ends after its successor began).
+    if let Some(p) = pane { clear_pane_if_link(p, link, cx); }
     bridge::link_count_changed(cx); // Task 9: closes an idle bridge after the grace period
 }
 

@@ -264,8 +264,6 @@ impl Workspace {
         if let Some(PaneView::Terminal(t)) = self.panes.get(&pane) { t.update(cx, |t, cx| t.set_remote(r, cx)); }
     }
 
-    // used by later tasks (DebugState)
-    #[allow(dead_code)]
     pub fn pane_remote(&self, pane: PaneId, cx: &App) -> Option<crate::remote::PaneRemote> {
         match self.panes.get(&pane) { Some(PaneView::Terminal(t)) => t.read(cx).remote().cloned(), _ => None }
     }

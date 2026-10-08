@@ -52,6 +52,9 @@ impl RemoteCwd {
 
     pub fn cwd(&self) -> Option<&Path> { self.cwd.as_deref() }
 
+    /// A non-ssh check has been seen: the pane must be checked again even if the terminal goes quiet.
+    pub fn needs_recheck(&self) -> bool { self.first_strike.is_some() }
+
     /// `gilvt` (gilvt ssh before it execs) and `ssh` keep the link alive; two checks at least 500 ms apart
     /// without either end it.
     pub fn link_alive(&mut self, foreground: Option<&str>, now: Instant) -> bool {
@@ -102,6 +105,17 @@ mod tests {
         c.observe("other", "/x".into());
         c.set_hostname(Some("devbox".into()));
         assert_eq!(c.cwd(), None);
+    }
+
+    #[test]
+    fn a_first_strike_asks_for_a_recheck() {
+        let mut c = RemoteCwd::new(pr(Some("h")));
+        let t = Instant::now();
+        assert!(!c.needs_recheck());
+        c.link_alive(Some("zsh"), t);
+        assert!(c.needs_recheck());
+        c.link_alive(Some("ssh"), t);
+        assert!(!c.needs_recheck());
     }
 
     #[test]
