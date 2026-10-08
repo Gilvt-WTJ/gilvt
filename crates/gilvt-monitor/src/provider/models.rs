@@ -50,7 +50,7 @@ pub fn parse_model_page(resp: &Value) -> Result<(Vec<ModelChoice>, Option<String
         let message = err.get("message").and_then(Value::as_str).unwrap_or("").to_string();
         return Err(match classify(&message, None) {
             auth @ ProviderError::Auth(_) => auth,
-            _ => ProviderError::Protocol(format!("model/list：{message}")),
+            _ => ProviderError::Protocol(format!("model/list{}{message}", gilvt_i18n::text("：", ": "))),
         });
     }
     let result = resp.get("result").ok_or_else(|| ProviderError::Protocol(gilvt_i18n::text("model/list 没有 result", "model/list has no result").into()))?;

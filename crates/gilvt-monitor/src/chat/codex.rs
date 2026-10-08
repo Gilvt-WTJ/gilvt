@@ -134,7 +134,7 @@ fn rpc_failure(what: &str, err: &Value) -> ProviderError {
     let message = err.get("message").and_then(Value::as_str).unwrap_or("").to_string();
     match classify(&message, None) {
         auth @ ProviderError::Auth(_) => auth,
-        _ => ProviderError::Protocol(format!("{what}：{message}")),
+        _ => ProviderError::Protocol(format!("{what}{}{message}", gilvt_i18n::text("：", ": "))),
     }
 }
 
