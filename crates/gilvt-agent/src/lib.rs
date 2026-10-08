@@ -61,7 +61,7 @@ pub use store::Store;
 pub use summary::{tool_label, tool_summary, truncate_chars, SUMMARY_MAX};
 pub use tail::Tail;
 pub use title::{
-    choose as choose_title, is_informative, is_reply, session_title, tidy_prompt, Title, TitleSource,
+    choose as choose_title, is_informative, is_reply, no_prompt, session_title, tidy_prompt, Title, TitleSource,
     NO_PROMPT,
 };
 pub use timeline::{

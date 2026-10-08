@@ -5,6 +5,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+gilvt-i18n.workspace = true
 libc = "0.2"
 serde.workspace = true
 serde_json.workspace = true

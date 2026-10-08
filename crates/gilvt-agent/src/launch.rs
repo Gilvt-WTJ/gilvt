@@ -83,9 +83,9 @@ impl CodexPermission {
 
     pub fn label(self) -> &'static str {
         match self {
-            CodexPermission::ReadOnly => "只读",
-            CodexPermission::Auto => "自动",
-            CodexPermission::FullAccess => "完全访问",
+            CodexPermission::ReadOnly => gilvt_i18n::text("只读", "Read Only"),
+            CodexPermission::Auto => gilvt_i18n::text("自动", "Auto"),
+            CodexPermission::FullAccess => gilvt_i18n::text("完全访问", "Full Access"),
         }
     }
 }

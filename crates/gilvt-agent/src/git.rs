@@ -105,7 +105,13 @@ pub(crate) fn run_git_with(cwd: &Path, args: &[&str], timeout: Duration) -> Resu
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("无法运行 git：{e}"))?;
+        .map_err(|e| {
+            if gilvt_i18n::english() {
+                format!("{SPAWN_FAILED_EN}: {e}")
+            } else {
+                format!("{SPAWN_FAILED}：{e}")
+            }
+        })?;
     let mut out = child.stdout.take().expect("piped");
     let mut err = child.stderr.take().expect("piped");
     let out_t = std::thread::spawn(move || {
@@ -125,7 +131,7 @@ pub(crate) fn run_git_with(cwd: &Path, args: &[&str], timeout: Duration) -> Resu
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("git 超时".into());
+                return Err(gilvt_i18n::text(TIMED_OUT, TIMED_OUT_EN).into());
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(10)),
             Err(e) => return Err(e.to_string()),
@@ -148,9 +154,15 @@ pub enum QueryOutcome {
     Failed,
 }
 
+/// [`run_git_with`]'s own errors, in both languages ([`is_transient`] recognises either).
+const TIMED_OUT: &str = "git 超时";
+const TIMED_OUT_EN: &str = "git timed out";
+const SPAWN_FAILED: &str = "无法运行 git";
+const SPAWN_FAILED_EN: &str = "Could not run git";
+
 /// An error from [`run_git_with`] that is the environment's fault, not git's answer about the directory.
 fn is_transient(err: &str) -> bool {
-    err.starts_with("git 超时") || err.starts_with("无法运行 git")
+    [TIMED_OUT, TIMED_OUT_EN, SPAWN_FAILED, SPAWN_FAILED_EN].iter().any(|p| err.starts_with(p))
 }
 
 /// Turns the results of `rev-parse` and (only when that worked) `status` into an outcome. A failing
@@ -267,12 +279,22 @@ pub fn worktree_start_dir(dir: &Path, repo_root: &Path, new_worktree: &Path) -> 
 /// (git cleans up after itself).
 pub fn create_worktree(main_repo_root: &Path, from_repo_root: &Path, task: &str, id4: &str) -> Result<PathBuf, String> {
     let branch = branch_name(task, id4);
-    let path = worktree_path(main_repo_root, &branch).ok_or_else(|| "无法确定 worktree 位置".to_string())?;
+    let path = worktree_path(main_repo_root, &branch).ok_or_else(|| gilvt_i18n::text("无法确定 worktree 位置", "Could not work out where to put the worktree").to_string())?;
     if path.exists() {
-        return Err(format!("目录已存在：{}", path.display()));
+        return Err(if gilvt_i18n::english() {
+            format!("The directory already exists: {}", path.display())
+        } else {
+            format!("目录已存在：{}", path.display())
+        });
     }
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("无法创建 {}：{e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            if gilvt_i18n::english() {
+                format!("Could not create {}: {e}", parent.display())
+            } else {
+                format!("无法创建 {}：{e}", parent.display())
+            }
+        })?;
     }
     let path_str = path.to_string_lossy().into_owned();
     run_git_with(from_repo_root, &["worktree", "add", "-b", &branch, &path_str], WORKTREE_TIMEOUT)?;
@@ -380,6 +402,32 @@ mod tests {
 
     fn ok(s: &str) -> Result<String, String> {
         Ok(s.to_string())
+    }
+
+    #[test]
+    fn own_errors_are_transient_in_both_languages() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let timeout = with_language(Language::English, || gilvt_i18n::text(TIMED_OUT, TIMED_OUT_EN));
+        assert!(!has_chinese(timeout));
+        assert!(is_transient(timeout));
+        assert!(is_transient("Could not run git: No such file"));
+        assert!(is_transient("git 超时"));
+        assert!(!is_transient("fatal: not a git repository"));
+    }
+
+    #[test]
+    fn worktree_errors_in_english() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("app");
+        std::fs::create_dir_all(&repo).unwrap();
+        let path = worktree_path(&repo, &branch_name("fix login", "ab12")).unwrap();
+        std::fs::create_dir_all(&path).unwrap();
+        let err = with_language(Language::English, || create_worktree(&repo, &repo, "fix login", "ab12")).unwrap_err();
+        assert!(err.starts_with("The directory already exists: "), "{err}");
+        assert!(!has_chinese(&err.replace(&path.display().to_string(), "")), "{err}");
+        let err = create_worktree(&repo, &repo, "fix login", "ab12").unwrap_err();
+        assert!(err.starts_with("目录已存在："), "{err}");
     }
 
     #[test]
