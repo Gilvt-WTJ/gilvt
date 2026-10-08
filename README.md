@@ -83,6 +83,14 @@ signed and notarized). Open the disk image, drag Gilvt into Applications, and op
 `claude` or `codex` in a pane: the sidebar and inspector pick up the session automatically. The app keeps
 itself up to date and installs updates when you quit. More on [gilvt.com](https://gilvt.com/install/).
 
+With Homebrew:
+
+```bash
+brew install --cask gilvt-wtj/gilvt/gilvt
+```
+
+This also puts the `gilvt` command on your `PATH`. Updates still arrive through the app itself.
+
 ### Build from source
 
 Requirements: macOS, Xcode Command Line Tools, and Rust (the pinned toolchain in `rust-toolchain.toml`
