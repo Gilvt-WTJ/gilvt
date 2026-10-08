@@ -137,7 +137,6 @@ impl NewAgentView {
                     .text_color(k.muted)
                     .child(crate::i18n::text("⌘1 / ⌘2 切换", "⌘1 / ⌘2 switch")),
             )
-            .child(div().text_size(px(11.)).text_color(k.muted).child("⌘1 / ⌘2 切换"))
     }
 
     fn dir_row(&self, k: Colors, cx: &mut Context<Self>) -> Div {
