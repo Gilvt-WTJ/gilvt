@@ -23,8 +23,12 @@ pub fn control_path(dir: &Path, host_id: &str) -> PathBuf {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Probe { pub os: String, pub arch: String, pub hostname: String, pub installed: Vec<String> }
 
+pub const PROBE_SENTINEL: &str = "GILVT-PROBE-1";
+
 pub fn parse_probe(out: &str) -> Option<Probe> {
-    let mut lines = out.lines();
+    // A remote rc may print banners first: only what follows the last sentinel counts.
+    let start = out.lines().enumerate().filter(|(_, l)| l.trim() == PROBE_SENTINEL).map(|(i, _)| i).last()?;
+    let mut lines = out.lines().skip(start + 1);
     let os = lines.next()?.trim().to_string();
     let arch = lines.next()?.trim().to_string();
     let hostname = lines.next()?.trim().to_string();
@@ -32,6 +36,23 @@ pub fn parse_probe(out: &str) -> Option<Probe> {
         .filter_map(|l| Path::new(l.trim().trim_end_matches('/')).file_name()?.to_str().map(str::to_string))
         .collect();
     Some(Probe { os, arch, hostname, installed })
+}
+
+/// True when `ssh -G` output shows the user configured session/multiplexing behaviour we must not alter.
+#[allow(dead_code)] // used by Task 13
+pub fn g_forces_passthrough(ssh_g: &str) -> bool {
+    ssh_g.lines().any(|l| {
+        let (k, v) = l.split_once(' ').unwrap_or((l, ""));
+        let v = v.trim();
+        match k {
+            "remotecommand" => !v.is_empty() && v != "none",
+            "sessiontype" => v != "default",
+            "requesttty" => v == "no",
+            "forkafterauthentication" | "stdinnull" => v == "yes",
+            "controlmaster" => v != "false" && v != "no",
+            _ => false,
+        }
+    })
 }
 
 pub fn norm_arch(m: &str) -> Option<&'static str> {
@@ -57,12 +78,12 @@ fn sh(script: &str) -> String {
 }
 
 pub fn probe_command() -> String {
-    sh(r#"uname -s; uname -m; uname -n; for d in "$HOME"/.gilvt-server/*/; do [ -x "$d/gilvt-remote" ] && echo "$d"; done; true"#)
+    sh(r#"echo GILVT-PROBE-1; uname -s; uname -m; uname -n; for d in "$HOME"/.gilvt-server/*/; do [ -x "$d/gilvt-remote" ] && echo "$d"; done; true"#)
 }
 
 pub fn upload_command(build_id: &str) -> String {
     sh(&format!(
-        r#"set -e; umask 077; D="$HOME/.gilvt-server/{build_id}"; mkdir -p "$D" "$HOME/.gilvt-server/bin"; gzip -dc > "$D/gilvt-remote.tmp"; chmod 700 "$D/gilvt-remote.tmp"; mv "$D/gilvt-remote.tmp" "$D/gilvt-remote"; ln -sfn "../{build_id}/gilvt-remote" "$HOME/.gilvt-server/bin/gilvt-remote""#
+        r#"set -e; umask 077; D="$HOME/.gilvt-server/{build_id}"; mkdir -p "$D" "$HOME/.gilvt-server/bin"; gzip -dc > "$D/gilvt-remote.tmp.$$"; chmod 700 "$D/gilvt-remote.tmp.$$"; mv "$D/gilvt-remote.tmp.$$" "$D/gilvt-remote"; ln -sfn "../{build_id}/gilvt-remote" "$HOME/.gilvt-server/bin/gilvt-remote""#
     ))
 }
 
@@ -113,11 +134,11 @@ mod tests {
 
     #[test]
     fn probe_output() {
-        let out = "Linux\nx86_64\nn37-026-177\n/home/u/.gilvt-server/0.1.0-aaaaaaaa/\n/home/u/.gilvt-server/0.0.9-bbbbbbbb/\n";
+        let out = "welcome banner\nGILVT-PROBE-1\nLinux\nx86_64\nn37-026-177\n/home/u/.gilvt-server/0.1.0-aaaaaaaa/\n/home/u/.gilvt-server/0.0.9-bbbbbbbb/\n";
         let p = parse_probe(out).unwrap();
         assert_eq!((p.os.as_str(), p.arch.as_str(), p.hostname.as_str()), ("Linux", "x86_64", "n37-026-177"));
         assert_eq!(p.installed, ["0.1.0-aaaaaaaa", "0.0.9-bbbbbbbb"]);
-        assert!(parse_probe("Linux\n").is_none());
+        assert!(parse_probe("Linux\n").is_none() && parse_probe("GILVT-PROBE-1\nLinux\n").is_none());
         assert_eq!(norm_arch("arm64"), Some("aarch64"));
         assert_eq!(norm_arch("armv7l"), None);
     }
@@ -152,6 +173,23 @@ mod tests {
         assert!(l.contains("远端组件不存在，以普通方式登录"));
         let u = upload_command("0.1.0-aaaaaaaa");
         assert!(u.contains("gzip -dc") && u.contains("ln -sfn") && u.contains("umask 077"));
+    }
+
+    #[test]
+    fn g_output_forcing_passthrough() {
+        let base = "user u\nhostname h\nport 22\nrequesttty auto\nsessiontype default\nremotecommand none\nforkafterauthentication no\nstdinnull no\ncontrolmaster false\n";
+        assert!(!g_forces_passthrough(base));
+        for (from, to) in [("remotecommand none", "remotecommand tmux a"), ("sessiontype default", "sessiontype none"), ("requesttty auto", "requesttty no"),
+                           ("forkafterauthentication no", "forkafterauthentication yes"), ("stdinnull no", "stdinnull yes"), ("controlmaster false", "controlmaster auto")] {
+            assert!(g_forces_passthrough(&base.replace(from, to)), "{to}");
+        }
+    }
+
+    #[test]
+    fn probe_survives_banner_and_upload_tmp_is_unique() {
+        assert!(probe_command().contains("echo GILVT-PROBE-1;"));
+        assert!(upload_command("b").contains("gilvt-remote.tmp.$$"));
+        assert!(!upload_command("b").contains("gilvt-remote.tmp\""));
     }
 
     #[test]

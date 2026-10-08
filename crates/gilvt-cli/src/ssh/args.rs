@@ -16,6 +16,12 @@ pub struct SshArgs {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Parsed { Passthrough, Login(SshArgs) }
 
+/// `-o Key=value` options that change session/multiplexing behaviour: not ours to touch.
+fn o_forces_passthrough(val: &str) -> bool {
+    let key = val.trim_start().split(|c: char| c == '=' || c.is_whitespace()).next().unwrap_or("").to_ascii_lowercase();
+    ["sessiontype", "forkafterauthentication", "controlmaster", "controlpath", "controlpersist", "requesttty", "remotecommand", "stdinnull"].contains(&key.as_str())
+}
+
 pub fn parse(argv: &[String]) -> Parsed {
     let mut opts = Vec::new();
     let mut tty = false;
@@ -32,6 +38,10 @@ pub fn parse(argv: &[String]) -> Parsed {
             if PASSTHROUGH.contains(f) { return Parsed::Passthrough; }
             if f == 't' { tty = true; }
             if WITH_ARG.contains(f) {
+                if f == 'o' {
+                    let val: String = if j + 1 == flags.len() { argv.get(i + 1).cloned().unwrap_or_default() } else { flags[j + 1..].iter().collect() };
+                    if o_forces_passthrough(&val) { return Parsed::Passthrough; }
+                }
                 if j + 1 == flags.len() { takes_next = true; }
                 break; // the rest of this word is the argument
             }
@@ -47,6 +57,8 @@ pub fn parse(argv: &[String]) -> Parsed {
     }
     let Some(destination) = argv.get(i).cloned() else { return Parsed::Passthrough };
     let mut rest = &argv[i + 1..];
+    // OpenSSH keeps parsing options after the destination: `ssh -t host -l root`.
+    if rest.first().is_some_and(|a| a.starts_with('-') && a != "--") { return Parsed::Passthrough; }
     if rest.first().is_some_and(|a| a == "--") { rest = &rest[1..]; }
     let command = rest.to_vec();
     if !command.is_empty() && !tty { return Parsed::Passthrough; }
@@ -78,6 +90,23 @@ mod tests {
         assert_eq!(s.command, v(&["tmux a"]));
         let s = login(&["-At", "devbox", "tmux"]);
         assert_eq!(s.command, v(&["tmux"]));
+    }
+
+    #[test]
+    fn options_after_destination_pass_through() {
+        for a in [&["-t", "devbox", "-l", "root"][..], &["-t", "devbox", "-N"]] {
+            assert!(matches!(parse(&v(a)), Parsed::Passthrough), "{a:?}");
+        }
+        assert_eq!(login(&["-t", "devbox", "--", "tmux a"]).command, v(&["tmux a"]));
+    }
+
+    #[test]
+    fn o_forms_of_passthrough_options() {
+        for a in [&["-o", "SessionType=none", "devbox"][..], &["-oRemoteCommand=x", "devbox"], &["-o", "RequestTTY no", "devbox"],
+                  &["-o", "controlmaster=auto", "devbox"], &["-oStdinNull=yes", "devbox"], &["-o", "ControlPath=/x", "devbox"]] {
+            assert!(matches!(parse(&v(a)), Parsed::Passthrough), "{a:?}");
+        }
+        login(&["-o", "User=dev", "-oServerAliveInterval=5", "devbox"]);
     }
 
     #[test]
