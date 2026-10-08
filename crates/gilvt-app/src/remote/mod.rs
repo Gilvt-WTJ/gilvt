@@ -38,8 +38,6 @@ pub struct HostEntry {
     pub last_link_end: Option<Instant>,
 }
 
-// Fields read by Task 8+ (pane wiring, DebugState).
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct LinkEntry {
     pub pane: Option<u64>,
@@ -74,8 +72,6 @@ impl RemoteHosts {
         link
     }
 
-    // used by Task 8 (pane wiring)
-    #[allow(dead_code)]
     pub fn linked(&mut self, link: &str, hostname: Option<String>, spec: Option<BridgeSpec>, note: Option<String>) -> Option<(u64, PaneRemote)> {
         let entry = self.links.get_mut(link)?;
         if hostname.is_some() { entry.hostname = hostname.clone(); }
@@ -99,8 +95,6 @@ impl RemoteHosts {
         }).collect()
     }
 
-    // used by Task 8 (pane wiring)
-    #[allow(dead_code)]
     pub fn end(&mut self, link: &str) -> Option<u64> {
         let e = self.links.remove(link)?;
         if let Some(h) = self.hosts.get_mut(&e.host) { h.last_link_end = Some(Instant::now()); }
@@ -138,13 +132,48 @@ pub fn answer_begin(q: Query, cx: &mut App) {
     let r = cx.global_mut::<RemoteHosts>();
     let install = r.prefs.policy(&host, setting).to_string();
     let cached = r.prefs.hosts.get(&host).cloned().unwrap_or_default();
-    let link = r.begin(pane, host, display);
+    let link = r.begin(pane, host.clone(), display.clone());
+    // The pane is remote from the moment `gilvt ssh` starts (after the RemoteHosts borrow above ended).
+    if let Some(p) = pane {
+        apply_to_pane(p, Some(PaneRemote { link: link.clone(), host, display, hostname: cached.hostname.clone(), enhanced: false }), cx);
+    }
     q.respond(Response::RemoteBegin { link, install, installed: cached.installed, arch: cached.arch, hostname: cached.hostname });
 }
 
+/// Applies `r` to `pane` in whichever window has it.
+pub fn apply_to_pane(pane: u64, r: Option<PaneRemote>, cx: &mut App) {
+    for w in cx.windows().into_iter().filter_map(|w| w.downcast::<crate::workspace::Workspace>()) {
+        let _ = w.update(cx, |ws, _, cx| if ws.has_pane(pane) { ws.set_pane_remote(pane, r.clone(), cx) });
+    }
+}
+
+pub fn link_ended(link: &str, cx: &mut App) {
+    let pane = cx.global_mut::<RemoteHosts>().end(link);
+    if let Some(p) = pane { apply_to_pane(p, None, cx); }
+    bridge::link_count_changed(cx); // Task 9: closes an idle bridge after the grace period
+}
+
+/// A request from `gilvt ssh` (everything but RemoteBegin, which is a query).
+pub fn handle(req: Request, cx: &mut App) {
+    match req {
+        Request::RemoteRecord { host, install, installed, arch, hostname, forget_installed } => {
+            cx.global_mut::<RemoteHosts>().record(&host, install, installed, arch, hostname, forget_installed);
+            save_prefs(cx);
+        }
+        Request::RemoteLinked { link, hostname, bridge: spec, note } => {
+            let host = cx.global::<RemoteHosts>().links.get(&link).map(|l| l.host.clone());
+            let applied = cx.global_mut::<RemoteHosts>().linked(&link, hostname, spec.clone(), note);
+            if let Some((pane, pr)) = applied {
+                apply_to_pane(pane, Some(pr), cx);
+            }
+            if let (Some(host), Some(_)) = (host, spec) { bridge::ensure(&host, cx); }
+        }
+        Request::RemoteEnd { link } => link_ended(&link, cx),
+        _ => {}
+    }
+}
+
 /// Saves `remote.json` off the main thread.
-// used by Task 9 (bridge records installs)
-#[allow(dead_code)]
 pub fn save_prefs(cx: &mut App) {
     let prefs = cx.global::<RemoteHosts>().prefs.clone();
     if let Some(dir) = crate::agents::state_dir() {

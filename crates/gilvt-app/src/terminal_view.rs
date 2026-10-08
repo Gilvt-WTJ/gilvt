@@ -35,6 +35,8 @@ use crate::theme::{hsla, AppSettings, CellMetrics};
 pub enum TerminalViewEvent {
     TitleChanged,
     Exited,
+    /// The ssh link in this pane ended (ssh left the foreground).
+    RemoteEnded { link: String },
     /// Cmd+click on a file path; `in_editor` for Cmd+Shift+click.
     OpenPath { hit: PathHit, in_editor: bool },
     /// ⌘P: open the file palette for this pane.
@@ -87,6 +89,8 @@ pub struct TerminalView {
     search: Option<String>,
     /// Working directory reported by shell integration (OSC 7); preferred over process lookup.
     reported_cwd: Option<PathBuf>,
+    /// Set while this pane is in an ssh link: no local cwd applies.
+    remote: Option<crate::remote::pane::RemoteCwd>,
     /// Commands run at this pane's prompt (OSC 133).
     commands: CommandLog,
     /// What releasing the files dragged over this pane would do.
@@ -185,6 +189,7 @@ impl TerminalView {
             scroll_accum: 0.0,
             search: None,
             reported_cwd: None,
+            remote: None,
             commands: CommandLog::default(),
             drop_hint: None,
             hitbox: Rc::new(Cell::new(None)),
@@ -205,7 +210,18 @@ impl TerminalView {
             return;
         }
         self.auto_title_checked = Some(Instant::now());
-        let next = gilvt_term::procinfo::auto_title(self.session.foreground_name().as_deref(), self.cwd().as_deref());
+        if let Some(r) = self.remote.as_mut() {
+            let fg = self.session.foreground_name();
+            if !r.link_alive(fg.as_deref(), Instant::now()) {
+                let link = r.remote.link.clone();
+                self.remote = None;
+                cx.emit(TerminalViewEvent::RemoteEnded { link });
+            }
+        }
+        let next = match self.remote.as_ref() {
+            Some(r) => gilvt_term::procinfo::auto_title(Some(&r.remote.display), r.cwd()),
+            None => gilvt_term::procinfo::auto_title(self.session.foreground_name().as_deref(), self.cwd().as_deref()),
+        };
         if next != self.auto_title {
             self.auto_title = next;
             if self.title.is_none() {
@@ -219,10 +235,33 @@ impl TerminalView {
         &self.commands
     }
 
-    /// The shell's working directory: the last OSC 7 report when it is local, else the
-    /// foreground process's cwd.
+    /// The shell's working directory on this Mac: the last local OSC 7, else the foreground process's cwd.
+    /// `None` in an ssh pane: the local ssh's cwd says nothing about the remote (spec §4.5).
     pub fn cwd(&self) -> Option<PathBuf> {
+        if self.remote.is_some() { return None; }
         self.reported_cwd.clone().or_else(|| self.session.cwd())
+    }
+
+    // remote_cwd / remote: used by later tasks (file tree, DebugState)
+    #[allow(dead_code)]
+    pub fn remote(&self) -> Option<&crate::remote::PaneRemote> { self.remote.as_ref().map(|r| &r.remote) }
+
+    #[allow(dead_code)]
+    pub fn remote_cwd(&self) -> Option<PathBuf> { self.remote.as_ref().and_then(|r| r.cwd().map(std::path::Path::to_path_buf)) }
+
+    pub fn set_remote(&mut self, r: Option<crate::remote::PaneRemote>, cx: &mut Context<Self>) {
+        match (r, self.remote.as_mut()) {
+            (Some(r), Some(cur)) if cur.remote.link == r.link => {
+                let h = r.hostname.clone();
+                cur.remote.enhanced = r.enhanced;
+                cur.set_hostname(h);
+            }
+            (Some(r), _) => self.remote = Some(crate::remote::pane::RemoteCwd::new(r)),
+            (None, _) => self.remote = None,
+        }
+        self.auto_title_checked = None;
+        self.refresh_auto_title(cx);
+        cx.notify();
     }
 
 
@@ -306,9 +345,14 @@ impl TerminalView {
                 cx.emit(TerminalViewEvent::Notify { note, title: self.title(), focused });
             }
             TermEvent::ChildExit(_) => cx.emit(TerminalViewEvent::Exited),
-            // A remote report (ssh) says nothing about local paths: fall back to the process cwd.
             TermEvent::Cwd(c) => {
-                self.reported_cwd = c.is_local().then_some(c.path);
+                if c.is_local() {
+                    self.reported_cwd = Some(c.path);
+                } else {
+                    // A remote report: the ssh link's cwd when it is from that host (spec §4.5), never a local path.
+                    self.reported_cwd = None;
+                    if let Some(r) = self.remote.as_mut() { r.observe(&c.host, c.path); }
+                }
                 self.auto_title_checked = None;
                 self.refresh_auto_title(cx);
             }

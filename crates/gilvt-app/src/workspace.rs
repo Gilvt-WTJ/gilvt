@@ -260,6 +260,16 @@ impl Workspace {
         }
     }
 
+    pub fn set_pane_remote(&mut self, pane: PaneId, r: Option<crate::remote::PaneRemote>, cx: &mut Context<Self>) {
+        if let Some(PaneView::Terminal(t)) = self.panes.get(&pane) { t.update(cx, |t, cx| t.set_remote(r, cx)); }
+    }
+
+    // used by later tasks (DebugState)
+    #[allow(dead_code)]
+    pub fn pane_remote(&self, pane: PaneId, cx: &App) -> Option<crate::remote::PaneRemote> {
+        match self.panes.get(&pane) { Some(PaneView::Terminal(t)) => t.read(cx).remote().cloned(), _ => None }
+    }
+
     pub fn has_pane(&self, id: PaneId) -> bool {
         self.panes.contains_key(&id)
     }
@@ -428,6 +438,10 @@ impl Workspace {
                 cx.notify();
             }
             TerminalViewEvent::Exited => ws.close_pane(id, window, cx),
+            TerminalViewEvent::RemoteEnded { link } => {
+                let link = link.clone();
+                cx.defer(move |cx| crate::remote::link_ended(&link, cx));
+            }
             TerminalViewEvent::OpenPath { hit, in_editor } => {
                 if *in_editor {
                     ws.open_editor(hit.path.clone(), hit.line, Some(id), false, window, cx);

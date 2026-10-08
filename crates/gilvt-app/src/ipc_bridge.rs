@@ -82,6 +82,9 @@ pub fn start(hooks: async_channel::Sender<Request>, cx: &mut App) -> Option<Path
                 hook @ Request::Hook { .. } => {
                     let _ = hooks.try_send(hook);
                 }
+                req @ (Request::RemoteRecord { .. } | Request::RemoteLinked { .. } | Request::RemoteEnd { .. }) => {
+                    let _ = cx.update(|cx| crate::remote::handle(req, cx));
+                }
                 other => {
                     if let Some((pane, req, pin)) = view_request(other) {
                         let _ = cx.update(|cx| route(pane, req, pin, cx));
