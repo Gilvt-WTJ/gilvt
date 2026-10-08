@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+pub mod remote;
+
 /// Largest request accepted (stdin content for `gilvt view -` is capped at 10 MB by the client).
 pub const MAX_MESSAGE_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_CONTENT_BYTES: usize = 10 * 1024 * 1024;
