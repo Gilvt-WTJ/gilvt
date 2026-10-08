@@ -79,8 +79,9 @@
 ### 本机演练
 
 ```bash
-GILVT_SIGN_IDENTITY="Developer ID Application: <名字> (TEAMID)" GILVT_HARDENED=1 GILVT_NOTARIZE=1 \
-  NOTARY_PROFILE=gilvt-notary scripts/package.sh
+GILVT_NOTARIZE=1 scripts/package.sh
+# 等同于：GILVT_SIGN_IDENTITY="<钥匙串里第一张 Developer ID Application 证书>" GILVT_HARDENED=1 \
+#   NOTARY_PROFILE=gilvt-notary GILVT_NOTARIZE=1 scripts/package.sh
 spctl -a -vv target/dist/Gilvt.app      # 期望 source=Notarized Developer ID
 xcrun stapler validate target/dist/Gilvt.app    # app 自带票据（先公证 app，再公证 dmg）
 ```

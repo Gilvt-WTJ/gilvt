@@ -3,7 +3,7 @@ requires: manual
 checklist: AA5
 scenarios: []
 
-要一个公证过的 dmg（`GILVT_NOTARIZE=1 scripts/package.sh`）。会把真实的 `/Applications/Gilvt.app` 移到废纸篓，做之前确认那里的版本可以替换。
+要一个公证过的 dmg：`GILVT_NOTARIZE=1 scripts/package.sh`（自动用钥匙串里的 Developer ID 证书和 `gilvt-notary` 公证凭据，约 2 分钟），产物在 `target/dist/`。会把真实的 `/Applications/Gilvt.app` 移到废纸篓，做之前确认那里的版本可以替换。
 
 ## steps
 ```gilvt-steps

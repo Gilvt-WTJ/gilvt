@@ -43,7 +43,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [ ] 决定是否统一 `cargo fmt` / 启用 `cargo clippy -D warnings`，再加进 CI（代码目前没有按 rustfmt 格式化）。
 - [ ] 建 `homebrew-gilvt` tap 仓库，放 `Casks/gilvt.rb`；release workflow 的 cask 更新步骤依赖它。
 - [ ] 在仓库 Secrets 里配好签名与公证的密钥（名字见 `release.yml` 开头的注释）。
-- [x] 本机发版：`GILVT_SIGN_IDENTITY="Developer ID Application: TONGJUE WANG (SNSTF72A9P)" GILVT_HARDENED=1 GILVT_NOTARIZE=1 NOTARY_PROFILE=gilvt-notary scripts/package.sh`（约 2 分钟）。`package.sh` 现在也给 dmg 签名，`hdiutil` 失败会重试。
+- [x] 本机发版：`GILVT_NOTARIZE=1 scripts/package.sh`（约 2 分钟；自动用钥匙串里的 Developer ID 证书、打开硬化运行时、用 `gilvt-notary` 公证凭据，显式设置的变量优先）。`hdiutil create` 偶发失败（已见过一次），脚本会重试并打印退出码。`package.sh` 现在也给 dmg 签名，`hdiutil` 失败会重试。
 - [ ] 在一台没装过 gilvt 的 Mac 上从浏览器下载 dmg 打开（Intel 机器更好），确认没有 Gatekeeper 提示、通知 / Apple Events 授权弹窗文案正常。
 - [x] 两轮公证：`GILVT_NOTARIZE=1 scripts/package.sh` 先公证并装订 `Gilvt.app`，再用它打 dmg、公证并装订 dmg（release workflow 同样如此），dmg 里的 app 自带票据，离线首次启动也能通过 Gatekeeper。
 

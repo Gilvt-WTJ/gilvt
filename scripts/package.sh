@@ -8,19 +8,31 @@
 # Gilvt.app`, gets around it for testing).
 #
 # A release (two notarizations, so both the app and the dmg carry a stapled ticket):
-#   GILVT_SIGN_IDENTITY="Developer ID Application: …" GILVT_HARDENED=1 GILVT_NOTARIZE=1 \
-#     NOTARY_PROFILE=<keychain profile> scripts/package.sh      (or the NOTARY_KEY_* variables, see notarize.sh)
+#   GILVT_NOTARIZE=1 scripts/package.sh
+# signs with the keychain's first "Developer ID Application" identity, turns on GILVT_HARDENED and notarizes
+# with the keychain profile gilvt-notary; GILVT_SIGN_IDENTITY, NOTARY_PROFILE or the NOTARY_KEY_* variables
+# (see notarize.sh) override those.
 # Needs: rustup targets aarch64-apple-darwin and x86_64-apple-darwin, lipo, hdiutil. bash 3.2 compatible.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 notarize="${GILVT_NOTARIZE:-0}"
 if [ "$notarize" = 1 ]; then
+  # Defaults for a release from this Mac; anything set explicitly wins.
+  if [ -z "${GILVT_SIGN_IDENTITY:-}" ]; then
+    GILVT_SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null |
+      sed -n 's/^ *[0-9]*) [0-9A-F]* "\(Developer ID Application: .*\)"$/\1/p' | head -n 1 || true)"
+  fi
   case "${GILVT_SIGN_IDENTITY:-}" in
-    "Developer ID Application:"*) ;;
-    *) echo "package.sh: GILVT_NOTARIZE=1 needs GILVT_SIGN_IDENTITY=\"Developer ID Application: …\"" >&2; exit 2 ;;
+    "Developer ID Application:"*) export GILVT_SIGN_IDENTITY ;;
+    *) echo "package.sh: GILVT_NOTARIZE=1 needs a \"Developer ID Application: …\" identity in the keychain (or GILVT_SIGN_IDENTITY)" >&2; exit 2 ;;
   esac
-  [ "${GILVT_HARDENED:-0}" = 1 ] || { echo "package.sh: GILVT_NOTARIZE=1 needs GILVT_HARDENED=1" >&2; exit 2; }
+  export GILVT_HARDENED="${GILVT_HARDENED:-1}"
+  [ "$GILVT_HARDENED" = 1 ] || { echo "package.sh: GILVT_NOTARIZE=1 needs GILVT_HARDENED=1" >&2; exit 2; }
+  if [ -z "${NOTARY_PROFILE:-}" ] && [ -z "${NOTARY_KEY_PATH:-}" ]; then
+    export NOTARY_PROFILE=gilvt-notary
+  fi
+  echo "package.sh: signing with $GILVT_SIGN_IDENTITY; notarizing with ${NOTARY_PROFILE:+keychain profile $NOTARY_PROFILE}${NOTARY_KEY_PATH:+API key $NOTARY_KEY_ID}" >&2
 fi
 target="${CARGO_TARGET_DIR:-$root/target}"
 case "$target" in /*) ;; *) target="$root/$target" ;; esac
@@ -57,10 +69,9 @@ cp -R "$app" "$staging/"
 ln -s /Applications "$staging/Applications"
 # hdiutil fails now and then ("Resource busy"); retry a couple of times and show why it failed.
 for attempt in 1 2 3; do
-  if hdiutil create -quiet -volname "Gilvt" -srcfolder "$staging" -format UDZO -ov "$dmg" 2>"$staging.err"; then
-    break
-  fi
-  echo "package.sh: hdiutil create failed (attempt $attempt): $(cat "$staging.err")" >&2
+  hdiutil create -volname "Gilvt" -srcfolder "$staging" -format UDZO -ov "$dmg" >"$staging.err" 2>&1 && break
+  rc=$?
+  echo "package.sh: hdiutil create failed (attempt $attempt, exit $rc): $(grep -v '^\.*$' "$staging.err" | tail -n 3)" >&2
   [ "$attempt" = 3 ] && exit 1
   sleep 2
 done
