@@ -41,6 +41,7 @@ Claude 仍可从 `.claude/skills/gilvt-acceptance/SKILL.md` 进入同一份流�
 | 子命令 | 作用 |
 |---|---|
 | `up [--label X] [--app PATH] [--fake PATH] [--keep DIR]` | 创建 `$TMPDIR/gilvt-gui-<yyyymmdd-HHMMSS>/`，启动沙盒 gilvt，写 `session.env`，把 `$TMPDIR/gilvt-gui-current` 指向它。安全检查失败时自己 `down`，`--keep` 把 `failures/` 先复制到 DIR（`run.sh` 传 `<out>/<ID>`） |
+| `up --remote` | 在 `up` 之外：要求 `remote.sh status` 是 up（否则退出 2）；把测试远端的 `ssh_config`、密钥、`known_hosts` 放进沙盒 `$HOME/.ssh/`（配置里的 `~` 改成沙盒路径，因为 ssh 按 passwd 而不是 `$HOME` 找 `~`），`$bin/ssh` 包装脚本给 ssh 加 `-F <沙盒>/.ssh/config`（gilvt 用 PATH 上第一个 ssh），`$bin/remote-test` 是 `remote.sh` 的别名（用例里 `remote-test exec …`、`remote-test reset`）；启动时给 app 传 `GILVT_SSH_CONTROL_DIR=/tmp/gilvt-gui-cm-<时间戳>`（ssh 的 ControlPath 套接字，路径要短）和 `GILVT_REMOTE_DIR`（包里的 `Contents/Resources/remote`，没有则 `<target>/remote-dist/remote`）；pane 继承 app 的环境，所以 pane 里的 `gilvt ssh` 能看到它们。两个值写进 `session.env`（`CONTROL_DIR`、`REMOTE_DIR`），`restart` 沿用；`down` 对控制目录里每个 `cm-*` 套接字执行 `ssh -O exit`，再删除目录 |
 | `real-up [--label X] [--app PATH] [--record DIR]` | 真实 HOME、真实 claude / codex（`real-*` 用例），`DISABLE_AUTOUPDATER=1`，`MODE=real`。`--record`（绝对路径）以 `GILVT_MONITOR_RECORD=DIR` 启动：监控官对话进程把写入（`> `）与读到（`< `）的每一行追加到 `DIR/<claude\|codex>-<pid>.jsonl` |
 | `down [--keep DIR]` | 只结束 `session.env` 里的 pid，删除沙盒目录和链接；列出 `trashed.txt` 里记下的废纸篓条目（不清空） |
 | `restart [--set KEY=VALUE]… [--env GILVT_TEST_<NAME>=<值>]…` | 同一个沙盒（HOME、seed、`ui.json`、`trashed.txt` 都保留）里重启 gilvt：`--env` 只接受 `GILVT_TEST_` 开头的测试开关，原样传给这次启动的 gilvt（如 `GILVT_TEST_INSTALL_LOCATION=disk_image`）；先按 `--set` 改 `config.toml`（`name` 或 `table.name`，值是 TOML 字面量，如 `--set 'agent.codex_launch="codex w"'`），再启动、重做 pane 安全检查，更新 `session.env`。gilvt 会热重载 config.toml，但 `shell`、`[agent]` 等仍只在启动时读；改配置的用例照旧用 `restart --set`；也用来清零 `dock_bounces`、让「已结束」回到只有本次运行的会话。只用于 `up` 的沙盒 |
@@ -101,6 +102,7 @@ tests/gui/run.sh --list all                                              # 只�
 - **剪贴板**：每个要运行的用例在 `up` 之前用 `tools/keys clip-save <文件>` 保存整个通用剪贴板（每一项、每种类型的数据，存在
   `$TMPDIR` 下只有自己可读的临时文件里），`down` 之后用 `tools/keys clip-restore <文件>` 放回；`up` 失败、Ctrl-C / TERM 中断时
   也会放回。保存失败的用例不运行（`FAIL(clipboard save)`）。`run.sh` 自己编译 `tools/keys.swift`（与 `up` 共用缓存）。
+- `requires: remote`：用例需要测试远端（`remote.sh`，见下）。`run.sh` 在跑这类用例之前 `remote.sh up`（已经是 up 就沿用，也不会在结束时拆掉；自己启动的，结束或中断时 `remote.sh down`），每个用例前 `remote.sh reset`，并用 `sandbox.sh up --remote`。起不来（没有 docker / colima）时 `SKIP(remote-unavailable)`。`remote` 用例不并行。
 - `requires: real-claude` / `real-codex` 没有 `--real` 时 `SKIP(real-…)`；`manual` 总是 `SKIP(manual)`（要人来做）。
 - `--out DIR`：evidence bundle 的目录，必须不存在或为空；默认 `~/gilvt-lab/reports/run-<UTC 时间>-<提交>-<pid>`。
 - `--jobs N`：按 case 并行运行隔离安全的沙盒用例。每个 worker 有自己的 `TMPDIR`、session、HOME 和 app 进程；S0（若在选择中）
@@ -292,6 +294,20 @@ finalize 为 `interrupted` / `not_run`，留下可检查的部分报告。
 - `requires`：默认 `sandbox`；只有真实 CLI 自己的行为（真实 `--resume` 的上下文、子 Agent、TaskCreate、整屏重绘）才用
   `real-claude` / `real-codex`，这类用例自带 `## setup`（`real-up`）与 `## teardown`；系统界面里只能由用户做的步骤
   （访达「放回原处」、菜单栏）用 `manual`，步骤里用 `# 手动：` 注释写清楚。
+
+## `remote.sh`：SSH 测试远端
+
+`tests/gui/remote.sh up|down|status|reset|exec`：用 colima / docker 起两个 sshd 容器（镜像 `gilvt-gui-remote`，Debian bookworm，带 tmux / zsh / fish / git），网络 `gilvt-gui-remote-net`：`gilvt-gui-remote-jump`（`127.0.0.1:2201`）与 `gilvt-gui-remote-devbox`（`127.0.0.1:2202`，jump 里可用名字 `devbox` 访问）。状态目录 `$TMPDIR/gilvt-gui-remote/` 里有 ed25519 密钥、`known_hosts` 和 `ssh_config`，其中的 Host：`devbox-test`（用户 `dev`，bash）、`devbox-jump`（经 `gilvt-jump` ProxyJump，主机名 `devbox`）、`devbox-zsh`（用户 `devz`，登录 shell 是 zsh）。
+
+| 子命令 | 作用 |
+|---|---|
+| `up` | 构建镜像、生成密钥、启动容器、写 `ssh_config` / `known_hosts`；已经 up 就什么也不做 |
+| `down` | 删除容器、网络、镜像和状态目录 |
+| `status` | up 时打印 `up <状态目录>` 退出 0，否则打印 `down` 退出 2（docker 没运行也是 2） |
+| `reset` | 清掉 `dev` 与 `devz` 的 `~/.gilvt-server`，结束 devbox 里的 `gilvt-remote` 进程 |
+| `exec [--user dev\|devz] <命令>` | 在 devbox 里以该用户执行（默认 `dev`；`$SHELL` 取自 passwd） |
+
+它只碰自己的状态目录、命名的容器 / 网络 / 镜像和本机 2201、2202 端口。用例里通过沙盒的 `remote-test` 调用它。用完 `remote.sh down`。
 
 ## 剧本
 

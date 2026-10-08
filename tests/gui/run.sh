@@ -123,11 +123,18 @@ for f in "${files[@]}"; do
   kinds+=("${info%% *} ${fg%% *} ${info##* steps=}")
 done
 
+# requires: remote cases need tests/gui/remote.sh's containers: started here for the run (and removed again
+# at the end), or skipped as remote-unavailable when docker is not there. Not for --list.
+remote_up="" started_remote=""
+[ -z "$list" ] || remote_up=1   # --list shows what would run
+stop_remote() { [ -z "$started_remote" ] || { started_remote=""; "$here/remote.sh" down >/dev/null 2>&1 || true; }; }
+
 # The reason a case is skipped (empty: it runs), from its requires and foreground step count.
 skip_reason() {
   case "$1" in
     manual) echo manual; return ;;
     real-*) [ -n "$real" ] || { echo "$1"; return; } ;;
+    remote) [ -n "$remote_up" ] || { echo remote-unavailable; return; } ;;
   esac
   [ -z "$with_fg" ] && [ "$2" -gt 0 ] && echo foreground
 }
@@ -225,9 +232,15 @@ restore_clip() {
 }
 cleanup_clip() {
   restore_clip
+  stop_remote
   [ -z "$clip" ] || rm -f "$clip"
 }
 trap cleanup_clip EXIT
+
+if [ -z "$list" ] && printf '%s\n' "${kinds[@]}" | grep -q '^remote '; then
+  was_up=""; "$here/remote.sh" status >/dev/null 2>&1 && was_up=1
+  if "$here/remote.sh" up >/dev/null 2>&1; then remote_up=1; [ -n "$was_up" ] || started_remote=1; fi
+fi
 
 if [ "$jobs" -gt 1 ] && [ -z "${GILVT_GUI_PARALLEL_WORKER:-}" ]; then
   if ! "$keys" clip-save "$clip"; then
@@ -280,6 +293,7 @@ interrupt_run() {
     "$sandbox" down --keep "$out/cases/$current" >>"$out/cases/$current/case.log" 2>&1
   fi
   restore_clip
+  stop_remote
   python3 "$evidence" finalize "$out" "$(now_iso)" "$(now_ms)" true >/dev/null 2>&1 || true
   echo "run: interrupted; partial evidence in $out" >&2
   exit 130
@@ -327,8 +341,13 @@ for i in "${!files[@]}"; do
   [ -n "${GILVT_GUI_NO_CLIPBOARD_GUARD:-}" ] || clip_saved=1
   up=up
   case "$requires" in real-*) up=real-up ;; esac
+  up_extra=()
+  if [ "$requires" = remote ]; then
+    up_extra=(--remote)
+    "$here/remote.sh" reset >>"$log" 2>&1 || true
+  fi
   # --keep: a failed pane check tears the sandbox down itself; its failures/ still land in the report.
-  if ! "$sandbox" "$up" --label "$id" ${app:+--app "$app"} --keep "$out/$id" >>"$log" 2>&1; then
+  if ! "$sandbox" "$up" --label "$id" ${app:+--app "$app"} ${up_extra[@]+"${up_extra[@]}"} --keep "$out/$id" >>"$log" 2>&1; then
     restore_clip
     echo "$id FAIL(sandbox $up)"
     python3 "$evidence" case-end "$out" "$id" failed environment "sandbox $up" "$(now_iso)" "$(now_ms)" 0 "" \

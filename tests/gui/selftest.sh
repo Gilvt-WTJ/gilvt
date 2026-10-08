@@ -508,6 +508,7 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
 
   d="$T/gilvt-gui-20260929-120000"
   mkdir -p "$d/home" "$d/bin"
+  in_sub_q() { ("$@") 2>/dev/null; }
   write_home "$d"
   check "wrapper HOME and PATH" "$d/home|$d/bin:/usr/bin:/bin:/usr/sbin:/sbin|en_US.UTF-8" \
     env -i GILVT_SANDBOX_HOME="$d/home" "$d/bin/bash" -c 'echo "$HOME|$PATH|$LANG"'
@@ -521,6 +522,32 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
   if python3 -c 'import tomllib' 2>/dev/null; then
     check "config.toml parses" "ok" python3 -c 'import sys,tomllib; c=tomllib.load(open(sys.argv[1],"rb")); assert c["shell_integration"] and c["notify"]["dock_bounce"]; print("ok")' "$d/home/.config/gilvt/config.toml"
   fi
+
+  # --remote: install_remote_home against a stub remote.sh (status up) and a fake state directory.
+  rs="$T/remote-state"; rh="$T/remote-gui"
+  mkdir -p "$rs" "$rh" "$T/rhome" "$T/rbin"
+  printf 'k\n' >"$rs/id_ed25519"; printf 'h k\n' >"$rs/known_hosts"
+  printf 'Host devbox-test\n  IdentityFile ~/.ssh/id_ed25519\n  UserKnownHostsFile ~/.ssh/known_hosts\n' >"$rs/ssh_config"
+  printf '#!/bin/sh\n[ "$1" = status ] && { echo "up x"; exit 0; }\nexit 1\n' >"$rh/remote.sh"
+  chmod +x "$rh/remote.sh"
+  sbx_here="$here"; here="$rh"; GILVT_GUI_REMOTE_STATE="$rs"
+  ( install_remote_home "$d" "$T/rhome" "$T/rbin" "$T/App.app" ) && ok || bad "install_remote_home"
+  check "remote: ssh config names the sandbox home" "  IdentityFile $T/rhome/.ssh/id_ed25519" sed -n 2p "$T/rhome/.ssh/config"
+  check "remote: key mode" "600" stat -f %Lp "$T/rhome/.ssh/id_ed25519"
+  check "remote: ssh dir mode" "700" stat -f %Lp "$T/rhome/.ssh"
+  if [ -f "$T/rhome/.ssh/known_hosts" ] && [ -x "$T/rbin/remote-test" ] && [ -x "$T/rbin/ssh" ] &&
+    grep -q "^exec $rh/remote.sh \"\$@\"\$" "$T/rbin/remote-test" &&
+    grep -q "^exec /usr/bin/ssh -F \"$T/rhome/.ssh/config\" \"\$@\"\$" "$T/rbin/ssh"; then ok; else bad "remote: known_hosts / remote-test / ssh wrapper"; fi
+  remote_vars() { install_remote_home "$@" && echo "$REMOTE_CONTROL_DIR|$REMOTE_DIST_DIR"; }
+  check "remote: control dir and dist dir" "/tmp/gilvt-gui-cm-20260929120000|$(target_dir)/remote-dist/remote" \
+    remote_vars "$d" "$T/rhome" "$T/rbin" "$T/App.app"
+  mkdir -p "$T/App.app/Contents/Resources/remote"
+  check "remote: dist dir from the bundle" "/tmp/gilvt-gui-cm-20260929120000|$T/App.app/Contents/Resources/remote" \
+    remote_vars "$d" "$T/rhome" "$T/rbin" "$T/App.app"
+  printf '#!/bin/sh\nexit 2\n' >"$rh/remote.sh"
+  check_rc "remote: refuses without a running remote" 2 in_sub_q install_remote_home "$d" "$T/rhome" "$T/rbin" "$T/App.app"
+  here="$sbx_here"; unset GILVT_GUI_REMOTE_STATE
+  if bash -n "$here/remote.sh"; then ok; else bad "remote.sh syntax"; fi
 
   # With a built workspace: the fake passes check_fake, and the headless Codex trust warm-up (gilvt
   # CLI + fake codex only; PATH has no real codex) writes fake hashes into the sandbox HOME.
