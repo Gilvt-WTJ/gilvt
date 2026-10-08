@@ -846,9 +846,9 @@ impl TerminalView {
         let status = if query.is_empty() {
             String::new()
         } else if self.session.search_match().is_some() {
-            "⏎ 上一个 · ⇧⏎ 下一个".to_string()
+            crate::i18n::text("⏎ 上一个 · ⇧⏎ 下一个", "⏎ Previous · ⇧⏎ Next").to_string()
         } else {
-            "无匹配".to_string()
+            crate::i18n::text("无匹配", "No matches").to_string()
         };
         Some(
             div()
@@ -863,7 +863,7 @@ impl TerminalView {
                 .text_size(px(12.))
                 .flex()
                 .gap_2()
-                .child(format!("查找：{query}▏"))
+                .child(format!("{}{query}▏", crate::i18n::text("查找：", "Find: ")))
                 .child(div().text_color(hsla(crate::theme::mix(p.foreground, p.background, 0.4))).child(status)),
         )
     }

@@ -53,13 +53,18 @@ pub fn drop_action(foreground: Option<&str>, alt: bool, paths: &[PathBuf]) -> Op
 
 /// The drag-over hint: what releasing does, and how ⌥ changes it.
 pub fn hint(foreground: Option<&str>, alt: bool, paths: &[PathBuf]) -> String {
+    let t = crate::i18n::text;
     let label = |kind| match kind {
-        DropKind::Insert => "插入路径",
-        DropKind::Preview => "预览",
+        DropKind::Insert => t("插入路径", "insert path"),
+        DropKind::Preview => t("预览", "preview"),
     };
+    let release = t("松开：", "Release: ");
     match kinds(foreground, alt, paths) {
-        (now, None) => format!("松开：{}", label(now)),
-        (now, Some(other)) => format!("松开：{} · {} ⌥ {}", label(now), if alt { "放开" } else { "按住" }, label(other)),
+        (now, None) => format!("{release}{}", label(now)),
+        (now, Some(other)) => {
+            let modifier = if alt { t("放开", "release") } else { t("按住", "hold") };
+            format!("{release}{} · {modifier} ⌥ {}", label(now), label(other))
+        }
     }
 }
 
@@ -150,5 +155,16 @@ mod tests {
         assert_eq!(hint(Some("claude"), true, &one), "松开：预览 · 放开 ⌥ 插入路径");
         assert_eq!(hint(Some("zsh"), false, &[dir.clone()]), "松开：插入路径");
         assert_eq!(hint(Some("zsh"), true, &[dir]), "松开：插入路径");
+    }
+
+    #[test]
+    fn hints_read_in_english() {
+        let (_tmp, a, _, dir) = files();
+        let one = [a];
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            assert_eq!(hint(Some("zsh"), false, &one), "Release: preview · hold ⌥ insert path");
+            assert_eq!(hint(Some("claude"), true, &one), "Release: preview · release ⌥ insert path");
+            assert_eq!(hint(Some("zsh"), false, &[dir]), "Release: insert path");
+        });
     }
 }

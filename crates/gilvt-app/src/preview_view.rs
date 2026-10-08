@@ -33,8 +33,8 @@ pub enum Source {
 /// The pane title of a live source: 「预览 · <file>」, 「预览 · 未命名」 for an unsaved buffer.
 fn live_title(source: &Source) -> Option<String> {
     let Source::Live(input) = source else { return None };
-    let name = input.path.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "未命名".into());
-    Some(format!("预览 · {name}"))
+    let name = input.path.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| crate::i18n::text("未命名", "Untitled").into());
+    Some(format!("{} · {name}", crate::i18n::text("预览", "Preview")))
 }
 
 /// What to show: one or more sources (←/→ switches), where to start, what to compare against.
@@ -398,7 +398,7 @@ impl PreviewView {
             Some(Source::File(p)) => p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
             Some(s @ Source::Live(_)) => live_title(s).unwrap_or_default(),
             Some(Source::Inline { .. }) => "stdin".into(),
-            None => "没有改动".into(),
+            None => crate::i18n::text("没有改动", "No changes").into(),
         }
     }
 
@@ -772,7 +772,7 @@ impl PreviewView {
             if loaded.preview.changed_since {
                 let scope = match self.bases.get(self.base_ix) {
                     Some(DiffBase::Turn(r)) => r.scope,
-                    _ => "这一轮",
+                    _ => crate::i18n::text("这一轮", "this turn"),
                 };
                 left = left.child(div().text_color(muted).child(changed_since_note(scope)));
             }
@@ -788,18 +788,15 @@ impl PreviewView {
                     .p(px(2.))
                     .rounded_md()
                     .bg(hsla(mix(p.background, p.foreground, 0.1)))
-                    .child(segment("渲染", !self.show_source))
-                    .child(segment("源码 diff", self.show_source)),
+                    .child(segment(crate::i18n::text("渲染", "Rendered"), !self.show_source))
+                    .child(segment(crate::i18n::text("源码 diff", "Source diff"), self.show_source)),
             );
         }
-        let view = match (self.has_markdown(), self.show_source) {
-            (false, _) => "U 视图",
-            (true, false) => "S 源码",
-            (true, true) => "S 渲染 · U 视图",
+        let hints = if matches!(self.source(), Some(Source::Live(_))) {
+            live_hint().to_string()
+        } else {
+            header_hints(self.has_markdown(), self.show_source, self.pinned, !self.history.is_empty())
         };
-        let back = if self.history.is_empty() { "" } else { " · ⌘[ 返回" };
-        let rest = if self.pinned { "D 对比 · R 刷新 · E 编辑 · T 新标签 · Esc 回到终端" } else { "D 对比 · ⏎ 固定 · T 新标签 · E 编辑 · Esc" };
-        let hints = if matches!(self.source(), Some(Source::Live(_))) { live_hint().to_string() } else { format!("n p 改动 · {view} · {rest}{back}") };
         let header = div()
             .id("preview-header")
             .relative()
@@ -850,16 +847,16 @@ impl Render for PreviewView {
             self.highlight(cx);
         }
         let body = if self.sources.is_empty() {
-            self.message("没有改动".into(), window, cx)
+            self.message(crate::i18n::text("没有改动", "No changes").into(), window, cx)
         } else if let Some(e) = &self.error {
             self.message(e.clone(), window, cx)
         } else if self.rendered() {
             self.render_markdown(window, cx)
         } else {
             match self.loaded.as_ref().map(|l| &l.preview.doc.content) {
-                None => self.message("加载中…".into(), window, cx),
-                Some(Content::Binary) => self.message(format!("二进制文件 · {} 字节", self.loaded.as_ref().unwrap().preview.doc.size), window, cx),
-                Some(Content::TooLarge(size)) => self.message(format!("文件过大（{size} 字节），不预览 · ⌘⌥O 用外部编辑器打开"), window, cx),
+                None => self.message(crate::i18n::text("加载中…", "Loading…").into(), window, cx),
+                Some(Content::Binary) => self.message(binary_message(self.loaded.as_ref().unwrap().preview.doc.size), window, cx),
+                Some(Content::TooLarge(size)) => self.message(too_large_message(*size), window, cx),
                 Some(Content::Text(_)) => div().flex_1().overflow_hidden().relative().child(PreviewElement::new(cx.entity())).children(crate::debug_state::rects::recorder(crate::debug_state::rects::RectId::PreviewCode(self.pane))).into_any_element(),
             }
         };
@@ -907,13 +904,47 @@ impl Render for PreviewView {
 fn changed_since_note(scope: &str) -> String {
     match scope {
         "本会话" => "文件在这之后又被改动".into(),
+        "This session" => "File was changed again after this".into(),
+        scope if crate::i18n::english() => format!("File was changed again after {scope}"),
         scope => format!("文件在{scope}之后又被改动"),
     }
 }
 
 /// The hint line of a live preview: it is read-only, so only the keys it honours.
 fn live_hint() -> &'static str {
-    "Esc 回到编辑器"
+    crate::i18n::text("Esc 回到编辑器", "Esc back to editor")
+}
+
+/// The header's key hints (not a live preview's): the view toggles a Markdown file has, what a pinned pane
+/// adds, and ⌘[ when there is somewhere to go back to.
+fn header_hints(markdown: bool, show_source: bool, pinned: bool, back: bool) -> String {
+    let t = crate::i18n::text;
+    let view = match (markdown, show_source) {
+        (false, _) => t("U 视图", "U view"),
+        (true, false) => t("S 源码", "S source"),
+        (true, true) => t("S 渲染 · U 视图", "S rendered · U view"),
+    };
+    let back = if back { t(" · ⌘[ 返回", " · ⌘[ back") } else { "" };
+    let rest = if pinned {
+        t("D 对比 · R 刷新 · E 编辑 · T 新标签 · Esc 回到终端", "D compare · R refresh · E edit · T new tab · Esc back to terminal")
+    } else {
+        t("D 对比 · ⏎ 固定 · T 新标签 · E 编辑 · Esc", "D compare · ⏎ pin · T new tab · E edit · Esc")
+    };
+    format!("{} · {view} · {rest}{back}", t("n p 改动", "n p changes"))
+}
+
+/// The body of a binary file's preview.
+fn binary_message(size: u64) -> String {
+    if crate::i18n::english() { format!("Binary file · {size} bytes") } else { format!("二进制文件 · {size} 字节") }
+}
+
+/// The body of a file too large to preview.
+fn too_large_message(size: u64) -> String {
+    if crate::i18n::english() {
+        format!("File too large to preview ({size} bytes) · ⌘⌥O open in external editor")
+    } else {
+        format!("文件过大（{size} 字节），不预览 · ⌘⌥O 用外部编辑器打开")
+    }
 }
 
 #[cfg(test)]
@@ -929,6 +960,30 @@ mod tests {
     #[test]
     fn a_live_preview_has_its_own_hint() {
         assert_eq!(super::live_hint(), "Esc 回到编辑器");
+    }
+
+    #[test]
+    fn the_header_and_messages_read_in_english() {
+        use super::{binary_message, changed_since_note, header_hints, live_hint, live_title, too_large_message, Source};
+        use crate::i18n::{has_chinese, with_language, Language};
+        use crate::live_preview::{LiveInput, Provider};
+        assert_eq!(header_hints(false, false, true, true), "n p 改动 · U 视图 · D 对比 · R 刷新 · E 编辑 · T 新标签 · Esc 回到终端 · ⌘[ 返回");
+        assert_eq!(header_hints(true, true, false, false), "n p 改动 · S 渲染 · U 视图 · D 对比 · ⏎ 固定 · T 新标签 · E 编辑 · Esc");
+        assert_eq!(binary_message(12), "二进制文件 · 12 字节");
+        assert_eq!(too_large_message(9), "文件过大（9 字节），不预览 · ⌘⌥O 用外部编辑器打开");
+        with_language(Language::English, || {
+            assert_eq!(live_hint(), "Esc back to editor");
+            assert_eq!(header_hints(true, false, false, true), "n p changes · S source · D compare · ⏎ pin · T new tab · E edit · Esc · ⌘[ back");
+            for (markdown, source, pinned, back) in [(false, false, true, false), (true, true, true, true)] {
+                assert!(!has_chinese(&header_hints(markdown, source, pinned, back)));
+            }
+            assert_eq!(binary_message(12), "Binary file · 12 bytes");
+            assert!(!has_chinese(&too_large_message(9)));
+            assert_eq!(changed_since_note("this turn"), "File was changed again after this turn");
+            assert_eq!(changed_since_note("This session"), "File was changed again after this");
+            let unsaved = Source::Live(LiveInput { provider: Provider::Changes, path: None, text: String::new(), slot: 1 });
+            assert_eq!(live_title(&unsaved), Some("Preview · Untitled".to_string()));
+        });
     }
 
     #[test]
