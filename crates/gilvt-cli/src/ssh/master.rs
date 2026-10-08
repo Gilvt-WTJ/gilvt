@@ -23,6 +23,17 @@ pub fn running(ssh: &str, control: &Path, opts: &[String], dest: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
+/// A control socket left behind by a master that died (SIGKILL, crash) makes the next master fail to
+/// bind — non-fatally: it still authenticates and backgrounds as a `-N` connection that never exits.
+/// Remove it first. Only called on our own 0700 control dir. Returns whether something was removed.
+pub fn clear_stale(control: &Path, running: bool) -> io::Result<bool> {
+    if running || std::fs::symlink_metadata(control).is_err() {
+        return Ok(false);
+    }
+    std::fs::remove_file(control)?;
+    Ok(true)
+}
+
 /// gilvt's `-o` come first: for ssh the first value of an option wins, so they beat the user's own
 /// ControlMaster / ControlPath in `~/.ssh/config` and on the command line (Review Focus 1).
 pub fn master_args(control: &Path, opts: &[String], dest: &str) -> Vec<String> {
@@ -69,6 +80,21 @@ pub fn start(ssh: &str, control: &Path, opts: &[String], dest: &str) -> io::Resu
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_stale_socket_is_removed_but_a_live_one_is_kept() {
+        let d = tempfile::tempdir().unwrap();
+        let ctl = d.path().join("cm-0011223344556677");
+        assert!(!super::clear_stale(&ctl, false).unwrap(), "nothing there");
+        std::fs::write(&ctl, b"").unwrap();
+        assert!(!super::clear_stale(&ctl, true).unwrap(), "a running master keeps its socket");
+        assert!(ctl.exists());
+        assert!(super::clear_stale(&ctl, false).unwrap());
+        assert!(!ctl.exists());
+        std::os::unix::fs::symlink("/nonexistent", &ctl).unwrap();
+        assert!(super::clear_stale(&ctl, false).unwrap(), "a dangling symlink counts as stale");
+        assert!(std::fs::symlink_metadata(&ctl).is_err());
+    }
+
     #[test]
     fn gilvt_options_come_before_the_users() {
         let opts: Vec<String> = ["-o", "ControlPath=/mine/%C", "-o", "ControlMaster=no", "-J", "jump"].iter().map(|s| s.to_string()).collect();

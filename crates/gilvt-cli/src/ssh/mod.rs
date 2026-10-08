@@ -107,7 +107,15 @@ pub fn run(argv: &[String]) -> ExitCode {
     }
     let ctl = plan::control_path(&dir, &host);
     if !master::running(&ssh, &ctl, &a.opts, &a.destination) {
+        if let Err(e) = master::clear_stale(&ctl, false) {
+            return plain(&format!("无法清理旧的控制套接字 {}（{e}）", ctl.display()), None, hostname);
+        }
         match master::start(&ssh, &ctl, &a.opts, &a.destination) {
+            // ssh exits 0 even when it could not bind the control socket (e.g. the path is too long):
+            // never route the probe, upload, login or bridge through a socket that is not there.
+            Ok(0) if !master::running(&ssh, &ctl, &a.opts, &a.destination) => {
+                return plain("无法建立 ssh 复用连接", None, hostname);
+            }
             Ok(0) => {}
             Ok(code) => {
                 tell(&socket, &Request::RemoteEnd { link: link.clone() });
