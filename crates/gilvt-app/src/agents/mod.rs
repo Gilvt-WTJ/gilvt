@@ -152,7 +152,7 @@ impl Agents {
     pub fn project(&self, s: &Session) -> String {
         match &s.cwd {
             Some(cwd) => self.project_of_dir(cwd),
-            None => "其他".into(),
+            None => crate::i18n::text("其他", "Other").into(),
         }
     }
 

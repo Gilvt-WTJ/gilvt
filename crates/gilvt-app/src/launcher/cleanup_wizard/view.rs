@@ -343,10 +343,7 @@ impl CleanupWizard {
             return;
         };
         let report = trash_sessions(confirm.entries, cx);
-        let toast = report
-            .toast()
-            .unwrap_or_else(|| format!("已移到废纸篓 {} 个会话", report.moved));
-        self.show_banner(toast, cx);
+        self.show_banner(report.banner(), cx);
         self.reload(Reload::Reset, cx);
     }
 
@@ -439,7 +436,7 @@ impl CleanupWizard {
             .collect();
         let confirm = self.confirm.as_ref().map(|c| crate::debug_state::Confirm {
             text: c.text.clone(),
-            buttons: map::buttons(&map::CONFIRM_BUTTONS, RectId::CleanupConfirmButton, rect),
+            buttons: map::buttons(&map::confirm_buttons(), RectId::CleanupConfirmButton, rect),
         });
         crate::debug_state::Overlay::Cleanup {
             preset: self.model.preset,

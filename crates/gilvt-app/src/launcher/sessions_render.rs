@@ -10,7 +10,7 @@ use gpui::{
 };
 
 use super::sessions_model::{effective_scope, empty_message, menu_items, picks_text, Click, Line, Row, Scope};
-use super::sessions_view::{SessionsEvent, SessionsView, CLEANUP_LABEL};
+use super::sessions_view::{cleanup_label, SessionsEvent, SessionsView};
 use super::History;
 use crate::debug_state::rects::{self, RectId};
 use crate::actions::SESSIONS_CONTEXT;
@@ -402,7 +402,7 @@ impl SessionsView {
                     .children(rects::recorder(RectId::PaletteCleanup))
                     .ml_auto()
                     .text_color(k.accent)
-                    .child(CLEANUP_LABEL)
+                    .child(cleanup_label())
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(SessionsEvent::OpenCleanup))),
             )
             .into_any_element()

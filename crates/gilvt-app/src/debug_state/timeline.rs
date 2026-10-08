@@ -64,9 +64,10 @@ pub fn rows(entries: &[Entry], rect: &dyn Fn(RectId) -> Option<Rect4>) -> Vec<Ti
             Some(match e {
                 Entry::Head => return None,
                 Entry::Title { turn, started, .. } => {
+                    let head = if crate::i18n::english() { format!("Timeline · Turn {turn}") } else { format!("时间线 · 第 {turn} 轮") };
                     let label = match started {
-                        Some(t) => format!("时间线 · 第 {turn} 轮 · {t}"),
-                        None => format!("时间线 · 第 {turn} 轮"),
+                        Some(t) => format!("{head} · {t}"),
+                        None => head,
                     };
                     TimelineRow { started: started.clone(), ..plain("title", label, false, line) }
                 }
@@ -89,11 +90,14 @@ pub fn rows(entries: &[Entry], rect: &dyn Fn(RectId) -> Option<Rect4>) -> Vec<Ti
                             ..base(if t.subagent { "subagent" } else { "tool" }, summary(t).text)
                         },
                         RowKind::Thinking { secs, text, .. } => {
-                            let label = secs.as_ref().map_or_else(|| "思考".to_string(), |s| format!("思考 · {s}"));
+                            let thinking = crate::i18n::text("思考", "Thinking");
+                            let label = secs.as_ref().map_or_else(|| thinking.to_string(), |s| format!("{thinking} · {s}"));
                             TimelineRow { expanded: text.is_some(), ..base("thinking", label) }
                         }
                         RowKind::Returned(result) => base("returned", result.clone()),
-                        RowKind::Truncated(n) => base("truncated", format!("另有 {n} 条")),
+                        RowKind::Truncated(n) => {
+                            base("truncated", if crate::i18n::english() { format!("{n} more") } else { format!("另有 {n} 条") })
+                        }
                         RowKind::Empty(note) => base("empty", (*note).to_string()),
                     }
                 }
@@ -179,6 +183,32 @@ mod tests {
         let edit = got.iter().find(|r| r.label.starts_with("Update")).unwrap();
         assert_eq!((edit.label.as_str(), edit.lines, edit.anchored, edit.status), ("Update README.md +2 −1", Some(LineCounts { added: 2, removed: 1 }), true, Some("ok")));
         assert!(got.iter().any(|r| r.kind == "thinking" && r.label == "思考 · 4s" && !r.expanded));
+    }
+
+    #[test]
+    fn rows_and_chips_read_in_english() {
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            let current = turn(2, vec![Item::Thinking { secs: Some(4.0), text: vec![] }, Item::Tool(tool("b1", "Bash", "ls", ItemStatus::Ok))]);
+            let turns = vec![turn(1, vec![Item::Tool(tool("x", "Read", "a.rs", ItemStatus::Ok))]), current];
+            let mut open = Expanded::default();
+            open.turns.insert(1);
+            for filter in [Filter::All, Filter::Edit] {
+                let entries = RowCache::default().entries(&turns, filter, &open, 0);
+                let got = rows(&entries, &|_| None);
+                for r in &got {
+                    assert!(!crate::i18n::has_chinese(&r.label), "{}: {}", r.kind, r.label);
+                }
+                for c in chips(&entries, &|_| None) {
+                    assert!(!crate::i18n::has_chinese(&c.label), "{}", c.label);
+                }
+                if filter == Filter::All {
+                    assert_eq!(got[0].label, "Timeline · Turn 2");
+                    assert!(got.iter().any(|r| r.kind == "thinking" && r.label == "Thinking · 4s"));
+                }
+            }
+            let entries = RowCache::default().entries(&[turn(1, vec![])], Filter::All, &Expanded::default(), 0);
+            assert_eq!(rows(&entries, &|_| None)[1].label, "No events in this turn yet");
+        });
     }
 
     #[test]

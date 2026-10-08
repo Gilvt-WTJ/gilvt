@@ -41,6 +41,18 @@ const BANNER: Duration = Duration::from_secs(4);
 /// The key hints' entry to the cleanup wizard.
 pub(super) const CLEANUP_LABEL: &str = "清理… ⌘⇧K";
 
+/// [`CLEANUP_LABEL`] in the interface language.
+pub(super) fn cleanup_label() -> &'static str {
+    crate::i18n::text(CLEANUP_LABEL, "Clean Up… ⌘⇧K")
+}
+
+/// The chips after the project chip, as drawn (`sessions_render.rs`): 全部项目, ≥ 7 天未活动, 已归档.
+pub(super) fn filter_chips() -> [&'static str; 3] {
+    let t = crate::i18n::text;
+    [t("全部项目", "All projects"), t("≥ 7 天未活动", "Inactive ≥ 7 days"), t("已归档", "Archived")]
+}
+
+
 #[derive(Clone)]
 pub enum SessionsEvent {
     /// Type a resume `command` at `location`; a new pane's shell starts in `dir`.
@@ -225,13 +237,14 @@ impl SessionsView {
         if let Some(c) = &self.current {
             chips.push((c.name.as_str(), effective == Scope::Current, 0));
         }
-        chips.push(("全部项目", effective == Scope::All, 1));
-        chips.push(("≥ 7 天未活动", self.filters.stale, 2));
-        chips.push(("已归档", self.filters.archived, 3));
+        let [all, stale, archived] = filter_chips();
+        chips.push((all, effective == Scope::All, 1));
+        chips.push((stale, self.filters.stale, 2));
+        chips.push((archived, self.filters.archived, 3));
         let chips = chips.into_iter().map(|(label, active, n)| crate::debug_state::Chip { label: label.to_string(), active, rect: rect(RectId::PaletteChip(n)) }).collect();
         let confirm = self.confirm.as_ref().map(|c| crate::debug_state::Confirm {
             text: c.text.clone(),
-            buttons: map::buttons(&map::CONFIRM_BUTTONS, RectId::PaletteConfirmButton, rect),
+            buttons: map::buttons(&map::confirm_buttons(), RectId::PaletteConfirmButton, rect),
         });
         crate::debug_state::Overlay::Sessions {
             query: self.query.clone(),
@@ -240,7 +253,7 @@ impl SessionsView {
             filter: crate::debug_state::SessionsFilter { scope, stale: self.filters.stale, archived: self.filters.archived },
             rows: map::palette_rows(&self.list.rows, self.selection.cursor(), &|k| self.selection.is_picked(k), rect),
             chips,
-            cleanup: self.confirm.is_none().then(|| crate::debug_state::Button { label: CLEANUP_LABEL.into(), rect: rect(RectId::PaletteCleanup) }),
+            cleanup: self.confirm.is_none().then(|| crate::debug_state::Button { label: cleanup_label().into(), rect: rect(RectId::PaletteCleanup) }),
             confirm,
             banner: self.banner.clone(),
         }
@@ -479,13 +492,13 @@ impl SessionsView {
     fn copy_id(&mut self, row: usize, cx: &mut Context<Self>) {
         let Some(id) = self.entry(row).map(|e| e.session_id.clone()) else { return };
         cx.write_to_clipboard(ClipboardItem::new_string(id));
-        self.show_banner("已复制会话 ID".into(), cx);
+        self.show_banner(crate::i18n::text("已复制会话 ID", "Copied session ID").into(), cx);
     }
 
     fn copy_dir(&mut self, row: usize, cx: &mut Context<Self>) {
         let Some(dir) = self.entry(row).map(|e| dir_copy_text(&e.cwd)) else { return };
         cx.write_to_clipboard(ClipboardItem::new_string(dir));
-        self.show_banner("已复制目录路径".into(), cx);
+        self.show_banner(crate::i18n::text("已复制目录路径", "Copied directory path").into(), cx);
     }
 
     /// ⌘E / 菜单「归档」: archive the picked sessions (or the cursor row), or un-archive them under the 已归档
@@ -495,7 +508,7 @@ impl SessionsView {
         let targets = self.selection.targets(&self.list.rows, at);
         if targets.is_empty() {
             if !self.list.rows.is_empty() {
-                self.show_banner("运行中的会话不能归档".into(), cx);
+                self.show_banner(super::archive::running_not_archived().into(), cx);
             }
             return;
         }
@@ -516,7 +529,7 @@ impl SessionsView {
     /// 取消归档 under the 已归档 filter (running sessions are not archived, so none is skipped); the banner.
     fn unarchive(&mut self, entries: &[HistoryEntry], cx: &mut Context<Self>) -> Option<String> {
         if !cx.has_global::<ReviewService>() {
-            return Some("无法保存：状态目录不可用".into());
+            return Some(super::archive::save_failed(super::archive::state_dir_unavailable()));
         }
         let (mut done, mut failed) = (0, None);
         for e in entries {
@@ -527,9 +540,11 @@ impl SessionsView {
             }
         }
         if let Some(err) = failed {
-            Some(format!("无法保存：{err}"))
+            Some(super::archive::save_failed(err))
         } else {
-            (done > 0).then(|| format!("已取消归档 {done} 个会话"))
+            (done > 0).then(|| {
+                if crate::i18n::english() { format!("Unarchived {done} sessions") } else { format!("已取消归档 {done} 个会话") }
+            })
         }
     }
 
@@ -550,7 +565,10 @@ impl SessionsView {
                     let _ = child.wait();
                 });
             }
-            Err(e) => self.show_banner(format!("无法打开访达：{e}"), cx),
+            Err(e) => self.show_banner(
+                if crate::i18n::english() { format!("Could not open Finder: {e}") } else { format!("无法打开访达：{e}") },
+                cx,
+            ),
         }
     }
 
@@ -559,7 +577,7 @@ impl SessionsView {
         let targets = self.selection.targets(&self.list.rows, at);
         if targets.is_empty() {
             if !self.list.rows.is_empty() {
-                self.show_banner("运行中的会话不能移到废纸篓".into(), cx);
+                self.show_banner(crate::i18n::text("运行中的会话不能移到废纸篓", "Running sessions cannot be moved to Trash").into(), cx);
             }
             return;
         }
@@ -659,5 +677,21 @@ impl SessionsView {
             .on_action(cx.listener(|_, _: &SessionCenterAll, _, cx| {
                 cx.emit(SessionsEvent::SelectCenterTab(SessionCenterTab::All))
             }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_mirrors_follow_the_language() {
+        assert_eq!(filter_chips(), ["全部项目", "≥ 7 天未活动", "已归档"]);
+        assert_eq!((cleanup_label(), map::confirm_buttons()), (CLEANUP_LABEL, map::CONFIRM_BUTTONS));
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            assert_eq!(filter_chips(), ["All projects", "Inactive ≥ 7 days", "Archived"]);
+            assert_eq!(cleanup_label(), "Clean Up… ⌘⇧K");
+            assert_eq!(map::confirm_buttons(), ["Cancel", "Move to Trash"]);
+        });
     }
 }

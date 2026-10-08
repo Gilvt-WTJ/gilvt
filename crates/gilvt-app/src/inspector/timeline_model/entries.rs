@@ -119,7 +119,11 @@ impl RowCache {
             out.push(Entry::Title { turn: current.index, filter, started });
             let rows = self.rows(&mut next, current, filter, open, gen, false);
             if rows.is_empty() {
-                out.push(Entry::Note(if current.items.is_empty() { "本轮暂无事件" } else { "本轮没有符合的事件" }));
+                out.push(Entry::Note(if current.items.is_empty() {
+                    crate::i18n::text("本轮暂无事件", "No events in this turn yet")
+                } else {
+                    crate::i18n::text("本轮没有符合的事件", "No matching events in this turn")
+                }));
             }
             out.extend(rows.iter().cloned().map(Entry::Row));
             for turn in older.iter().rev() {
@@ -130,7 +134,11 @@ impl RowCache {
                 if expanded {
                     let rows = self.rows(&mut next, turn, filter, open, gen, true);
                     if rows.is_empty() {
-                        let note = if turn.items.is_empty() { "该轮的明细已不再保留" } else { "该轮没有符合的事件" };
+                        let note = if turn.items.is_empty() {
+                            crate::i18n::text("该轮的明细已不再保留", "This turn's details are no longer kept")
+                        } else {
+                            crate::i18n::text("该轮没有符合的事件", "No matching events in this turn")
+                        };
                         out.push(Entry::Row(Rc::new(Row { key: format!("none:{}", turn.index), sub: false, history: true, kind: RowKind::Empty(note) })));
                     }
                     out.extend(rows.iter().cloned().map(Entry::Row));
@@ -172,9 +180,9 @@ pub const PANE_CLOSED: &str = "该 pane 已关闭";
 pub fn jump(anchor: Option<Anchor>, scroll: impl FnOnce(Anchor) -> Option<ScrollOutcome>) -> Jump {
     let Some(anchor) = anchor else { return Jump::ToggleDetail };
     match scroll(anchor) {
-        None => Jump::Toast(PANE_CLOSED),
+        None => Jump::Toast(crate::i18n::text(PANE_CLOSED, "This pane is closed")),
         Some(ScrollOutcome::Shown { .. }) => Jump::Highlight,
-        Some(ScrollOutcome::Evicted) => Jump::Toast(EVICTED),
+        Some(ScrollOutcome::Evicted) => Jump::Toast(crate::i18n::text(EVICTED, "Scrolled out of the scrollback")),
         Some(ScrollOutcome::AltScreen) => Jump::ToggleDetail,
     }
 }

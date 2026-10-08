@@ -110,6 +110,14 @@ fn round(diffs: &mut VecDeque<Cmd>, incoming: impl IntoIterator<Item = Cmd>) -> 
 /// What a diff against a pruned store reads.
 const PRUNED: &str = "快照已清理";
 
+fn pruned() -> String {
+    crate::i18n::text(PRUNED, "Snapshot was cleaned up").into()
+}
+
+fn no_state_dir() -> String {
+    crate::i18n::text("没有状态目录", "No state directory").into()
+}
+
 #[derive(Default)]
 struct Shared {
     ledgers: HashMap<SessionKey, Ledger>,
@@ -266,10 +274,10 @@ impl Worker {
 
     /// `before` -> `after` in `repo_root`'s store; a store or tree that is gone reads 「快照已清理」.
     fn diff(&self, repo_root: &Path, before: &TreeId, after: &TreeId) -> Result<Vec<FileChange>, String> {
-        let state = self.state_dir.as_deref().ok_or_else(|| "没有状态目录".to_string())?;
-        let store = ObjectStore::open(repo_root, state).map_err(|_| PRUNED.to_string())?;
+        let state = self.state_dir.as_deref().ok_or_else(no_state_dir)?;
+        let store = ObjectStore::open(repo_root, state).map_err(|_| pruned())?;
         store.diff_trees(before, after).map_err(|e| match e {
-            SnapshotError::Missing => PRUNED.into(),
+            SnapshotError::Missing => pruned(),
             e => e.to_string(),
         })
     }
@@ -305,8 +313,8 @@ impl Worker {
 
     /// A snapshot of `cwd`'s repository, and the store it was taken in.
     fn take(&self, cwd: Option<&Path>) -> (Option<ObjectStore>, Taken) {
-        let Some(cwd) = cwd else { return (None, Taken::Failed("没有工作目录".into())) };
-        let Some(state) = self.state_dir.as_deref() else { return (None, Taken::Failed("没有状态目录".into())) };
+        let Some(cwd) = cwd else { return (None, Taken::Failed(crate::i18n::text("没有工作目录", "No working directory").into())) };
+        let Some(state) = self.state_dir.as_deref() else { return (None, Taken::Failed(no_state_dir())) };
         let store = match ObjectStore::open(cwd, state) {
             Ok(s) => s,
             Err(SnapshotError::NotARepo) => return (None, Taken::NotGit),
