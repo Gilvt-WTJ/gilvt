@@ -61,7 +61,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 3. 项目有一定知名度后，向官方 `homebrew-cask` 提 PR。
 4. 可选：npm 薄包装（`postinstall` 下载 Release 里的 dmg），只作补充入口。
 5. [x] 自动更新（Sparkle 2.10.0）：正式版内嵌，默认后台下载、退出时安装（`[update] mode`、菜单「检查更新…」）；EdDSA 私钥在登录钥匙串（账户 `gilvt`），`scripts/publish.sh` 签名、写 appcast 并上传 R2；`scripts/update-e2e.sh` 本机端到端通过，带 Sparkle 的公证构建两轮 Accepted。验收 AB 节。cask 要标 `auto_updates true`。
-   - [ ] Sparkle 私钥的备份确认已存进密码管理器，然后删除明文文件 `~/.gilvt-signing/sparkle-ed25519-gilvt.key`。
+   - [x] Sparkle 私钥已备份进密码管理器，明文导出文件已删除（2026-10-08）；登录钥匙串里的仍在，发版照常。
    - [x] 在 Cloudflare 控制台开通 R2，建存储桶 `gilvt-releases` 并绑定自定义域名 `release.gilvt.com`（2026-10-08）。
    - [x] 第一次发布：0.1.0（build 17）于 2026-10-08 发到 `https://release.gilvt.com`，下载的 dmg 与本地一致、Gatekeeper 通过。
    - [x] `site/_redirects` 的 `/download` 改为 `https://release.gilvt.com/Gilvt.dmg`，官网已重新部署。
