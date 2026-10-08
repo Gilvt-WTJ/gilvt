@@ -52,7 +52,7 @@ for bin in gilvt-app gilvt; do
 done
 
 # bundle.sh assembles into $CARGO_TARGET_DIR/<profile>; stage it under dist/ and move the app out.
-GILVT_BIN_DIR="$dist/bin" CARGO_TARGET_DIR="$dist/stage" "$root/scripts/bundle.sh" release >/dev/null
+GILVT_SPARKLE=1 GILVT_BIN_DIR="$dist/bin" CARGO_TARGET_DIR="$dist/stage" "$root/scripts/bundle.sh" release >/dev/null
 app="$dist/Gilvt.app"
 mv "$dist/stage/release/Gilvt.app" "$app"
 rm -rf "$dist/stage"

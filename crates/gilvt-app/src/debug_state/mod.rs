@@ -72,6 +72,19 @@ pub struct DebugState {
     pub settings: Option<SettingsState>,
     /// The 监控官's chat process (S2 §6.2).
     pub chat_process: ChatProcessState,
+    /// Automatic updates (Sparkle).
+    pub update: UpdateState,
+}
+
+/// Top-level `update`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct UpdateState {
+    /// This build carries Sparkle and started it (release builds with `[update] mode` other than `off`).
+    pub available: bool,
+    /// `[update] mode`: `off`, `check` or `download`.
+    pub mode: &'static str,
+    /// The version downloaded and waiting to be installed when gilvt quits.
+    pub ready: Option<String>,
 }
 
 /// The chat process of the 监控官 (`chat_process`); always present.
@@ -1500,7 +1513,7 @@ pub struct SettingsTest {
 
 /// The top-level fields, from plain data; `windows` is filled in by the caller.
 pub fn top_level(pid: u32, front: bool, badge: Option<&str>, bounces: u64) -> DebugState {
-    DebugState { version: VERSION, pid, front, dock_badge: badge.map(str::to_string), dock_bounces: bounces, pending: Vec::new(), theme: None, windows: Vec::new(), settings: None, chat_process: ChatProcessState::default() }
+    DebugState { version: VERSION, pid, front, dock_badge: badge.map(str::to_string), dock_bounces: bounces, pending: Vec::new(), theme: None, windows: Vec::new(), settings: None, chat_process: ChatProcessState::default(), update: UpdateState::default() }
 }
 
 /// Takes the snapshot. `tail_lines` is how much of each pane's screen to include.
@@ -1522,6 +1535,7 @@ pub fn collect(tail_lines: u16, cx: &mut App) -> DebugState {
     state.windows = collect::windows(tail_lines as usize, cx);
     state.settings = collect::settings(cx);
     state.chat_process = crate::monitor::chat::process_state(cx);
+    state.update = crate::updater::debug(cx);
     state
 }
 

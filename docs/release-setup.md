@@ -100,6 +100,15 @@ xcrun stapler validate target/dist/Gilvt.app    # app 自带票据（先公证 a
 | `NOTARY_KEY_P8_BASE64` | `base64 -i AuthKey_XXXX.p8` 的输出 |
 | `NOTARY_KEY_ID`、`NOTARY_ISSUER_ID` | App Store Connect API key 的两个 ID |
 
+## 5. 自动更新的签名密钥（Sparkle）
+
+自动更新的每个 dmg 都用 EdDSA 私钥签名，已安装的 gilvt 只接受与 Info.plist 里 `SUPublicEDKey`（写在 `scripts/bundle.sh`）配对的签名。
+
+- 生成（只做一次，已完成）：`"$(scripts/sparkle.sh)/bin/generate_keys" --account gilvt`，私钥存进登录钥匙串，打印的公钥填进 `bundle.sh`。
+- **备份**：`generate_keys --account gilvt -x <文件>` 导出，存进密码管理器后删除导出的文件；绝不提交进仓库。私钥丢了，已安装的 gilvt 再也收不到更新。
+- 换一台 Mac 发版：`generate_keys --account gilvt -f <备份文件>` 导入。
+- 日常发布用 `scripts/publish.sh`，见 HACKING.md「发版与更新网站」。
+
 ## 参考
 
 - 注册要求：<https://developer.apple.com/programs/enroll/>

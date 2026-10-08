@@ -94,6 +94,12 @@ If you just want to try it, you can run a debug build directly: `cargo build --w
 
 **When installing from the download**, drag Gilvt into the Applications folder before opening it. If you open it straight from the dmg window or from Downloads, gilvt shows a banner saying it is running from a temporary location: macOS then runs a random read-only copy, so later updates and the hooks written by `gilvt integrate install` would stop working. Click “Move to Applications” on the banner and gilvt copies itself to `/Applications` (`~/Applications` when that is not writable) and reopens from there; an older copy already there goes to the Trash first. “Not Now” hides the banner for this run only.
 
+### Updates
+
+The downloaded gilvt updates itself. By default it checks `release.gilvt.com` in the background, downloads a new version when there is one, and installs it **when you quit gilvt**: the swap happens after gilvt has exited, so running agents are never cut off by an update. While a downloaded update is waiting, the bottom of the sidebar says “gilvt X is ready and installs when you quit · Quit now”. “Check for Updates…” in the app menu (after Settings…) checks right away and shows the result.
+
+`[update] mode` in `config.toml` picks the behavior: `download` (default), `check` (only checks; a window asks before anything is downloaded) or `off` (never checks; turning it back on needs a restart). Updates are signed with gilvt's EdDSA key and notarized by Apple; the check sends no identifiers (see [PRIVACY.md](../PRIVACY.md)). Builds from source have no updater.
+
 ### Interface and basics
 
 The window has three columns: the sidebar is the session overview, the center holds terminal tabs and splits, and the right column is the inspector. `⌘B` and `⌘I` collapse each side; with both collapsed it is a plain terminal.
@@ -536,6 +542,9 @@ codex_launch = "codex"
 
 [notify]
 dock_bounce = true
+
+[update]
+mode = "download"         # download | check | off (see "Updates")
 
 [colors]                  # optional: override individual colors on top of the theme
 # background = "#1b1b26"

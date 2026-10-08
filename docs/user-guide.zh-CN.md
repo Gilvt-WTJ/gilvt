@@ -94,6 +94,12 @@ gilvt 首先是一个完整、正常可交互的终端，可以当日常终端�
 
 **从下载的安装包安装时**，请把 Gilvt 拖进「应用程序」文件夹再打开。如果直接在 dmg 窗口里、或在「下载」文件夹里原地打开，gilvt 会在窗口顶部提示「正在从临时位置运行」：macOS 这时让它跑在一个随机的只读副本里，以后的更新和 `gilvt integrate install` 写入的 hooks 都会失效。点横幅上的「移到「应用程序」」，gilvt 会把自己复制到 `/Applications`（没有写权限时 `~/Applications`）并从那里重新打开；那里已有旧版本时，旧版本先移到废纸篓。「以后再说」只在本次运行中隐藏提示。
 
+### 更新
+
+下载安装的 gilvt 会自己更新。默认在后台检查 `release.gilvt.com`，有新版本就下载，**在你退出 gilvt 时**安装：替换发生在 gilvt 退出之后，所以正在运行的 Agent 不会被更新打断。有下载好的更新在等待时，侧栏底部会显示「gilvt X 已下载，退出时安装 · 现在退出」。应用菜单里的「检查更新…」（在「设置…」之后）会立即检查并显示结果。
+
+`config.toml` 里的 `[update] mode` 决定行为：`download`（默认）、`check`（只检查，下载前先弹窗询问）或 `off`（从不检查；重新打开需要重启）。更新带 gilvt 的 EdDSA 签名并经过 Apple 公证；检查时不发送任何标识（见 [PRIVACY.zh-CN.md](../PRIVACY.zh-CN.md)）。从源码构建的版本没有更新功能。
+
 ### 界面与基本操作
 
 窗口分三栏：左栏是会话总览，中间是终端标签与分屏，右栏是检查器。`⌘B`、`⌘I` 分别收起两侧，两侧都收起时就是一个纯终端。
@@ -536,6 +542,9 @@ codex_launch = "codex"
 
 [notify]
 dock_bounce = true
+
+[update]
+mode = "download"         # download | check | off（见「更新」）
 
 [colors]                  # 可选：在主题之上单项覆盖
 # background = "#1b1b26"

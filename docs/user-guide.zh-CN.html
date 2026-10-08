@@ -210,6 +210,7 @@ html { scroll-behavior: smooth; }
   <div class="part">使用指南</div>
   <ol>
     <li><a href="#install">安装与启动</a></li>
+    <li><a href="#updates">更新</a></li>
     <li><a href="#layout">界面与基本操作</a></li>
     <li><a href="#quicklook">Quick Look 预览</a></li>
     <li><a href="#editor">内置编辑器</a></li>
@@ -366,6 +367,12 @@ open target/debug/Gilvt.app</code></pre></div></li>
   </ol>
   <p>只想试试也可以直接运行调试构建：<code>cargo build --workspace &amp;&amp; ./target/debug/gilvt-app</code>。这种方式下通知改用 <code>osascript</code>，没有声音，点击也不能跳回 pane。</p>
   <p><strong>从下载的安装包安装时</strong>，请把 Gilvt 拖进「应用程序」文件夹再打开。如果直接在 dmg 窗口里、或在「下载」文件夹里原地打开，gilvt 会在窗口顶部提示「正在从临时位置运行」：macOS 这时让它跑在一个随机的只读副本里，以后的更新和 <code>gilvt integrate install</code> 写入的 hooks 都会失效。点横幅上的「移到「应用程序」」，gilvt 会把自己复制到 <code>/Applications</code>（没有写权限时 <code>~/Applications</code>）并从那里重新打开；那里已有旧版本时，旧版本先移到废纸篓。「以后再说」只在本次运行中隐藏提示。</p>
+</section>
+
+<section id="updates">
+  <h2>更新</h2>
+  <p>下载安装的 gilvt 会自己更新。默认在后台检查 <code>release.gilvt.com</code>，有新版本就下载，<strong>在你退出 gilvt 时</strong>安装：替换发生在 gilvt 退出之后，所以正在运行的 Agent 不会被更新打断。有下载好的更新在等待时，侧栏底部会显示「gilvt X 已下载，退出时安装 · 现在退出」。应用菜单里的「检查更新…」（在「设置…」之后）会立即检查并显示结果。</p>
+  <p><code>config.toml</code> 里的 <code>[update] mode</code> 决定行为：<code>download</code>（默认）、<code>check</code>（只检查，下载前先弹窗询问）或 <code>off</code>（从不检查；重新打开需要重启）。更新带 gilvt 的 EdDSA 签名并经过 Apple 公证；检查时不发送任何标识（见 <a href="../PRIVACY.zh-CN.md">PRIVACY.zh-CN.md</a>）。从源码构建的版本没有更新功能。</p>
 </section>
 
 <section id="layout">
@@ -789,6 +796,9 @@ codex_launch = "codex"
 
 [notify]
 dock_bounce = true
+
+[update]
+mode = "download"         # download | check | off（见「更新」）
 
 [colors]                  # 可选：在主题之上单项覆盖
 # background = "#1b1b26"</code></pre>

@@ -2,8 +2,8 @@
 
 # Privacy
 
-gilvt has no telemetry, analytics, crash upload or update check. It makes no network requests of its own.
-Everything below happens locally on your Mac.
+gilvt has no telemetry, analytics or crash upload. Its only network request of its own is the update
+check described below, which you can turn off. Everything else happens locally on your Mac.
 
 ## What gilvt reads
 
@@ -37,6 +37,18 @@ gilvt does not modify your shell rc files, `~/.claude` or `~/.codex`, with one o
 `gilvt integrate uninstall` removes only the entries gilvt added.
 
 Deleting a session in gilvt moves its files to the macOS Trash.
+
+## Update check
+
+Release builds check for updates through [Sparkle](https://sparkle-project.org): a plain GET of the static
+file `https://release.gilvt.com/appcast.xml`, and when it lists a newer version, a download of that
+version's dmg from the same host. No identifiers, system profile or usage data are sent (Sparkle's system
+profiling stays off); the host sees what any web server sees, such as your IP address and a user agent with
+the app and macOS versions. Downloaded updates must carry gilvt's EdDSA signature and be notarized by Apple
+before they are installed.
+
+To turn the check off, set `mode = "off"` under `[update]` in `config.toml` and restart gilvt.
+`mode = "check"` checks but downloads nothing until you agree. Builds from source have no updater.
 
 ## Monitor summaries and chat (off by default)
 

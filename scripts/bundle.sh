@@ -13,6 +13,10 @@
 # "-" forces ad-hoc) → a valid code-signing identity named "gilvt-dev" or "gilvt dev" in the keychain →
 # ad-hoc. How to create a self-signed "gilvt-dev" certificate: HACKING.md, 「稳定签名」.
 #
+# Updates: GILVT_SPARKLE=1 (scripts/package.sh sets it) embeds Sparkle.framework (scripts/sparkle.sh)
+# and signs it inside-out; without it the app has no updater. CFBundleVersion is a build number that
+# only grows (Sparkle compares it): the commit count, or $GILVT_BUILD_NUMBER.
+#
 # usage: scripts/bundle.sh [debug|release]      (bash 3.2 compatible; safe to re-run)
 set -euo pipefail
 
@@ -29,8 +33,13 @@ case "$target" in /*) ;; *) target="$root/$target" ;; esac
 out="$target/$profile"
 app="$out/Gilvt.app"
 
-version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n 1)"
+version="${GILVT_VERSION:-$(awk -F'"' '/^version = "/ { print $2; exit }' "$root/Cargo.toml")}"
 [ -n "$version" ] || version="0.0.0"
+build="${GILVT_BUILD_NUMBER:-$(git -C "$root" rev-list --count HEAD 2>/dev/null || echo 1)}"
+# Sparkle checks updates against this feed, signed with the EdDSA key whose public half is below
+# (private half: login keychain, account "gilvt"; see HACKING.md 「发版与更新网站」).
+feed_url="https://release.gilvt.com/appcast.xml"
+ed_public_key="gmlrMRoVYokhbBbDOadUUFh7gAnqNd806iwA+7X7OdY="
 
 # GILVT_BIN_DIR: take gilvt-app and gilvt from there (scripts/package.sh passes the lipo'd universal
 # binaries) instead of building; the bundle still lands in $out.
@@ -74,12 +83,15 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleVersion</key><string>$version</string>
+  <key>CFBundleVersion</key><string>$build</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Tongjue Wang</string>
+  <key>SUFeedURL</key><string>$feed_url</string>
+  <key>SUPublicEDKey</key><string>$ed_public_key</string>
+  <key>SUEnableAutomaticChecks</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>gilvt brings the terminal app that runs an agent session to the front when you jump to that session.</string>
 </dict>
 </plist>
@@ -115,6 +127,18 @@ if [ "${GILVT_HARDENED:-0}" = 1 ]; then
   app_flags=(--entitlements "$root/packaging/entitlements.plist")
 else
   sign_flags=(--timestamp=none)
+fi
+if [ "${GILVT_SPARKLE:-0}" = 1 ]; then
+  sparkle="$("$root/scripts/sparkle.sh")"
+  mkdir -p "$app/Contents/Frameworks"
+  ditto "$sparkle/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
+  # Sparkle's documented order, innermost first; no --deep.
+  fw="$app/Contents/Frameworks/Sparkle.framework"
+  codesign --force "${sign_flags[@]}" --sign "$identity" "$fw/Versions/B/XPCServices/Installer.xpc"
+  codesign --force "${sign_flags[@]}" --preserve-metadata=entitlements --sign "$identity" "$fw/Versions/B/XPCServices/Downloader.xpc"
+  codesign --force "${sign_flags[@]}" --sign "$identity" "$fw/Versions/B/Autoupdate"
+  codesign --force "${sign_flags[@]}" --sign "$identity" "$fw/Versions/B/Updater.app"
+  codesign --force "${sign_flags[@]}" --sign "$identity" "$fw"
 fi
 codesign --force "${sign_flags[@]}" --sign "$identity" "$app/Contents/MacOS/gilvt"
 codesign --force "${sign_flags[@]}" ${app_flags[@]+"${app_flags[@]}"} --sign "$identity" "$app"

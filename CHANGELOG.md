@@ -29,5 +29,8 @@ First public release, in preparation as 0.1.0.
   or with `language` in `config.toml`.
 - Themes: 725 built-in Ghostty-format themes plus user themes, light / dark pairs, and an Appearance page
   in the settings window (`⌘,`); settings are written back to `config.toml` with comments preserved.
+- Automatic updates (Sparkle) for the downloaded app: checks `release.gilvt.com` in the background,
+  downloads, and installs when you quit gilvt, so running agents are never interrupted; "Check for
+  Updates…" in the app menu, and `[update] mode = "download" | "check" | "off"` in `config.toml`.
 
 [Unreleased]: https://github.com/Gilvt-WTJ/gilvt/commits/main

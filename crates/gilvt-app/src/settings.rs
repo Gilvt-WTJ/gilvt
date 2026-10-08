@@ -232,6 +232,8 @@ pub struct Settings {
     pub notify: NotifySettings,
     /// `[monitor]`: the 监控官's model features (S2).
     pub monitor: MonitorSettings,
+    /// `[update]`: automatic updates (Sparkle, release builds only).
+    pub update: UpdateSettings,
     /// `[colors]`: single colors over the theme.
     pub colors: ColorsSetting,
 }
@@ -266,6 +268,37 @@ impl AgentSettings {
         match agent {
             gilvt_agent::AgentKind::Claude => &self.claude_launch,
             gilvt_agent::AgentKind::Codex => &self.codex_launch,
+        }
+    }
+}
+
+/// `[update]` table.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdateSettings {
+    pub mode: UpdateMode,
+}
+
+/// How gilvt updates itself.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateMode {
+    /// Never check.
+    Off,
+    /// Check in the background; Sparkle asks before downloading.
+    Check,
+    /// Check and download in the background; install when gilvt quits.
+    #[default]
+    Download,
+}
+
+impl UpdateMode {
+    /// The config value (also DebugState).
+    pub fn id(self) -> &'static str {
+        match self {
+            UpdateMode::Off => "off",
+            UpdateMode::Check => "check",
+            UpdateMode::Download => "download",
         }
     }
 }
@@ -330,6 +363,7 @@ impl Default for Settings {
             agent: AgentSettings::default(),
             notify: NotifySettings::default(),
             monitor: MonitorSettings::default(),
+            update: UpdateSettings::default(),
             colors: ColorsSetting::default(),
         }
     }
@@ -519,6 +553,22 @@ mod tests {
         let (s, _) = load_str("[agent]\ncodex_launch = \"codex-w\"\n");
         assert_eq!(s.agent.launch(gilvt_agent::AgentKind::Claude), "claude");
         assert_eq!(s.agent.launch(gilvt_agent::AgentKind::Codex), "codex-w");
+    }
+
+    #[test]
+    fn update_table() {
+        let (s, err) = load_str("");
+        assert!(err.is_none());
+        assert_eq!(s.update.mode, UpdateMode::Download, "downloads and installs on quit by default");
+        for (text, mode) in [("off", UpdateMode::Off), ("check", UpdateMode::Check), ("download", UpdateMode::Download)] {
+            let (s, err) = load_str(&format!("[update]\nmode = \"{text}\"\n"));
+            assert!(err.is_none(), "{text}");
+            assert_eq!((s.update.mode, s.update.mode.id()), (mode, text));
+        }
+        let (_, err) = load_str("[update]\nmode = \"daily\"\n");
+        assert!(err.is_some(), "an unknown mode is an error");
+        let (_, err) = load_str("[update]\nchannel = \"tip\"\n");
+        assert!(err.unwrap().contains("channel"), "unknown [update] keys are errors");
     }
 
     #[test]

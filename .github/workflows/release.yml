@@ -24,6 +24,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0   # CFBundleVersion is the commit count (scripts/bundle.sh)
 
       - name: Rust toolchain and both macOS targets
         run: |

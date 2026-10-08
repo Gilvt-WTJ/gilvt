@@ -175,6 +175,7 @@ pub fn merge_file_change(previous: Option<&Settings>, new: Settings, memory: &Se
         agent,
         notify,
         monitor,
+        update,
         colors,
     )
 }
@@ -375,6 +376,7 @@ pub fn apply_settings(new: Settings, cx: &mut App) -> Vec<String> {
     }
     crate::monitor::summaries::settings_changed(&old, &monitor, cx);
     crate::monitor::chat::settings_changed(&old, &monitor, cx);
+    crate::updater::settings_changed(cx);
     refresh_all(cx);
     theme_errors
 }

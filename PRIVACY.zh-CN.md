@@ -2,7 +2,7 @@
 
 # 隐私说明
 
-gilvt 没有遥测、统计、崩溃上传或更新检查，自己不发起任何网络请求。下面的一切都只发生在你的 Mac 上。
+gilvt 没有遥测、统计或崩溃上传。它自己发起的网络请求只有下面说的更新检查，而且可以关掉；其余一切都只发生在你的 Mac 上。
 
 ## gilvt 读取什么
 
@@ -30,6 +30,16 @@ gilvt 不会修改你的 shell rc 文件、`~/.claude` 或 `~/.codex`，只有�
 会话。`gilvt integrate uninstall` 只删除 gilvt 加入的条目。
 
 在 gilvt 里删除会话时，会话文件被移到 macOS 的废纸篓。
+
+## 更新检查
+
+正式版通过 [Sparkle](https://sparkle-project.org) 检查更新：对静态文件 `https://release.gilvt.com/appcast.xml` 发一次普通的 GET，
+其中列出更新的版本时，再从同一个地址下载那个版本的 dmg。不发送任何标识、系统信息或使用数据（Sparkle 的系统信息上报保持关闭）；
+服务器能看到的只是任何网站都能看到的东西，比如你的 IP 地址，以及带 app 和 macOS 版本的 User-Agent。下载的更新必须带 gilvt 的
+EdDSA 签名并经过 Apple 公证，才会被安装。
+
+要关掉检查，在 `config.toml` 的 `[update]` 下写 `mode = "off"` 并重启 gilvt。`mode = "check"` 只检查，你同意之前不下载。
+从源码构建的版本没有更新功能。
 
 ## 监控官的总结与对话（默认关闭）
 

@@ -31,12 +31,13 @@ mod sidebar;
 mod terminal_element;
 mod terminal_view;
 mod theme;
+mod updater;
 mod workspace;
 
 use gilvt_mermaid::Cache;
 use gpui::{px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions};
 
-use crate::actions::{NewWindow, Quit};
+use crate::actions::{CheckForUpdates, NewWindow, Quit};
 use crate::finder::Listings;
 use crate::launch::ShellEnv;
 use crate::markdown::mermaid::Mermaid;
@@ -110,6 +111,8 @@ fn main() {
         cx.on_action(|_: &NewWindow, cx| open_window(None, None, cx));
         settings_window::init(cx);
         install_notice::init(cx);
+        updater::init(cx);
+        cx.on_action(|_: &CheckForUpdates, cx| cx.defer(updater::check_now));
         let mut quitting = false;
         cx.on_window_closed(move |cx| {
             debug_state::rects::forget_closed_windows(cx);

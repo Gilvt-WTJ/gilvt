@@ -19,6 +19,7 @@ GUI 验收测试通过 socket 读取 gilvt 的界面状态（`Request::DebugStat
 | `pending` | 数组 | 待恢复的会话（左栏「待恢复」分区）：重启后从上次布局里认出、还没有人恢复的 agent 会话。每项 `{ session, pane, cwd, name, last_status }`：`session` 是 `"<agent>:<session_id>"`，`pane` 是它原来所在（现在是 shell）的 pane，`cwd` 是保存的目录（字符串或 `null`），`name` 是显示名，`last_status` 是保存时的状态文字（「思考中」「空闲」…）。没有时为 `[]`；恢复一个就少一项，全部恢复后为 `[]` |
 | `windows` | 数组 | 每个工作区窗口的状态，按 gpui 列出窗口的顺序，见下 |
 | `chat_process` | 对象 | 监控官的对话进程（S2 §6.2），**总是存在**：`{ running, status, provider, pid, turns, starts }`。`running`：对话进程在跑；`status`：同 `windows[].monitor.chat.status`（`idle` / `starting` / `answering` / `stopping` / `error`）；`provider`：正在跑的通道（`claude` / `codex`，没有进程时 `null`）；`pid`：进程号（没有进程时 `null`）；`turns`：这个进程结束过的轮数；`starts`：本次 gilvt 运行里启动过几次对话进程（懒启动：发第一条消息前为 `0`；空闲 30 分钟结束后再发消息会加 1） |
+| `update` | 对象 | 自动更新（Sparkle），**总是存在**：`{ available, mode, ready }`。`available`：这个构建带 Sparkle 并已启动（只有 `GILVT_SPARKLE=1` 打包的正式版为真；开发构建和 GUI 沙盒里为 `false`）；`mode`：生效的 `[update] mode`（`download` / `check` / `off`，没配置时 `download`）；`ready`：已下载、等退出时安装的版本号（如 `"0.2.0"`，此时侧栏底部有「已下载，退出时安装」提示），没有时为 `null` |
 | `settings` | 对象（键可能不存在） | `⌘,` 设置窗口的状态，见下 `## settings`；窗口关着时**没有这个键**（不是 `null`），用 `settings exists` 判断是否打开 |
 
 ## `windows[]`

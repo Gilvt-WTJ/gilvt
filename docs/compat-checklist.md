@@ -524,6 +524,19 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AA4 | 在 pane 里以 translocation 方式运行 `gilvt integrate install`（模拟） | 退出码 1，提示先把 Gilvt.app 移到 Applications；`~/.claude/settings.json` 和 `~/.codex/config.toml` 没有被创建或改动；`gilvt integrate status` 末尾多一行 `Warning:` | [AA4](../tests/gui/cases/AA/AA4.md) |
 | AA5 | 从公证过的 dmg 直接双击 Gilvt 打开，点「移到「应用程序」」；「应用程序」里已有旧版本时再做一次 | 横幅变成「正在移动…」，随后 gilvt 退出并从 `/Applications/Gilvt.app` 重新打开、不再出现横幅；旧版本出现在废纸篓；新副本没有 `com.apple.quarantine`，`spctl -a -vv` 仍为 Notarized Developer ID | [AA5](../tests/gui/cases/AA/AA5.md) 手动（要真实的 dmg 与 translocation，重新打开的是沙盒外的 gilvt） |
 
+## AB. 自动更新
+
+正式版内嵌 Sparkle 2：默认（`[update] mode = "download"`）后台检查 `release.gilvt.com/appcast.xml`、下载，退出 gilvt 时安装；`check` 只检查，`off` 不检查。
+菜单「检查更新…」立即检查；有已下载的更新时侧栏底部提示「已下载，退出时安装 · 现在退出」。开发构建和 GUI 沙盒里没有 Sparkle。
+`[update] mode` 的解析由单元测试 `settings::tests::update_table` 覆盖（`cargo test -p gilvt-app update_table`）。
+
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| AB1 | 在沙盒里（开发构建）读 `gilvt debug state` | 顶层 `update` 为 `{ available: false, mode: "download", ready: null }`；侧栏底部没有更新提示 | 手动（一行 `debug state` 检查，尚未写成用例文件） |
+| AB2 | 打开应用菜单 | 「设置…」之后有「检查更新…」（English 下为 Check for Updates…）；开发构建里点击没有反应、不报错 | 手动（gpui 菜单不在 DebugState 里，要看屏幕上的菜单栏） |
+| AB3 | 运行 `scripts/update-e2e.sh` | 打印 `PASS: quitting A installed B (0.0.2, build 101); signature verifies`；结束后 `launchctl list` 里没有 `com.gilvt.app-sparkle-updater` | 手动（要钥匙串里的 Developer ID 证书和 Sparkle 私钥，在沙盒外启动真实签名的 app） |
+| AB4 | `GILVT_NOTARIZE=1 scripts/package.sh` | app 与 dmg 两轮公证都是 Accepted；`Contents/Frameworks/Sparkle.framework` 里的 `Updater.app`、`Autoupdate`、两个 XPC 服务都由 Developer ID 签名，`spctl -a -vv` 为 Notarized Developer ID | 手动（要 Apple 公证凭据，约 2 分钟） |
+
 ## 已知限制（M1）
 
 - Kitty 键盘协议只发送按下 / 重复事件，不发送按键抬起事件。
@@ -629,3 +642,4 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | 2026-10-05 | 点击移动光标（X） | 2.1.289 | — | 通过 | X1–X3 用 `tests/gui/run.sh --foreground` 跑过（经用户同意），X4 用真实 claude 逐步驱动，`## judge` 截图已看过。X3 第一次失败是测试工具的问题：Peekaboo 点击失败、改走鼠标模拟时屏幕上多出一个 `e`，单独重跑通过。验收中修正了 X4：`real-up` 用真实 HOME 会恢复用户的布局，改为先 `⌘T` 开新标签、路径用 `tabs[?active==true]`。环境注意：shell 里设了 `GILVT_BIN_DIR` 时 `bundle.sh` 不编译、直接打包那个目录的二进制，要 `env -u GILVT_BIN_DIR`。`cargo test --workspace` 1575 通过 |
 | 2026-10-07 | 移到「应用程序」（AA）7680b7b | — | — | AA1–AA4 通过；AA5（手动）未跑 | `tests/gui/run.sh` 无人值守跑 AA1、AA3、AA4，AA2 经用户同意用 `--foreground` 跑：状态断言全部通过，`## judge` 截图已看（中文 dmg 文案与按钮、英文 translocation 文案写明替换废纸篓、`integrate status` 的 `Warning:` 行、「以后再说」后两个窗口都没有横幅）。AA5 需要真实 dmg。`cargo test --workspace` 2205 通过，1 个失败为已知不稳定的 `gilvt-shell` real_shells（PTY 启动偶发 -6）。`tests/gui/selftest.sh` 811 通过。 |
 | 2026-10-07 | AA5 0f88e9c | — | — | AA5 通过 | 用户用 `GILVT_NOTARIZE=1 scripts/package.sh` 打出的公证 dmg，在 dmg 窗口里直接打开 Gilvt、点「移到「应用程序」」：gilvt 退出并从 `/Applications/Gilvt.app` 重新打开。核对：新副本没有 `com.apple.quarantine`，`spctl` 为 Notarized Developer ID，票据仍在，`codesign --verify --strict --deep` 通过，CDHash 与 `target/dist/Gilvt.app` 相同。 |
+| 2026-10-08 | 自动更新（AB），未提交 | — | — | AB3 通过（连续两次） | `scripts/update-e2e.sh` 两次 PASS：A（0.0.1/100）下载 B 后 `update.ready = 0.0.2`，正常退出后 bundle 变成 0.0.2 / 101 且签名有效；之前的手动演练（0.1.0 → 0.1.1）也通过。带 Sparkle 的公证构建两轮 Accepted（AB4）。第一次跑失败是测试本身的问题：失败的一轮留下等待中的 Sparkle 安装器（launchd `com.gilvt.app-sparkle-updater`），之后每轮检查都被它挡住；脚本现在启动前检查、结束时清理。AB1、AB2 未跑。 |

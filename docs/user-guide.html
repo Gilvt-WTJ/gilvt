@@ -210,6 +210,7 @@ html { scroll-behavior: smooth; }
   <div class="part">User guide</div>
   <ol>
     <li><a href="#install">Install and launch</a></li>
+    <li><a href="#updates">Updates</a></li>
     <li><a href="#layout">Layout and basics</a></li>
     <li><a href="#quicklook">Quick Look preview</a></li>
     <li><a href="#editor">Built-in editor</a></li>
@@ -366,6 +367,12 @@ open target/debug/Gilvt.app</code></pre></div></li>
   </ol>
   <p>If you only want to try it out, you can also run the debug build directly: <code>cargo build --workspace &amp;&amp; ./target/debug/gilvt-app</code>. In that case notifications go through <code>osascript</code>, have no sound, and clicking them cannot take you back to the pane.</p>
   <p><strong>When installing from the download</strong>, drag Gilvt into the Applications folder before opening it. If you open it straight from the dmg window or from Downloads, gilvt shows a banner saying it is running from a temporary location: macOS then runs a random read-only copy, so later updates and the hooks written by <code>gilvt integrate install</code> would stop working. Click “Move to Applications” on the banner and gilvt copies itself to <code>/Applications</code> (<code>~/Applications</code> when that is not writable) and reopens from there; an older copy already there goes to the Trash first. “Not Now” hides the banner for this run only.</p>
+</section>
+
+<section id="updates">
+  <h2>Updates</h2>
+  <p>The downloaded gilvt updates itself. By default it checks <code>release.gilvt.com</code> in the background, downloads a new version when there is one, and installs it <strong>when you quit gilvt</strong>: the swap happens after gilvt has exited, so running agents are never cut off by an update. While a downloaded update is waiting, the bottom of the sidebar says “gilvt X is ready and installs when you quit · Quit now”. “Check for Updates…” in the app menu (after Settings…) checks right away and shows the result.</p>
+  <p><code>[update] mode</code> in <code>config.toml</code> picks the behavior: <code>download</code> (default), <code>check</code> (only checks; a window asks before anything is downloaded) or <code>off</code> (never checks; turning it back on needs a restart). Updates are signed with gilvt’s EdDSA key and notarized by Apple; the check sends no identifiers (see <a href="../PRIVACY.md">PRIVACY.md</a>). Builds from source have no updater.</p>
 </section>
 
 <section id="layout">
@@ -789,6 +796,9 @@ codex_launch = "codex"
 
 [notify]
 dock_bounce = true
+
+[update]
+mode = "download"         # download | check | off (see "Updates")
 
 [colors]                  # optional: override individual colors on top of the theme
 # background = "#1b1b26"</code></pre>

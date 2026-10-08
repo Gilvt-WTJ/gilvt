@@ -364,8 +364,31 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
             list = list.child(render_row(n, row, section.kind == SectionKind::Pending, field, &k, cx));
         }
     }
+    let update_ready = crate::updater::ready(cx).map(str::to_string);
     let bottom = match ws.ended_confirm() {
         Some(confirm) => confirm_bar(confirm, &k, cx),
+        // An update downloaded by Sparkle installs when gilvt quits: say so instead of the key hints.
+        None if update_ready.is_some() => {
+            let version = update_ready.unwrap_or_default();
+            div()
+                .id("update-ready")
+                .flex_none()
+                .border_t_1()
+                .border_color(k.track)
+                .px(px(10.))
+                .py(px(6.))
+                .text_size(px(11.))
+                .text_color(k.text)
+                .line_height(relative(1.6))
+                .child(if crate::i18n::current() == crate::i18n::Language::English {
+                    format!("gilvt {version} is ready and installs when you quit · Quit now")
+                } else {
+                    format!("gilvt {version} 已下载，退出时安装 · 现在退出")
+                })
+                .cursor_pointer()
+                .on_click(|_, _, cx| cx.defer(crate::workspace::quit_requested))
+                .into_any_element()
+        }
         None => div()
             .flex_none()
             .border_t_1()

@@ -54,7 +54,16 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 
    它自动用钥匙串里的 `Developer ID Application` 证书签名、打开硬化运行时、用钥匙串里的 `gilvt-notary` 公证：先公证并装订 `Gilvt.app`，再用它打 dmg、公证并装订 dmg（显式设置的 `GILVT_SIGN_IDENTITY` / `NOTARY_PROFILE` / `NOTARY_KEY_*` 优先）。`hdiutil create` 偶尔失败，脚本会重试。
 
-4. **建 GitHub Release**（现阶段在本机手动做）：
+4. **发布到 release.gilvt.com**（Cloudflare R2，存储桶 `gilvt-releases`；已安装的 gilvt 从这里自动更新）：
+
+   ```bash
+   scripts/publish.sh --dry-run    # 先看一眼：签名并写出 target/dist/appcast.xml，不上传
+   scripts/publish.sh
+   ```
+
+   它检查 dmg 已装订公证票据、app 版本与 `Cargo.toml` 一致，用 Sparkle 的 EdDSA 私钥给 dmg 签名，写出 `appcast.xml`（更新说明取自 `CHANGELOG.md` 里这一版的小节），再用 wrangler 上传 `Gilvt-0.2.0.dmg`（永久缓存）、`Gilvt.dmg`（`https://gilvt.com/download` 指向它），**最后**上传 `appcast.xml`（缓存 5 分钟）：文件都就位后，已安装的 gilvt 才会看到新版本。需要先 `wrangler login` 过一次（同下面「更新官网」）。
+
+5. **建 GitHub Release**（可选，给 Homebrew cask 和想在 GitHub 上看版本的人；现阶段在本机手动做）：
 
    ```bash
    cd target/dist
@@ -65,9 +74,18 @@ cargo test --workspace                                # 单元测试 + PTY / 真
    gh release edit v0.2.0 --draft=false      # 在网页上检查过草稿后再发布
    ```
 
-   **固定名字的 `Gilvt.dmg` 不能少**：官网的 `https://gilvt.com/download` 指向 `releases/latest/download/Gilvt.dmg`；带版本号的文件给 Homebrew cask 用。
+   带版本号的文件给 Homebrew cask 用。
 
-5. **以后改为自动发布**：仓库 Secrets 配好之后（名字见 `.github/workflows/release.yml` 开头），第 2 步推送 tag 就会在 GitHub Actions 上自动完成第 3、4 步，并更新 Homebrew tap 里的 cask，不用再在本机打包。
+6. **以后改为自动发布**：仓库 Secrets 配好之后（名字见 `.github/workflows/release.yml` 开头），第 2 步推送 tag 就会在 GitHub Actions 上自动完成第 3、5 步，并更新 Homebrew tap 里的 cask，不用再在本机打包（第 4 步仍在本机做，它要用钥匙串里的 Sparkle 私钥）。
+
+### 自动更新（Sparkle）
+
+正式版内嵌 Sparkle 2（`scripts/sparkle.sh` 下载并校验 SHA-256，缓存在 `~/Library/Caches/gilvt-build/`；`package.sh` 设 `GILVT_SPARKLE=1`，由 `bundle.sh` 放进 `Contents/Frameworks` 并由内向外签名）。开发构建和 GUI 沙盒里没有 Sparkle，`gilvt debug state` 的 `update.available` 为 `false`。
+
+- **版本比较看构建号**：`CFBundleVersion` = `git rev-list --count HEAD`（`GILVT_BUILD_NUMBER` 可覆盖），Sparkle 用它判断新旧，所以每次发版必须从更晚的提交打包。
+- **EdDSA 私钥**在登录钥匙串里（Sparkle `generate_keys --account gilvt` 生成，账户名 `gilvt`），公钥写在 `bundle.sh` 的 `SUPublicEDKey`。**私钥必须另有备份（密码管理器），绝不提交进仓库**：丢了它，已安装的 gilvt 再也无法接受新版本，只能让用户手动重新下载。换一台 Mac 发版时用 `generate_keys --account gilvt -f <备份文件>` 导入。
+- **本机端到端测试**：`scripts/update-e2e.sh`（构建完后约 20 秒）。它用 Developer ID 打两个版本 A（0.0.1，构建号 100）和 B（0.0.2，101），在 `localhost:8766` 提供 appcast，后台启动 A（`GILVT_UPDATE_FEED_URL` 指向本地 feed 并立即检查），等 `update.ready` 变成 `0.0.2` 后正常退出 A，再检查磁盘上的 bundle 已变成 B 且签名有效。Sparkle 每个 bundle id 只允许一个等待中的安装器：如果 launchd 里已有 `com.gilvt.app-sparkle-updater`（有更新正等着 gilvt 退出），脚本拒绝启动。
+- `GILVT_UPDATE_FEED_URL` 也可以手动用来测试别的 feed。
 
 ### 更新官网（gilvt.com）
 
@@ -89,7 +107,7 @@ cargo test --workspace                                # 单元测试 + PTY / 真
    `--registry` 是因为本机 npm 默认指向公司内网镜像，换一台机器可以去掉。
 4. **推送代码**：网站部署和 `git push` 互相独立，推送不会更新网站，部署也不需要先推送。改完 `site/` 两件事都做，让仓库和线上一致。
 
-**下载地址**：对外（README、文章、帖子）只发布 `https://gilvt.com/download`。以后安装包改放到别处（比如 Cloudflare R2），只改 `site/_redirects` 那一行再部署，已经发出去的链接不受影响。
+**下载地址**：对外（README、文章、帖子）只发布 `https://gilvt.com/download`。安装包放在哪里只由 `site/_redirects` 那一行决定（目标是 `https://release.gilvt.com/Gilvt.dmg`），改它再部署，已经发出去的链接不受影响。
 
 ## 目录
 
@@ -119,6 +137,8 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 | `docs/debug-state.md` | `gilvt debug state` 的字段与条件语法 |
 | `docs/release-setup.md` | 发版准备：申请 Developer ID、创建证书、配置公证与 CI secrets |
 | `scripts/package.sh` / `scripts/notarize.sh` | universal dmg；`GILVT_NOTARIZE=1` 时签名并两轮公证（app、dmg），见「发版与更新网站」 |
+| `scripts/publish.sh` / `scripts/sparkle.sh` / `scripts/update-e2e.sh` | 发布到 release.gilvt.com（签名、appcast、上传 R2）；下载校验 Sparkle；自动更新的本机端到端测试 |
+| `crates/gilvt-app/src/updater.rs` | 自动更新：运行时加载 Sparkle.framework，`[update] mode`、「检查更新…」、侧栏「退出时安装」提示 |
 | `packaging/entitlements.plist` | 硬化运行时的 entitlements（Apple Events，供「跳到外部终端」） |
 | `site/` | 官网 gilvt.com（中英双语）：`build.sh` 构建到 `dist-site/`，`wrangler.jsonc` 部署到 Cloudflare Worker `gilvt`，`_redirects` 管 `/download` |
 | `tests/gui/` | GUI 验收：沙盒、驱动脚本、用例、剧本（见下文「GUI 验收测试」） |
@@ -151,6 +171,9 @@ codex_launch = "codex"
 
 [notify]
 dock_bounce = true        # 有会话开始需要你、gilvt 在后台时 Dock 图标跳一次
+
+[update]
+mode = "download"         # download：后台下载、退出时安装 | check：只检查 | off：不检查（从 off 改回来需重启）
 
 [colors]                  # 可选：在主题之上单项覆盖
 # background = "#1b1b26"

@@ -78,6 +78,7 @@ actions!(
         EditorSelectAll,
         OpenExternalEditor,
         OpenSettings,
+        CheckForUpdates,
     ]
 );
 
@@ -209,6 +210,7 @@ pub fn menus(language: Language) -> Vec<Menu> {
                 MenuItem::action("New Window", NewWindow),
                 MenuItem::separator(),
                 MenuItem::action(t("设置…", "Settings…"), OpenSettings),
+                MenuItem::action(t("检查更新…", "Check for Updates…"), CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
