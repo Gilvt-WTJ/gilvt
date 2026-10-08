@@ -106,10 +106,16 @@ impl PaneTree {
 
     /// Splits `target`, placing `new` after it along `axis`. The target's share is halved.
     pub fn split(&mut self, target: PaneId, new: PaneId, axis: Axis) -> bool {
-        fn go(n: &mut Node, target: PaneId, new: PaneId, axis: Axis) -> bool {
+        self.insert(target, new, axis, false)
+    }
+
+    /// Like `split`, placing `new` before (left of / above) `target` when `before`.
+    pub fn insert(&mut self, target: PaneId, new: PaneId, axis: Axis, before: bool) -> bool {
+        fn go(n: &mut Node, target: PaneId, new: PaneId, axis: Axis, before: bool) -> bool {
             match n {
                 Node::Leaf(id) if *id == target => {
-                    *n = Node::Split { axis, children: vec![Node::Leaf(target), Node::Leaf(new)], ratios: vec![0.5, 0.5] };
+                    let pair = if before { [new, target] } else { [target, new] };
+                    *n = Node::Split { axis, children: pair.map(Node::Leaf).to_vec(), ratios: vec![0.5, 0.5] };
                     true
                 }
                 Node::Leaf(_) => false,
@@ -118,16 +124,45 @@ impl PaneTree {
                         if let Some(i) = children.iter().position(|c| matches!(c, Node::Leaf(id) if *id == target)) {
                             let half = ratios[i] / 2.0;
                             ratios[i] = half;
-                            ratios.insert(i + 1, half);
-                            children.insert(i + 1, Node::Leaf(new));
+                            let at = if before { i } else { i + 1 };
+                            ratios.insert(at, half);
+                            children.insert(at, Node::Leaf(new));
                             return true;
                         }
                     }
-                    children.iter_mut().any(|c| go(c, target, new, axis))
+                    children.iter_mut().any(|c| go(c, target, new, axis, before))
                 }
             }
         }
-        go(&mut self.root, target, new, axis)
+        go(&mut self.root, target, new, axis, before)
+    }
+
+    /// Where `target` sits, as a neighbour to `insert` it beside again once it is gone: the nearest pane of the
+    /// next sibling (`before` = true), else of the previous one, along the axis of its split. None for a lone pane.
+    pub fn slot_of(&self, target: PaneId) -> Option<Slot> {
+        fn first(n: &Node) -> PaneId {
+            match n {
+                Node::Leaf(id) => *id,
+                Node::Split { children, .. } => first(&children[0]),
+            }
+        }
+        fn last(n: &Node) -> PaneId {
+            match n {
+                Node::Leaf(id) => *id,
+                Node::Split { children, .. } => last(children.last().unwrap()),
+            }
+        }
+        fn go(n: &Node, target: PaneId) -> Option<Slot> {
+            let Node::Split { axis, children, .. } = n else { return None };
+            if let Some(i) = children.iter().position(|c| matches!(c, Node::Leaf(id) if *id == target)) {
+                return Some(match children.get(i + 1) {
+                    Some(next) => Slot { anchor: first(next), axis: *axis, before: true },
+                    None => Slot { anchor: last(&children[i - 1]), axis: *axis, before: false },
+                });
+            }
+            children.iter().find_map(|c| go(c, target))
+        }
+        go(&self.root, target)
     }
 
     /// Removes `target`. Returns false if it is not present or is the last pane.
@@ -286,6 +321,15 @@ impl PaneTree {
     }
 }
 
+/// A place beside `anchor` along `axis` (`PaneTree::slot_of`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Slot {
+    pub anchor: PaneId,
+    pub axis: Axis,
+    /// The pane goes before (left of / above) `anchor`.
+    pub before: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Divider {
     /// Child indices from the root to the split that owns this divider.
@@ -322,6 +366,47 @@ mod tests {
         assert_eq!(l[0], (1, Rect::new(0.0, 0.0, 50.0, 100.0)));
         assert_eq!(l[1], (2, Rect::new(50.0, 0.0, 50.0, 50.0)));
         assert_eq!(l[2], (3, Rect::new(50.0, 50.0, 50.0, 50.0)));
+    }
+
+    #[test]
+    fn insert_before_puts_the_pane_left_or_above() {
+        let mut t = PaneTree::new(1);
+        assert!(t.insert(1, 2, Axis::Row, true));
+        assert_eq!(t.panes(), vec![2, 1]);
+        assert!(t.insert(1, 3, Axis::Row, true));
+        assert_eq!(t.panes(), vec![2, 3, 1]);
+        assert!(t.insert(2, 4, Axis::Column, true));
+        assert_eq!(t.panes(), vec![4, 2, 3, 1]);
+        assert!(!t.insert(9, 5, Axis::Row, true));
+    }
+
+    #[test]
+    fn slot_of_names_the_next_sibling_else_the_previous() {
+        // 1 | (2 / 3) | 4
+        let mut t = PaneTree::new(1);
+        t.split(1, 2, Axis::Row);
+        t.split(2, 4, Axis::Row);
+        t.split(2, 3, Axis::Column);
+        assert_eq!(t.slot_of(1), Some(Slot { anchor: 2, axis: Axis::Row, before: true }));
+        assert_eq!(t.slot_of(2), Some(Slot { anchor: 3, axis: Axis::Column, before: true }));
+        assert_eq!(t.slot_of(3), Some(Slot { anchor: 2, axis: Axis::Column, before: false }));
+        assert_eq!(t.slot_of(4), Some(Slot { anchor: 3, axis: Axis::Row, before: false }));
+        assert_eq!(PaneTree::new(1).slot_of(1), None);
+        assert_eq!(t.slot_of(9), None);
+    }
+
+    #[test]
+    fn removing_then_inserting_at_the_slot_restores_the_order() {
+        for id in [1, 2, 3, 4] {
+            let mut t = PaneTree::new(1);
+            t.split(1, 2, Axis::Row);
+            t.split(2, 4, Axis::Row);
+            t.split(2, 3, Axis::Column);
+            let slot = t.slot_of(id).unwrap();
+            assert!(t.remove(id));
+            assert!(t.insert(slot.anchor, id, slot.axis, slot.before));
+            assert_eq!(t.panes(), vec![1, 2, 3, 4], "pane {id}");
+        }
     }
 
     #[test]

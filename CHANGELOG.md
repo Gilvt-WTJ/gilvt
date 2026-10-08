@@ -7,6 +7,11 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- `⌘⇧T` (View → Move Pane to New Tab / Back) moves the focused pane, terminals included, out of its split
+  into a tab of its own; pressing it again in that tab puts the pane back where it was.
+
 ### Changed
 
 - The interface language now follows macOS when `config.toml` has no `language` key: Simplified Chinese
