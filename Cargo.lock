@@ -2306,6 +2306,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gilvt-remote"
+version = "0.1.0"
+dependencies = [
+ "gilvt-ipc",
+ "gilvt-shell",
+ "libc",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "gilvt-shell"
 version = "0.1.0"
 dependencies = [
