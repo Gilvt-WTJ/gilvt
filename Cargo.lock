@@ -2168,6 +2168,7 @@ dependencies = [
  "gilvt-config",
  "gilvt-editor",
  "gilvt-finder",
+ "gilvt-i18n",
  "gilvt-ipc",
  "gilvt-markdown",
  "gilvt-mermaid",
@@ -2258,6 +2259,14 @@ dependencies = [
  "ignore",
  "nucleo-matcher",
  "tempfile",
+]
+
+[[package]]
+name = "gilvt-i18n"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml 0.8.23",
 ]
 
 [[package]]

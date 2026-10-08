@@ -22,6 +22,7 @@ GUI 验收测试通过 socket 读取 gilvt 的界面状态（`Request::DebugStat
 | `update` | 对象 | 自动更新（Sparkle），**总是存在**：`{ available, mode, ready }`。`available`：这个构建带 Sparkle 并已启动（只有 `GILVT_SPARKLE=1` 打包的正式版为真；开发构建和 GUI 沙盒里为 `false`）；`mode`：生效的 `[update] mode`（`download` / `check` / `off`，没配置时 `download`）；`ready`：已下载、等退出时安装的版本号（如 `"0.2.0"`，此时侧栏底部有「已下载，退出时安装」提示），没有时为 `null` |
 | `hosts` | 数组 | 本次运行用过的 ssh 主机：`{ id, display, hostname, install, installed, bridge, links }`。`install`：`ask` / `allowed` / `never`（这台主机记住的选择）；`installed`：已知装在那里的 build id；`bridge`：`none` / `connecting` / `up` / `down` / `mismatch`；`links`：这台主机上正在进行的 ssh 登录 |
 | `settings` | 对象（键可能不存在） | `⌘,` 设置窗口的状态，见下 `## settings`；窗口关着时**没有这个键**（不是 `null`），用 `settings exists` 判断是否打开 |
+| `untranslated` | 数组 | 英文界面里仍是中文的界面文字，**总是存在**：界面语言为英文（`settings.language == "en"`）时，列出这次 state 里含汉字或全角标点的字符串，每项 `{ path, text }`（`path` 如 `windows[0].tabs[0].title`）；中文界面时总是 `[]`。用户内容按键名跳过：`screen_tail`、`selection`、`marked_text`、`input_text`、`query`、`text`、`cwd`、`path`、`dir`、`repo`、`repo_root`、`config_path`、`command`、`running_command`、`error_line`、`branch`、`detached`、`quote`、`follow_ups`、`tty`、`session`、`session_key`、`key`、`id`、`cursor`、`snapshot_through`。其余字段里的中文都算漏翻，所以用例要用英文提示词和 ASCII 路径。用法：`assert untranslated[*] exists count=0` |
 
 ## `windows[]`
 

@@ -212,7 +212,7 @@ pub struct Settings {
     /// What config.toml says (`language = …`); None: follow macOS.
     #[serde(rename = "language")]
     pub language_setting: Option<Language>,
-    /// The application chrome language in effect: `language_setting`, else `Language::system()`. Terminal
+    /// The application chrome language in effect: `language_setting`, else `i18n::system_language()`. Terminal
     /// contents are never translated.
     #[serde(skip)]
     pub language: Language,
@@ -385,7 +385,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             language_setting: None,
-            language: Language::system(),
+            language: crate::i18n::system_language(),
             font_family: "Menlo".into(),
             font_size: 13.0,
             line_height: 1.25,
@@ -446,7 +446,7 @@ impl Settings {
 
     /// Clamps values; what cannot be clamped falls back to its default, with a line in `errors`.
     fn sanitized(mut self, errors: &mut Vec<String>) -> Self {
-        self.language = self.language_setting.unwrap_or_else(Language::system);
+        self.language = self.language_setting.unwrap_or_else(crate::i18n::system_language);
         self.font_size = self.font_size.clamp(Self::MIN_FONT_SIZE, Self::MAX_FONT_SIZE);
         self.line_height = self.line_height.clamp(1.0, 2.0);
         self.scrollback = self.scrollback.min(1_000_000);
@@ -484,7 +484,7 @@ mod tests {
         let (s, err) = load_str("font_size = 15\n");
         assert!(err.is_none());
         assert_eq!(s.language_setting, None);
-        assert_eq!(s.language, Language::system());
+        assert_eq!(s.language, crate::i18n::system_language());
         let (s, _) = load_str("language = \"zh-CN\"\n");
         assert_eq!(s.language_setting, Some(Language::Chinese));
     }
