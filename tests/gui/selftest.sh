@@ -527,12 +527,13 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
   rs="$T/remote-state"; rh="$T/remote-gui"
   mkdir -p "$rs" "$rh" "$T/rhome" "$T/rbin"
   printf 'k\n' >"$rs/id_ed25519"; printf 'h k\n' >"$rs/known_hosts"
-  printf 'Host devbox-test\n  IdentityFile ~/.ssh/id_ed25519\n  UserKnownHostsFile ~/.ssh/known_hosts\n' >"$rs/ssh_config"
+  printf 'Host devbox-test\n  IdentityFile ~/.ssh/id_ed25519\n  UserKnownHostsFile ~/.ssh/known_hosts\nHost *\n  IdentityAgent none\n' >"$rs/ssh_config"
   printf '#!/bin/sh\n[ "$1" = status ] && { echo "up x"; exit 0; }\nexit 1\n' >"$rh/remote.sh"
   chmod +x "$rh/remote.sh"
   sbx_here="$here"; here="$rh"; GILVT_GUI_REMOTE_STATE="$rs"
   ( install_remote_home "$d" "$T/rhome" "$T/rbin" "$T/App.app" ) && ok || bad "install_remote_home"
   check "remote: ssh config names the sandbox home" "  IdentityFile $T/rhome/.ssh/id_ed25519" sed -n 2p "$T/rhome/.ssh/config"
+  if grep -q '^Host \*$' "$T/rhome/.ssh/config" && grep -q '^  IdentityAgent none$' "$T/rhome/.ssh/config"; then ok; else bad "remote: Host * block"; fi
   check "remote: key mode" "600" stat -f %Lp "$T/rhome/.ssh/id_ed25519"
   check "remote: ssh dir mode" "700" stat -f %Lp "$T/rhome/.ssh"
   if [ -f "$T/rhome/.ssh/known_hosts" ] && [ -x "$T/rbin/remote-test" ] && [ -x "$T/rbin/ssh" ] &&

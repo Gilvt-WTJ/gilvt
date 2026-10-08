@@ -491,7 +491,7 @@ cmd_up() {
     write_home "$dir"
     if [ -n "$remote" ]; then
       install_remote_home "$dir" "$home" "$bin" "$app"
-      remote_env=("GILVT_SSH_CONTROL_DIR=$REMOTE_CONTROL_DIR" "GILVT_REMOTE_DIR=$REMOTE_DIST_DIR")
+      remote_env=("SSH_AUTH_SOCK=" "GILVT_SSH_CONTROL_DIR=$REMOTE_CONTROL_DIR" "GILVT_REMOTE_DIR=$REMOTE_DIST_DIR")
     fi
     warm_codex_trust "$app" "$home" "$bin"
     path="$bin:$base_path"

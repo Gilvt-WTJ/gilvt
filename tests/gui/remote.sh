@@ -22,6 +22,17 @@ is_up() { running "$box" && running "$jump" && [ -f "$state/ssh_config" ]; }
 cmd_up() {
   need_docker
   if is_up; then echo "remote.sh: already up"; return; fi
+  # Leftovers of an earlier partial up hold the ports: remove them first, then insist the ports are free.
+  docker rm -f "$jump" "$box" >/dev/null 2>&1 || true
+  local p
+  for p in 2201 2202; do
+    if (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then
+      echo "remote.sh: 127.0.0.1:$p is already in use; free it first" >&2
+      exit 2
+    fi
+  done
+  # Any failure from here on removes what this up created.
+  trap 'rc=$?; trap - EXIT; [ $rc -eq 0 ] || { echo "remote.sh: up failed; cleaning up" >&2; cmd_down; }; exit $rc' EXIT
   rm -rf "$state"; mkdir -p "$state/ctx"; chmod 700 "$state"
   ssh-keygen -q -t ed25519 -N '' -f "$state/id_ed25519"
   cp "$state/id_ed25519.pub" "$state/ctx/authorized_keys"
@@ -33,7 +44,7 @@ cmd_up() {
   docker run -d --name "$box" --network "$net" --network-alias devbox --hostname devbox -p 127.0.0.1:2202:22 "$image" >/dev/null
   local ok="" i
   for i in $(seq 50); do
-    if ssh-keyscan -p 2201 127.0.0.1 2>/dev/null | grep -q . && ssh-keyscan -p 2202 127.0.0.1 2>/dev/null | grep -q .; then ok=1; break; fi
+    if ssh-keyscan -T 2 -p 2201 127.0.0.1 2>/dev/null | grep -q . && ssh-keyscan -T 2 -p 2202 127.0.0.1 2>/dev/null | grep -q .; then ok=1; break; fi
     sleep 0.2
   done
   [ -n "$ok" ] || { echo "remote.sh: sshd did not come up" >&2; exit 1; }
@@ -60,7 +71,17 @@ Host devbox-test devbox-zsh gilvt-jump devbox-jump
   IdentitiesOnly yes
   UserKnownHostsFile ~/.ssh/known_hosts
   StrictHostKeyChecking yes
+# Containment: any other host name (a typo, a deliberately bad host) must not reach the user's real ssh files,
+# default identities or the agent. First value wins, so the hosts above keep theirs.
+Host *
+  IdentityAgent none
+  IdentitiesOnly yes
+  IdentityFile ~/.ssh/id_ed25519
+  UserKnownHostsFile ~/.ssh/known_hosts
+  GlobalKnownHostsFile /dev/null
+  StrictHostKeyChecking yes
 CFG
+  trap - EXIT
   echo "remote.sh: up ($state)"
 }
 

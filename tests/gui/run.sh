@@ -239,7 +239,11 @@ trap cleanup_clip EXIT
 
 if [ -z "$list" ] && printf '%s\n' "${kinds[@]}" | grep -q '^remote '; then
   was_up=""; "$here/remote.sh" status >/dev/null 2>&1 && was_up=1
-  if "$here/remote.sh" up >/dev/null 2>&1; then remote_up=1; [ -n "$was_up" ] || started_remote=1; fi
+  if "$here/remote.sh" up >/dev/null 2>&1; then
+    remote_up=1; [ -n "$was_up" ] || started_remote=1
+  elif [ -z "$was_up" ]; then
+    "$here/remote.sh" down >/dev/null 2>&1 || true   # a partial up: remove what it left
+  fi
 fi
 
 if [ "$jobs" -gt 1 ] && [ -z "${GILVT_GUI_PARALLEL_WORKER:-}" ]; then
