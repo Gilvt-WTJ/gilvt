@@ -16,7 +16,7 @@ use gilvt_editor::{Buffer, EditorError, ExternalState, OpenOptions, Position, Se
 use super::chrome;
 use super::compare::{self, Compare, CompareAction, CompareKey};
 use super::element::{EditorElement, TEXT_PAD};
-use super::external::{self, ExternalAction, DEBOUNCE_MS, FLASH_MS, FLASH_UPDATED};
+use super::external::{self, ExternalAction, DEBOUNCE_MS, FLASH_MS};
 use super::model::{EditorModel, HMove};
 use super::popup::{self, MenuAction, MenuItem, MenuKind, OpenMenu, PopupKey};
 use crate::actions::{Copy, EditorCut, EditorRedo, EditorSave, EditorSelectAll, EditorUndo, OpenExternalEditor, Paste, EDITOR_CONTEXT};
@@ -552,7 +552,7 @@ impl EditorView {
                     self.selecting = false;
                     self.bar = bar_after_reload(&self.bar);
                     self.acked = next_acked(self.acked, AckEvent::Resynced);
-                    self.flash(FLASH_UPDATED, cx);
+                    self.flash(external::flash_updated(), cx);
                     self.after_edit(cx);
                 }
             }
@@ -592,7 +592,7 @@ impl EditorView {
         self.path()
             .and_then(Path::file_name)
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "未命名".into())
+            .unwrap_or_else(|| crate::i18n::text("未命名", "Untitled").into())
     }
 
     /// The last painted text area is under `MIN_TEXT_COLS` columns: only the header and 「窗口太窄」 show.
@@ -733,7 +733,7 @@ impl EditorView {
                     self.close_menu_on_model_change();
                     self.bar = Bar::None;
                     self.acked = next_acked(self.acked, AckEvent::Resynced);
-                    self.flash(FLASH_UPDATED, cx);
+                    self.flash(external::flash_updated(), cx);
                     self.after_edit(cx);
                 }
                 Err(e) => self.set_bar(bar_for_save_error(&e), cx),

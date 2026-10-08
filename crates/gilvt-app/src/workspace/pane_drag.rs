@@ -31,7 +31,7 @@ impl Render for DraggedPane {
             .text_size(px(12.))
             .whitespace_nowrap()
             .shadow_lg()
-            .child(format!("{} → 新标签", self.title))
+            .child(format!("{} → {}", self.title, crate::i18n::text("新标签", "New tab")))
     }
 }
 

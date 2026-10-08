@@ -82,6 +82,6 @@ impl Workspace {
     /// The copy button of an expanded detail.
     pub fn copy_timeline_detail(&mut self, text: String, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
-        self.inspector_note("已复制", cx);
+        self.inspector_note(crate::i18n::text("已复制", "Copied"), cx);
     }
 }

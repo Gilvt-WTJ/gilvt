@@ -21,16 +21,21 @@ pub enum ExternalAction {
 /// Shown once when the file on disk outgrew `MAX_FILE_SIZE` under a clean buffer (a silent reload would fail).
 pub const TOO_LARGE_NOTICE: &str = "磁盘上的文件已超过 64 MB，编辑器不再跟随它的修改。";
 
+/// [`TOO_LARGE_NOTICE`] in the interface language.
+fn too_large_text() -> &'static str {
+    crate::i18n::text(TOO_LARGE_NOTICE, "The file on disk is over 64 MB; the editor no longer follows its changes.")
+}
+
 /// The red bar to put up for a disk file of `disk_len` bytes, or `None` when it is within the limit or the
 /// same notice is already showing.
 pub fn too_large_notice(disk_len: u64, current_bar: &Bar) -> Option<Bar> {
     if disk_len <= gilvt_editor::MAX_FILE_SIZE {
         return None;
     }
-    if matches!(current_bar, Bar::SaveError { message, jump: None } if message == TOO_LARGE_NOTICE) {
+    if matches!(current_bar, Bar::SaveError { message, jump: None } if message == too_large_text()) {
         return None;
     }
-    Some(Bar::SaveError { message: TOO_LARGE_NOTICE.into(), jump: None })
+    Some(Bar::SaveError { message: too_large_text().into(), jump: None })
 }
 
 /// After a bar is hidden with the pane staying open, the disk is looked at again when the hidden bar was one
@@ -44,6 +49,11 @@ pub const DEBOUNCE_MS: u64 = 150;
 /// How long the 「已更新」 flash stays, in milliseconds.
 pub const FLASH_MS: u64 = 2000;
 pub const FLASH_UPDATED: &str = "已更新";
+
+/// [`FLASH_UPDATED`] in the interface language.
+pub fn flash_updated() -> &'static str {
+    crate::i18n::text(FLASH_UPDATED, "Updated")
+}
 
 /// E2b-1 §4: the close-confirmation bar (and a pending reopen confirmation) always wins (decided again after it
 /// goes away); an existing `Modified` (重新载入 / 对比 / 仍然覆盖) / `Deleted` bar is not re-raised; a save-error
@@ -76,6 +86,19 @@ mod tests {
     use super::super::view::ReopenIntent;
     use gilvt_editor::ExternalState::*;
     use gilvt_editor::OpenOptions;
+
+    #[test]
+    fn notices_read_in_english() {
+        assert_eq!(flash_updated(), "已更新");
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            assert_eq!(flash_updated(), "Updated");
+            let limit = gilvt_editor::MAX_FILE_SIZE;
+            let shown = too_large_notice(limit + 1, &Bar::None).expect("above the limit");
+            let Bar::SaveError { message, .. } = &shown else { panic!() };
+            assert!(!crate::i18n::has_chinese(message), "{message}");
+            assert_eq!(too_large_notice(limit + 1, &shown), None, "the English notice is not raised twice");
+        });
+    }
 
     #[test]
     fn too_large_notice_decisions() {

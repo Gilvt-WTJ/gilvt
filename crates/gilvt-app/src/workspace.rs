@@ -94,7 +94,7 @@ impl PaneView {
                 let v = v.read(cx);
                 format!("{}{}", if v.is_dirty() { "● " } else { "" }, v.title())
             }
-            PaneView::Monitor(_) => "◎ 监控官".to_string(),
+            PaneView::Monitor(_) => crate::i18n::text("◎ 监控官", "◎ Monitor").to_string(),
         }
     }
 
@@ -447,7 +447,7 @@ impl Workspace {
         let session = match spawn_session(&Self::settings(cx), cx.global::<ShellEnv>(), id, cwd) {
             Ok(s) => s,
             Err(e) => {
-                self.error = Some(format!("无法启动 shell：{e}"));
+                self.error = Some(if crate::i18n::english() { format!("Could not start shell: {e}") } else { format!("无法启动 shell：{e}") });
                 cx.notify();
                 return None;
             }
@@ -1012,7 +1012,7 @@ impl Workspace {
                     .py_1()
                     .text_size(px(12.))
                     .bg(hsla(mix(p.background, p.ansi[1], 0.25)))
-                    .child(format!("{e}（点击关闭）"))
+                    .child(format!("{e}{}", crate::i18n::text("（点击关闭）", " (click to dismiss)")))
                     .on_click(cx.listener(|ws, _, _, cx| {
                         ws.error = None;
                         cx.notify();
