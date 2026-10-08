@@ -28,6 +28,13 @@ breaking changes; they are called out under **Changed**.
   structured application data, focused coding-agent guides, Claude Code / Codex integration pages,
   and a build-time SEO and local-link check.
 
+### Fixed
+
+- The English interface no longer shows Chinese: notifications, the close and quit confirmation, the
+  terminal find bar, the file finder, previews, the editor's messages, the sessions palette, the inspector's
+  configuration cards, theme warnings, and the monitor's chat, cards and connection test were still in Chinese.
+- The New Agent panel showed its `⌘1 / ⌘2` hint twice, and monitor cards in English read "took" in Chinese.
+
 ## [0.1.0] - 2026-10-08
 
 First public release.

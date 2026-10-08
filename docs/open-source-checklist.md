@@ -75,7 +75,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [x] 界面支持英文（`language = "en"` / 设置 →「语言」），README 顶部已说明。
 - [x] 对外文档中英双语：英文用默认文件名，中文加 `.zh-CN` 后缀，顶部互相切换（README、产品手册 md / html、PRIVACY、SECURITY、CONTRIBUTING、AI_POLICY）。改用户可见行为时两种语言一起更新。
 - [ ] HACKING.md、验收清单、设计文档目前只有中文（面向开发者，暂不翻译）。
-- [ ] 补齐英文界面里仍写死中文的文案（翻译手册时发现约 20 处：编辑器「已更新」、「复制路径:行号」、配置来源层、监控官对话与测试连接的提示、主题名的「你是不是想用」等）。
+- [x] 补齐英文界面里仍写死中文的文案（翻译手册时发现约 20 处，2026-10-08 全面扫描实际约 250 行、60 个文件）：语言状态移到 `gilvt-i18n`，所有 crate 都按当前语言出字；英文界面的 DebugState `untranslated` 列出漏翻的文字，验收 S6–S8。
 - [ ] 考虑公开版默认语言是否跟随系统。
 - [x] `CONTRIBUTING.md`、`AI_POLICY.md`、`SECURITY.md`、`PRIVACY.md`、Issue 模板（bug / 功能）、PR 模板、`AGENTS.md`（指向 `CLAUDE.md` 的符号链接）。
 - [ ] `CODE_OF_CONDUCT.md`（可选；Ghostty 没有，Zed 有）。

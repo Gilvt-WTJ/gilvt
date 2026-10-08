@@ -510,6 +510,7 @@ Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。
 
 `language = "zh-CN" | "en"` 控制 gilvt 自身界面语言；不写时跟随 macOS 首选语言（`zh` 开头用简体中文，其他用英文），终端内容不参与翻译。设置窗口「文A 语言」页的选择立即应用到所有窗口并写回 `config.toml`，手改配置也会热重载。
 沙盒配置固定 `language = "zh-CN"`；S3–S4 删掉它、用 `GILVT_TEST_SYSTEM_LANGUAGE` 假装系统语言。来源看 `settings.language_source`（`config` / `system`）。
+S6–S8 在英文界面下逐个打开主要界面，断言 DebugState 的 `untranslated`（英文界面里仍是中文的 gilvt 文字）为空；用例只用英文提示词和 ASCII 路径。
 
 | # | 操作 | 期望 | 用例 |
 |---|------|------|------|
@@ -518,6 +519,9 @@ Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。
 | S3 | `config.toml` 不写 `language`，系统首选语言为英文（`en-US`）启动 | 界面英文，`settings.language == "en"`、`language_source == "system"` | [S3](../tests/gui/cases/S/S3.md) |
 | S4 | `config.toml` 不写 `language`，系统首选语言为中文（`zh-Hans-CN`）启动 | 界面简体中文，`language_source == "system"` | [S4](../tests/gui/cases/S/S4.md) |
 | S5 | `config.toml` 写 `language = "zh-CN"`，系统首选语言为英文 | 以配置为准：界面简体中文，`language_source == "config"` | [S5](../tests/gui/cases/S/S5.md) |
+| S6 | `language = "en"`，跑一个等审批的 Claude 会话，`⌘W` 弹关闭确认后取消，再拒绝审批 | 每一步 `untranslated` 为空：左栏、标签、检查器、关闭确认条和空闲状态里 gilvt 自己的文字都是英文，终端输出原样 | [S6](../tests/gui/cases/S/S6.md) |
+| S7 | `language = "en"`，依次打开 `⌘P`（无匹配、有结果）、Quick Look 预览、编辑 pane、`⌘⇧R` 会话面板、`⌘⇧N` 新建 Agent | 每一步 `untranslated` 为空；新建 Agent 的「⌘1 / ⌘2」提示只出现一次 | [S7](../tests/gui/cases/S/S7.md) |
+| S8 | `language = "en"`、开启监控官，打开 `⌘⇧O` 活动视图、`⌘⇧M` 命令条、`⌘,` 监控官页 | 每一步 `untranslated` 为空；卡片显示「took …」而不是「用时」 | [S8](../tests/gui/cases/S/S8.md) |
 
 ## AA. 从临时位置运行（移到「应用程序」）
 
