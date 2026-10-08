@@ -283,6 +283,49 @@ fn agent_card_elapsed_counts_while_waiting_in_a_turn() {
     let m = build(&[agent(&s)], &[], &MonitorUi::default(), now, wall(), None);
     let Card::Agent(c) = &m.groups[0].cards[0] else { panic!() };
     assert_eq!(c.elapsed.as_deref(), Some("用时 5 秒"));
+    assert_eq!(crate::monitor::view::card_lines(&m.groups[0].cards[0]).2, "用时 5 秒");
+}
+
+#[test]
+fn the_last_turns_length_reads_took_in_english() {
+    use crate::i18n::{has_chinese, with_language, Language};
+    let now = Instant::now();
+    let mut s = session("idle", Status::Idle, now);
+    s.last_turn = Some(Duration::from_secs(300));
+    let (elapsed, meta) = with_language(Language::English, || {
+        let m = build(&[agent(&s)], &[], &MonitorUi::default(), now, wall(), None);
+        let Card::Agent(c) = &m.groups[0].cards[0] else { panic!() };
+        (c.elapsed.clone(), crate::monitor::view::card_lines(&m.groups[0].cards[0]).2)
+    });
+    assert_eq!(elapsed.as_deref(), Some("took 5m"));
+    assert_eq!(meta, "took 5m", "not 「This turn 用时 5m」");
+    assert!(!has_chinese(&meta));
+    // In a turn: the time so far, prefixed in both languages.
+    let mut s = session("w", Status::Thinking, now);
+    s.turn_started = Some(now - Duration::from_secs(120));
+    let line = |s: &Session| {
+        let m = build(&[agent(s)], &[], &MonitorUi::default(), now, wall(), None);
+        crate::monitor::view::card_lines(&m.groups[0].cards[0]).2
+    };
+    assert_eq!(with_language(Language::English, || line(&s)), "This turn 2m");
+    assert_eq!(line(&s), "本轮 2 分钟");
+}
+
+#[test]
+fn terminal_lines_and_tab_title_in_english() {
+    use crate::i18n::{has_chinese, with_language, Language};
+    let now = Instant::now();
+    let mut b = block(1, "", Some(2), true, None);
+    b.command = None;
+    let (last, title) = with_language(Language::English, || {
+        let m = build(&[], &[term(7, vec![b])], &MonitorUi::default(), now, wall(), None);
+        let Card::Terminal(t) = &m.groups[0].cards[0] else { panic!() };
+        (crate::monitor::view::block_text(t.last.as_ref().unwrap(), true), tab_title_with_needs_you("◎ Monitor".into(), 2))
+    });
+    assert!(last.starts_with("Last: ✗ (unknown command) · exit 2"), "{last}");
+    assert!(last.ends_with(" ago"), "{last}");
+    assert!(!has_chinese(&last), "{last}");
+    assert_eq!(title, "◎ Monitor · 2 need you");
 }
 
 #[test]

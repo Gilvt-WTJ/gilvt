@@ -419,6 +419,8 @@ pub fn needs_you_count<'a>(sessions: impl IntoIterator<Item = &'a Session>) -> u
 pub fn tab_title_with_needs_you(title: String, needs_you: usize) -> String {
     match needs_you {
         0 => title,
+        1 if crate::i18n::english() => format!("{title} · 1 needs you"),
+        n if crate::i18n::english() => format!("{title} · {n} need you"),
         n => format!("{title} · {n} 需要你"),
     }
 }
@@ -492,6 +494,16 @@ fn first_line(s: &str) -> String {
     s.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string()
 }
 
+/// A finished turn's length on the card: 「用时 5 分钟」 / `took 5m` (`view::card_lines` keeps it as is, and
+/// prefixes anything else with 本轮 / This turn).
+pub(crate) fn took_label(d: Duration) -> String {
+    if crate::i18n::english() {
+        format!("took {}", duration_label(d))
+    } else {
+        format!("用时 {}", duration_label(d))
+    }
+}
+
 fn took(from: Option<SystemTime>, to: Option<SystemTime>) -> Option<String> {
     Some(duration_label(to?.duration_since(from?).ok()?))
 }
@@ -504,7 +516,7 @@ fn agent_card(a: &AgentIn, now: Instant, wall: SystemTime) -> AgentCard {
     let in_turn = s.is_live() && (s.status.is_running() || s.needs_you() || s.background_tasks > 0);
     let elapsed = match s.turn_started {
         Some(t) if in_turn => Some(duration_label(now.saturating_duration_since(t))),
-        _ => s.last_turn.map(|d| format!("用时 {}", duration_label(d))),
+        _ => s.last_turn.map(|d| took_label(d)),
     };
     let changes_of = |card: &ArtCard| {
         let counted = !(card.computing || card.counts_hidden);
@@ -579,11 +591,14 @@ fn block_line(b: &CommandBlock, wall: SystemTime) -> BlockLine {
     let at = b.ended.unwrap_or(b.started);
     BlockLine {
         id: b.id,
-        command: b.command.as_deref().map(command_head).filter(|c| !c.is_empty()).unwrap_or_else(|| "（命令未知）".into()),
+        command: b.command.as_deref().map(command_head).filter(|c| !c.is_empty()).unwrap_or_else(|| crate::i18n::text("（命令未知）", "(unknown command)").into()),
         mark,
         exit: b.exit,
         took: took(Some(b.started), b.ended),
-        ago: format!("{}前", duration_label(wall.duration_since(at).unwrap_or(Duration::ZERO))),
+        ago: {
+            let d = duration_label(wall.duration_since(at).unwrap_or(Duration::ZERO));
+            if crate::i18n::english() { format!("{d} ago") } else { format!("{d}前") }
+        },
         line: b.start_line,
     }
 }

@@ -92,7 +92,7 @@ pub fn test_connection(cfg: &ProviderConfig, chat: Result<ChatProbe, String>) ->
         }
     };
     let chat = match (missing, chat) {
-        (true, _) => ChatTest::Skipped("没有找到 CLI".into()),
+        (true, _) => ChatTest::Skipped(crate::i18n::text("没有找到 CLI", "CLI not found").into()),
         (false, Err(why)) => ChatTest::Skipped(why),
         (false, Ok(p)) => {
             let chat_cfg = ChatConfig {
