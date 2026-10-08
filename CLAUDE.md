@@ -40,4 +40,4 @@ Rust 编译缓存很大（每个 worktree 的 `gilvt/target` 5–15 GB，单独�
 3. **版本号**：只修 bug → 补丁（0.1.0 → 0.1.1）；新功能或 1.0 前的不兼容改动 → 小版本（0.2.0）；1.0 由用户决定。
 4. **`main` 上发过版后不改写历史**（不 force push、不 squash 已推送的提交）：Sparkle 用提交数当构建号比较新旧，提交数变少会让之后的版本被当成旧版本。
 5. 破坏性大版本要先给 `publish.sh` 加上 `sparkle:minimumAutoupdateVersion`，让跨大版本的用户弹窗确认，而不是静默安装。
-6. 发版流程：工作区干净、`cargo test` 与 `tests/gui/selftest.sh` 通过 → 改版本号与 CHANGELOG、提交、打 tag → `GILVT_NOTARIZE=1 scripts/package.sh` → 用户试用 dmg → `scripts/publish.sh --dry-run` 给用户看 → `scripts/publish.sh` → curl 检查 `https://release.gilvt.com/appcast.xml` 与 `https://gilvt.com/download`。Sparkle 私钥只在维护者 Mac 的登录钥匙串里，不读取、不导出、不打印。
+6. 发版流程：工作区干净、`cargo test` 与 `tests/gui/selftest.sh` 通过 → 改版本号与 CHANGELOG、提交、打 tag → `GILVT_NOTARIZE=1 scripts/package.sh` → 用户试用 dmg → `scripts/publish.sh --dry-run` 给用户看 → `scripts/publish.sh` → curl 检查 `https://release.gilvt.com/appcast.xml` 与 `https://gilvt.com/download` → 重新部署官网（下载页的版本号在构建时从 `Cargo.toml` 填入）。Sparkle 私钥只在维护者 Mac 的登录钥匙串里，不读取、不导出、不打印。

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download · gilvt</title>
+<meta name="description" content="Download gilvt {{VERSION}} for macOS 11 or later: a universal app, signed and notarized by Apple, that keeps itself up to date.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="zh-CN" href="/zh-CN/install/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:title" content="Download gilvt">
+<meta property="og:description" content="gilvt {{VERSION}} for macOS: one terminal for you and all your agents.">
+<meta property="og:image" content="/images/gilvt-light.png">
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a>
+  <nav>
+    <a href="/features/">Features</a>
+    <a href="/docs/">Docs</a>
+    <a href="/install/" aria-current="page">Download</a>
+    <a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a>
+    <a class="lang" href="/zh-CN/install/" hreflang="zh-CN" lang="zh-CN">简体中文</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <img class="appicon" src="/icon.svg" width="96" height="96" alt="">
+    <h1>Download gilvt</h1>
+    <p class="lead">Version {{VERSION}} · Universal (Apple silicon and Intel) · macOS 11 or later</p>
+    <div class="actions">
+      <a class="btn primary big" href="/download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+        Download for macOS
+      </a>
+    </div>
+    <p class="fineprint">Disk image, about 34 MB · signed with a Developer ID and notarized by Apple · Apache-2.0</p>
+  </div>
+
+  <section>
+    <div class="wrap narrow">
+      <h2>Install</h2>
+      <ol class="steps">
+        <li>Open the downloaded <strong>Gilvt-{{VERSION}}.dmg</strong>.</li>
+        <li>Drag <strong>Gilvt</strong> into <strong>Applications</strong> and open it from there. If you open it straight from the disk image, gilvt shows a banner and moves itself for you.</li>
+        <li>Run <code>claude</code> or <code>codex</code> in a pane. The sidebar and inspector pick the session up automatically; there is nothing to configure.</li>
+      </ol>
+      <p class="note">The interface defaults to Simplified Chinese; switch to English in Settings (<kbd>⌘,</kbd>) → Language. The first time a session needs you, allow notifications so you hear about it in other apps.</p>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap narrow">
+      <h2>Updates</h2>
+      <p>gilvt keeps itself up to date. It checks in the background, downloads a new version when there is one, and installs it <strong>when you quit</strong>, so running agents are never cut off. When an update is waiting, the bottom of the sidebar says so; <em>Check for Updates…</em> in the app menu checks right away.</p>
+      <p>Prefer to decide yourself? Set <code>mode = "check"</code> (ask before downloading) or <code>mode = "off"</code> under <code>[update]</code> in <code>config.toml</code>. Updates are signed and notarized, and the check sends no identifiers.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap narrow">
+      <h2>Build from source</h2>
+      <p>You need Rust and the Xcode Command Line Tools (the full Xcode is not required). Builds from source have no updater.</p>
+      <pre>git clone https://github.com/Gilvt-WTJ/gilvt.git
+cd gilvt
+scripts/bundle.sh release
+open target/release/Gilvt.app</pre>
+      <p class="note">Latest version: {{VERSION}} · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/CHANGELOG.md">What's new</a> · <a href="/docs/">User guide</a></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span>
+      <span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/docs/">User guide</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/PRIVACY.md">Privacy</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/SECURITY.md">Security</a></span>
+    </div>
+    <p>gilvt is an independent project, not affiliated with Anthropic or OpenAI. Claude and Claude Code are trademarks of Anthropic; Codex is a trademark of OpenAI.</p>
+  </div>
+</footer>
+</body>
+</html>

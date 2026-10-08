@@ -51,7 +51,7 @@ that it understands what your coding agents are doing:
   summaries and a read-only chat about what is going on (off by default; uses your local CLI).
 - **Quick Look and an editor**: code with syntax highlighting and diffs, rendered Markdown and Mermaid,
   `⌘P` fuzzy file search, and a built-in editor with live preview.
-- **725 built-in themes** (the same Ghostty-format collection) plus your own; the window chrome follows
+- **725 built-in themes** plus your own; the window chrome follows
   the theme.
 
 <p align="center">

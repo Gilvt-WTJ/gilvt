@@ -112,7 +112,7 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 
 ### 更新官网（gilvt.com）
 
-网站在 `site/`：`index.html`（英文）、`zh-CN/index.html`（中文）、`style.css`，以及 `_redirects`（`/download` 的转发）。它部署在 Cloudflare 账号里名为 `gilvt` 的 Worker 上（只提供静态资源），配置是 `site/wrangler.jsonc`，里面也绑定了 `gilvt.com` 和 `www.gilvt.com`。
+网站在 `site/`：首页 `index.html`、功能页 `features/`、下载页 `install/`（英文在根目录，中文在 `zh-CN/` 下），共用 `style.css`，`_redirects` 是 `/download` 的转发；文档页 `/docs/` 由 `build.sh` 从 `docs/user-guide.html` 生成（加上 `partials/` 里的导航条），改手册即可。页面里的 `{{VERSION}}` 构建时换成 `Cargo.toml` 的版本号，所以**每次发版后要重新部署一次网站**。它部署在 Cloudflare 账号里名为 `gilvt` 的 Worker 上（只提供静态资源），配置是 `site/wrangler.jsonc`，里面也绑定了 `gilvt.com` 和 `www.gilvt.com`。
 
 1. **改内容**：中英文两页一起改。截图和动图直接替换 `docs/images/` 里的文件，构建时会复制过去，网站里不另存一份。
 2. **本地预览**：

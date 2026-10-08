@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Features · gilvt</title>
+<meta name="description" content="Everything gilvt does: a complete macOS terminal, live state for every Claude Code and Codex session, per-turn timelines and diffs, Quick Look and a built-in editor, session management, the Monitor and 725 themes.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="zh-CN" href="/zh-CN/features/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:title" content="Features · gilvt">
+<meta property="og:description" content="One terminal for you and all your agents: watch every session, review each turn, edit in place.">
+<meta property="og:image" content="/images/gilvt-light.png">
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a>
+  <nav>
+    <a href="/features/" aria-current="page">Features</a>
+    <a href="/docs/">Docs</a>
+    <a href="/install/">Download</a>
+    <a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a>
+    <a class="lang" href="/zh-CN/features/" hreflang="zh-CN" lang="zh-CN">简体中文</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap page-head">
+    <span class="badge">Features</span>
+    <h1>Everything happens in one window</h1>
+    <p class="lead">A complete terminal for your own work, a live view of every agent, and one-click review and editing of what they changed. Here is each piece in detail.</p>
+  </div>
+
+  <div class="wrap feat-layout">
+    <nav class="toc" aria-label="On this page">
+      <a href="#terminal">The terminal</a>
+      <a href="#agents">Agent sessions</a>
+      <a href="#inspector">Each turn, inspected</a>
+      <a href="#review">Review and edit</a>
+      <a href="#sessions">Sessions over time</a>
+      <a href="#monitor">The Monitor</a>
+      <a href="#themes">Themes and settings</a>
+      <a href="#trust">Out of your way</a>
+    </nav>
+
+    <div class="feats">
+      <section class="feat" id="terminal">
+        <span class="kicker">The terminal</span>
+        <h2>A real terminal first</h2>
+        <p>gilvt is a complete everyday terminal. Use it for everything, with or without agents; collapse both side columns (<kbd>⌘B</kbd>, <kbd>⌘I</kbd>) and it is just a terminal.</p>
+        <ul class="points">
+          <li>Tabs and splits: <kbd>⌘T</kbd> <kbd>⌘D</kbd> <kbd>⌘⇧D</kbd>, move and resize panes from the keyboard, maximize one with <kbd>⌘⇧⏎</kbd>.</li>
+          <li>GPU rendering, true color, the Kitty keyboard protocol, input methods, find and deep scrollback.</li>
+          <li>Shell integration for zsh, bash and fish: new panes keep your directory, and commands are marked so you can jump between them. Your rc files are not touched.</li>
+          <li><kbd>⌘</kbd>-click a path such as <code>src/main.rs:42</code> to preview it, or a link to open it.</li>
+          <li>Windows, tabs, splits and directories come back after a quit or a crash; agent sessions wait under “Pending resume”.</li>
+          <li>Closing a pane, tab or window that would interrupt an agent asks first.</li>
+        </ul>
+        <figure>
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="/images/features/terminal-dark.jpg">
+            <img src="/images/features/terminal.jpg" width="1600" height="1028" loading="lazy" alt="Four panes running Claude Code and Codex, each with a colored border for its state.">
+          </picture>
+        </figure>
+      </section>
+
+      <section class="feat" id="agents">
+        <span class="kicker">Agent sessions</span>
+        <h2>Know who needs you, without looking</h2>
+        <p>Run <code>claude</code> or <code>codex</code> in any pane. gilvt recognizes it and follows its state in real time; you keep working in the agent's own interface.</p>
+        <ul class="points">
+          <li>The sidebar lists every session, with “Needs you” pinned on top: waiting for approval or asking a question, longest wait first.</li>
+          <li>Each row shows the current action, location, git branch and changes, and how full the context is.</li>
+          <li><kbd>⌘⇧J</kbd> cycles through the sessions that need you, across tabs and windows. <kbd>⌘⇧↑</kbd> <kbd>⌘⇧↓</kbd> walk the list.</li>
+          <li>Four colors on pane borders and tab dots: yellow needs you, red error, blue running, green done and unseen.</li>
+          <li>System notifications and a Dock badge reach you in other apps; click a notification to land in the right pane.</li>
+        </ul>
+        <figure><img src="/images/features/agents.jpg" width="1600" height="964" loading="lazy" alt="The sidebar with two sessions under Needs you: one awaiting approval, one asking which retry policy to use."></figure>
+      </section>
+
+      <section class="feat" id="inspector">
+        <span class="kicker">Each turn, inspected</span>
+        <h2>What the agent did, turn by turn</h2>
+        <p>The inspector on the right follows the focused pane. It only shows and navigates; it never types into the agent.</p>
+        <ul class="points">
+          <li><strong>Process</strong> <kbd>⌥⌘1</kbd>: status card, TODO list and a timeline of every command and edit. Failed commands show their key error lines. Click a row and the terminal scrolls back to it.</li>
+          <li><strong>Artifacts</strong> <kbd>⌥⌘2</kbd>: one card per task with the files it changed, <code>+a −b</code>, and whether the tests passed. Open any file for its “this turn” diff.</li>
+          <li><strong>Configuration</strong> <kbd>⌥⌘3</kbd>: the session's model, permissions, MCP servers, hooks, skills and memory files, read-only and redacted.</li>
+        </ul>
+        <figure><img src="/images/features/artifacts.jpg" width="1600" height="964" loading="lazy" alt="The Artifacts tab lists the files a turn changed; the per-turn diff of session.rs is open in Quick Look."></figure>
+      </section>
+
+      <section class="feat" id="review">
+        <span class="kicker">Review and edit</span>
+        <h2>Click to review. Fix it in place.</h2>
+        <p>Every file an agent touches is one click from a readable diff, and one more key from an editor. No switching to another app.</p>
+        <ul class="points">
+          <li>Quick Look: syntax-highlighted, word-level diffs against HEAD or a branch; side by side or unified; pin it as a pane that refreshes on save.</li>
+          <li>Markdown is rendered with change markers, and Mermaid diagrams are drawn offline.</li>
+          <li>Press <kbd>E</kbd> to edit in the built-in editor: syntax highlighting, input methods, live preview (<kbd>⌘⇧V</kbd>), and no silent overwrite when the agent changes the file under you.</li>
+          <li><kbd>⌘P</kbd> fuzzy-finds any file in the repository; drop a file from Finder to preview it or hand it to the agent.</li>
+          <li>From any shell, <code>gilvt view file:line</code> and <code>gilvt diff</code> open previews; agents can use them too, to put a file in front of you.</li>
+        </ul>
+        <figure><img src="/images/features/markdown.jpg" width="1600" height="964" loading="lazy" alt="A Markdown file rendered in Quick Look with a Mermaid architecture diagram."></figure>
+      </section>
+
+      <section class="feat" id="sessions">
+        <span class="kicker">Sessions over time</span>
+        <h2>Pick up any session, review the finished ones</h2>
+        <p>The Session Center (<kbd>⌘⇧R</kbd>) covers every Claude Code and Codex session on your Mac, not only the open ones.</p>
+        <ul class="points">
+          <li>Search by title, first prompt, project or directory; resume in place, in a new tab or in a split.</li>
+          <li>“To Review” queues every finished turn you haven't looked at, failures first, and shows it read-only without starting the agent.</li>
+          <li>Rename, archive, and move old sessions to the Trash; a cleanup wizard (<kbd>⌘⇧K</kbd>) handles them in bulk.</li>
+          <li>New Agent (<kbd>⌘⇧N</kbd>): pick the agent, directory, task, model and permission mode, optionally in a fresh git worktree.</li>
+        </ul>
+        <figure><img src="/images/features/sessions.jpg" width="1600" height="964" loading="lazy" alt="The Session Center over the terminal, searching all sessions of the current project."></figure>
+      </section>
+
+      <section class="feat" id="monitor">
+        <span class="kicker">The Monitor</span>
+        <h2>The big picture, and someone to ask</h2>
+        <p>The Monitor (<kbd>⌘⇧O</kbd>) lays out every agent and terminal from every window as cards, grouped by state, so you can catch up without visiting each one.</p>
+        <ul class="points">
+          <li>Cards show the current action, the turn, lines changed and TODO progress; terminal cards show the running or last command.</li>
+          <li>Optional AI summaries of each session's goal and progress, generated by your own local <code>claude</code> or <code>codex</code>. Off by default.</li>
+          <li>Ask “what needs me?” in the chat panel, or from the command bar (<kbd>⌘⇧M</kbd>) at the bottom of any tab. Answers link straight to the sessions.</li>
+          <li>Read-only by design, also over MCP (<code>gilvt mcp</code>): it can look, never type.</li>
+        </ul>
+        <figure><img src="/images/features/monitor.jpg" width="1600" height="964" loading="lazy" alt="The Monitor tab with session cards and a chat answer listing the one session that needs you."></figure>
+      </section>
+
+      <section class="feat" id="themes">
+        <span class="kicker">Themes and settings</span>
+        <h2>Make it yours</h2>
+        <ul class="points">
+          <li>725 built-in themes, plus your own; pick one for light and one for dark, and the window frame and state colors follow.</li>
+          <li>Settings (<kbd>⌘,</kbd>) apply instantly and are written back to <code>config.toml</code> with your comments kept; edits to the file reload live.</li>
+          <li>Interface in English or Simplified Chinese, switchable without a restart.</li>
+        </ul>
+        <figure><img src="/images/features/themes.jpg" width="1600" height="964" loading="lazy" alt="gilvt in a dark theme with the Monitor open."></figure>
+      </section>
+
+      <section class="feat" id="trust">
+        <span class="kicker">Out of your way</span>
+        <h2>Built to be trusted with your work</h2>
+        <ul class="points">
+          <li>Agents stay in their native TUI. gilvt observes and moves focus; it never answers for you.</li>
+          <li>Your configuration is untouched: hooks are injected at launch, not written into your rc files, <code>~/.claude</code> or <code>~/.codex</code>.</li>
+          <li>When something can't be parsed, gilvt falls back to a lighter mode or a plain terminal. Input and output always work.</li>
+          <li>No telemetry. The only request of its own is an update check you can turn off; updates install when you quit, so agents are never cut off. <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/PRIVACY.md">Privacy</a></li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <section class="cta">
+    <div class="wrap">
+      <h2>Bring your agents into one window</h2>
+      <div class="actions">
+        <a class="btn primary" href="/download">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+          Download for macOS
+        </a>
+        <a class="btn" href="/docs/">Read the docs</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span>
+      <span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/docs/">User guide</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/PRIVACY.md">Privacy</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/SECURITY.md">Security</a></span>
+    </div>
+    <p>gilvt is an independent project, not affiliated with Anthropic or OpenAI. Claude and Claude Code are trademarks of Anthropic; Codex is a trademark of OpenAI.</p>
+  </div>
+</footer>
+</body>
+</html>

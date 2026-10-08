@@ -300,7 +300,7 @@ html { scroll-behavior: smooth; }
 <section id="what">
   <h2>gilvt 是什么</h2>
   <p>同时开着三四个 Claude Code、Codex 会话时，最难的不是写代码，而是知道哪个会话停下来在等你批准、哪个刚跑完测试失败了、哪个已经做完等你看结果。普通终端只给你一格格文字，你只能挨个标签去翻。</p>
-  <p>gilvt 首先是一个完整、正常可交互的终端，可以当日常终端用，对标 iTerm2 和 Ghostty。在此之上，它读懂 Claude Code 和 Codex 的运行状态：</p>
+  <p>gilvt 首先是一个完整、正常可交互的终端，可以当日常终端用。在此之上，它读懂 Claude Code 和 Codex 的运行状态：</p>
   <ul>
     <li><strong>左栏</strong>把所有会话集中列出，「需要你」的排在最上面，<kbd>⌘⇧J</kbd> 一键跳过去。</li>
     <li><strong>pane 描边和标签圆点</strong>用颜色告诉你每个会话的状态，不用切过去看。</li>
@@ -336,7 +336,7 @@ html { scroll-behavior: smooth; }
       <tr><td>提醒</td><td>系统通知、Dock 角标与跳动、<kbd>⌘⇧J</kbd> 循环跳到等你的会话</td><td>自动</td></tr>
       <tr><td>会话管理</td><td>搜索、恢复、重命名、归档、清理（移到废纸篓）历史会话；清理向导</td><td><kbd>⌘⇧R</kbd>、<kbd>⌘⇧K</kbd></td></tr>
       <tr><td>新建 Agent</td><td>选 Agent、目录、初始任务、模型、权限模式，可选在新 git worktree 里运行，一步开出</td><td><kbd>⌘⇧N</kbd></td></tr>
-      <tr><td>主题</td><td>725 套内置主题（与 Ghostty 相同）和自定义主题，深浅色各配一套，外框和状态色跟着变</td><td><kbd>⌘,</kbd> →「外观」</td></tr>
+      <tr><td>主题</td><td>725 套内置主题和自定义主题，深浅色各配一套，外框和状态色跟着变</td><td><kbd>⌘,</kbd> →「外观」</td></tr>
       <tr><td>内置编辑器</td><td>改 Skill、命令或任意文本文件，带语法高亮，不会静默丢内容；实时预览（Markdown / Mermaid / SVG / 改动对比）</td><td><kbd>E</kbd> / <kbd>⌘O</kbd>、<kbd>⌘⇧</kbd>+点击、<kbd>⌘⇧V</kbd></td></tr>
       <tr><td>重启恢复</td><td>退出或崩溃后恢复窗口、标签、分屏和目录；Agent 会话列为「待恢复」，由你一键恢复</td><td>自动</td></tr>
       <tr><td>git 感知</td><td>左栏显示每个会话的分支、改动数、领先 / 落后；同一仓库的 worktree 归为一个项目</td><td>自动</td></tr>
@@ -510,7 +510,7 @@ gilvt view --pin README.md         # 固定为右侧预览 pane，保存后自�
 git show HEAD:a.rs | gilvt view --as rs -   # 预览标准输入
 gilvt diff                         # 逐个预览相对 HEAD 的全部改动文件（←→ 切换）
 gilvt diff main                    # 相对 main 分支</code></pre>
-  <p>在其他终端（如 iTerm2）里运行时，<code>gilvt</code> 直接打印带颜色的内容。</p>
+  <p>在其他终端应用里运行时，<code>gilvt</code> 直接打印带颜色的内容。</p>
 </section>
 
 <section id="agents">
@@ -766,7 +766,7 @@ exclude_paths = []        # 这些目录下的会话 / 终端不总结，支持 
     <li><strong>写回失败</strong>：配置文件只读等情况下，主题只在本次运行中生效，页面顶部红字先写原因（如「config.toml 是只读的，没有写入」），下一行是文件路径。配置文件有语法错误时页面只读，修好后才能再选。</li>
     <li><strong>手改配置</strong>：直接编辑 <code>config.toml</code> 的 <code>theme</code> 或 <code>[colors]</code>，保存后立即生效，不用重启；名字写错时同样出现错误横幅。</li>
   </ul>
-  <p><strong>自己的主题</strong>：把 Ghostty 的主题文件拷到 <code>~/.config/gilvt/themes/</code>，文件名就是主题名；它优先于同名的内置主题（先按名字精确匹配，再不区分大小写）。在 <code>config.toml</code> 里写：</p>
+  <p><strong>自己的主题</strong>：把主题文件（纯文本，每行一个 <code>key = value</code>，与内置主题同一格式）拷到 <code>~/.config/gilvt/themes/</code>，文件名就是主题名；它优先于同名的内置主题（先按名字精确匹配，再不区分大小写）。在 <code>config.toml</code> 里写：</p>
 <pre><code>theme = "My Theme"                                   # 固定
 # theme = { light = "gilvt Light", dark = "My Theme" }   # 跟随系统
 [colors]                                             # 可选：在主题之上单项覆盖

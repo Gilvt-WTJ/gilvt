@@ -29,7 +29,7 @@ First public release.
 - Built-in editor with syntax highlighting, safe saving and live preview.
 - Interface language: Simplified Chinese (default) or English, switchable live in Settings → Language
   or with `language` in `config.toml`.
-- Themes: 725 built-in Ghostty-format themes plus user themes, light / dark pairs, and an Appearance page
+- Themes: 725 built-in themes plus user themes, light / dark pairs, and an Appearance page
   in the settings window (`⌘,`); settings are written back to `config.toml` with comments preserved.
 - Automatic updates (Sparkle) for the downloaded app: checks `release.gilvt.com` in the background,
   downloads, and installs when you quit gilvt, so running agents are never interrupted; "Check for

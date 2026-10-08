@@ -1,0 +1,21 @@
+<style>
+.site-bar { max-width: 1080px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 4px; border-bottom: 1px solid var(--rule); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; line-height: 1; }
+.site-bar .brand { display: flex; align-items: center; gap: 10px; font: 600 18px/1 "SF Mono", ui-monospace, Menlo, monospace; color: var(--ink); text-decoration: none; }
+.site-bar .brand img { width: 28px; height: 28px; }
+.site-bar nav { display: flex; align-items: center; gap: 20px; font-size: 14px; }
+.site-bar nav a { color: var(--ink-soft); text-decoration: none; }
+.site-bar nav a:hover, .site-bar nav a[aria-current="page"] { color: var(--ink); }
+.site-bar nav a[aria-current="page"] { font-weight: 600; }
+.site-bar nav .lang { border: 1px solid var(--rule); border-radius: 999px; padding: 4px 10px; }
+@media (max-width: 560px) { .site-bar nav a[href^="https://github"] { display: none; } .site-bar nav { gap: 14px; } }
+</style>
+<header class="site-bar">
+  <a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a>
+  <nav>
+    <a href="/zh-CN/features/">功能</a>
+    <a href="/zh-CN/docs/" aria-current="page">文档</a>
+    <a href="/zh-CN/install/">下载</a>
+    <a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a>
+    <a class="lang" href="/docs/" hreflang="en" lang="en">English</a>
+  </nav>
+</header>

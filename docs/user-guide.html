@@ -300,7 +300,7 @@ html { scroll-behavior: smooth; }
 <section id="what">
   <h2>What gilvt is</h2>
   <p>With three or four Claude Code and Codex sessions open at once, the hard part is not writing code. It is knowing which session has stopped to wait for your approval, which one just finished with failing tests, and which one is done and waiting for you to look at the result. An ordinary terminal only gives you grids of text, so you end up flipping through the tabs one by one.</p>
-  <p>gilvt is first of all a complete, normally interactive terminal that you can use every day, on par with iTerm2 and Ghostty. On top of that, it understands the runtime state of Claude Code and Codex:</p>
+  <p>gilvt is first of all a complete, normally interactive terminal that you can use every day. On top of that, it understands the runtime state of Claude Code and Codex:</p>
   <ul>
     <li>The <strong>left sidebar</strong> lists all sessions in one place, with the ones marked “Needs you” at the top; <kbd>⌘⇧J</kbd> takes you there in one keystroke.</li>
     <li><strong>Pane borders and tab dots</strong> show each session’s state by color, so you do not have to switch over to check.</li>
@@ -336,7 +336,7 @@ html { scroll-behavior: smooth; }
       <tr><td>Alerts</td><td>System notifications, Dock badge and bounce, <kbd>⌘⇧J</kbd> to cycle through sessions waiting for you</td><td>Automatic</td></tr>
       <tr><td>Session management</td><td>Search, resume, rename, archive and clean up (move to Trash) past sessions; cleanup wizard</td><td><kbd>⌘⇧R</kbd>, <kbd>⌘⇧K</kbd></td></tr>
       <tr><td>New Agent</td><td>Pick the Agent, directory, initial task, model and permission mode, optionally run it in a new git worktree, and start it in one step</td><td><kbd>⌘⇧N</kbd></td></tr>
-      <tr><td>Themes</td><td>725 built-in themes (the same as Ghostty) plus custom themes, one each for light and dark; window chrome and status colors follow the theme</td><td><kbd>⌘,</kbd> → “Appearance”</td></tr>
+      <tr><td>Themes</td><td>725 built-in themes plus custom themes, one each for light and dark; window chrome and status colors follow the theme</td><td><kbd>⌘,</kbd> → “Appearance”</td></tr>
       <tr><td>Built-in editor</td><td>Edit Skills, commands or any text file with syntax highlighting, never losing content silently; live preview (Markdown / Mermaid / SVG / changes)</td><td><kbd>E</kbd> / <kbd>⌘O</kbd>, <kbd>⌘⇧</kbd>+click, <kbd>⌘⇧V</kbd></td></tr>
       <tr><td>Restore after restart</td><td>Restores windows, tabs, splits and directories after quitting or a crash; Agent sessions are listed as “Pending resume” for you to resume with one click</td><td>Automatic</td></tr>
       <tr><td>Git awareness</td><td>The sidebar shows each session’s branch, change count and ahead / behind; worktrees of the same repository are grouped into one project</td><td>Automatic</td></tr>
@@ -510,7 +510,7 @@ gilvt view --pin README.md         # pin as a preview pane on the right; refresh
 git show HEAD:a.rs | gilvt view --as rs -   # preview standard input
 gilvt diff                         # preview every file changed against HEAD, one by one (←→ to switch)
 gilvt diff main                    # against the main branch</code></pre>
-  <p>When run in another terminal (such as iTerm2), <code>gilvt</code> prints the content directly, with color.</p>
+  <p>When run in another terminal app, <code>gilvt</code> prints the content directly, with color.</p>
 </section>
 
 <section id="agents">
@@ -766,7 +766,7 @@ exclude_paths = []        # sessions / terminals under these directories are nev
     <li><strong>Write-back failures</strong>: when the configuration file is read-only or similar, the theme applies only for this run, and red text at the top of the page first gives the reason (such as “config.toml is read-only; not written”), with the file path on the next line. When the configuration file has a syntax error, the page is read-only, and you can pick again only after fixing it.</li>
     <li><strong>Editing the configuration by hand</strong>: edit <code>theme</code> or <code>[colors]</code> in <code>config.toml</code> directly; it takes effect as soon as you save, without a restart. A misspelled name also brings up an error banner.</li>
   </ul>
-  <p><strong>Your own themes</strong>: copy Ghostty theme files into <code>~/.config/gilvt/themes/</code>; the file name is the theme name. They take precedence over built-in themes of the same name (exact name match first, then case-insensitive). In <code>config.toml</code>, write:</p>
+  <p><strong>Your own themes</strong>: put theme files (plain text, one <code>key = value</code> per line, the same format as the built-in themes) into <code>~/.config/gilvt/themes/</code>; the file name is the theme name. They take precedence over built-in themes of the same name (exact name match first, then case-insensitive). In <code>config.toml</code>, write:</p>
 <pre><code>theme = "My Theme"                                   # fixed
 # theme = { light = "gilvt Light", dark = "My Theme" }   # follow system
 [colors]                                             # optional: override individual colors on top of the theme
