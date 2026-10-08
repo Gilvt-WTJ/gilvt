@@ -264,6 +264,13 @@ impl Workspace {
         if let Some(PaneView::Terminal(t)) = self.panes.get(&pane) { t.update(cx, |t, cx| t.set_remote(r, cx)); }
     }
 
+    /// Shows "这项功能暂不支持远端" and returns true when `pane` is in an ssh link (spec §6, R1 fallback).
+    pub fn refuse_remote(&mut self, pane: PaneId, cx: &mut Context<Self>) -> bool {
+        if self.pane_remote(pane, cx).is_none() { return false; }
+        self.show_error(crate::i18n::text(crate::remote::NOT_YET_REMOTE.0, crate::remote::NOT_YET_REMOTE.1).to_string(), cx);
+        true
+    }
+
     pub fn pane_remote(&self, pane: PaneId, cx: &App) -> Option<crate::remote::PaneRemote> {
         match self.panes.get(&pane) { Some(PaneView::Terminal(t)) => t.read(cx).remote().cloned(), _ => None }
     }
@@ -317,6 +324,7 @@ impl Workspace {
 
     /// Opens the `⌘P` palette for terminal pane `origin`, searching from its cwd (else `$HOME`).
     fn open_finder(&mut self, origin: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_remote(origin, cx) { return; }
         if self.quicklook.is_some() {
             return;
         }
@@ -440,7 +448,9 @@ impl Workspace {
                 let link = link.clone();
                 cx.defer(move |cx| crate::remote::link_ended(&link, cx));
             }
+            TerminalViewEvent::Notice(t) => ws.show_error(t.to_string(), cx),
             TerminalViewEvent::OpenPath { hit, in_editor } => {
+                if ws.refuse_remote(id, cx) { return; }
                 if *in_editor {
                     ws.open_editor(hit.path.clone(), hit.line, Some(id), false, window, cx);
                 } else {

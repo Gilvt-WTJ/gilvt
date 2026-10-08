@@ -12,6 +12,9 @@ use gilvt_ipc::{BridgeSpec, Query, Request, Response};
 use gpui::{App, Global};
 
 pub use pane::PaneRemote;
+
+/// Shown when a local-file feature is used in an ssh pane (R1 has no remote files).
+pub const NOT_YET_REMOTE: (&str, &str) = ("这项功能暂不支持远端", "Not available for remote panes yet");
 use prefs::RemotePrefs;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

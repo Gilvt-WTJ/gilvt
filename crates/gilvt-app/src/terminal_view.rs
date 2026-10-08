@@ -39,6 +39,8 @@ pub enum TerminalViewEvent {
     RemoteEnded { link: String },
     /// Cmd+click on a file path; `in_editor` for Cmd+Shift+click.
     OpenPath { hit: PathHit, in_editor: bool },
+    /// A message for the user (shown as the error banner).
+    Notice(&'static str),
     /// ⌘P: open the file palette for this pane.
     FindFile,
     /// Files dropped from Finder, to preview as one Quick Look group.
@@ -266,8 +268,6 @@ impl TerminalView {
         self.reported_cwd.clone().or_else(|| self.session.cwd())
     }
 
-    // remote_cwd / remote: used by later tasks (file tree, DebugState)
-    #[allow(dead_code)]
     pub fn remote(&self) -> Option<&crate::remote::PaneRemote> { self.remote.as_ref().map(|r| &r.remote) }
 
     #[allow(dead_code)]
@@ -626,7 +626,9 @@ impl TerminalView {
     /// The existing file named by the text at (row, col), resolved against this pane's cwd.
     fn path_at(&self, row: usize, col: usize) -> Option<PathHit> {
         let layout = self.layout.as_ref()?;
-        gilvt_term::paths::path_at(&layout.snapshot, row, col, self.cwd().as_deref(), |p| p.is_file())
+        let remote = self.remote.as_ref().map(|r| r.cwd().map(std::path::Path::to_path_buf));
+        let (cwd, assume) = link_context(self.cwd(), remote);
+        gilvt_term::paths::path_at(&layout.snapshot, row, col, cwd.as_deref(), |p| assume || p.is_file())
     }
 
     /// Recomputes `hovered_link` for a mouse at `position` with the current Cmd (platform
@@ -751,6 +753,11 @@ impl TerminalView {
 
     fn drop_paths(&mut self, paths: &ExternalPaths, _: &mut Window, cx: &mut Context<Self>) {
         self.drop_hint = None;
+        if self.remote.is_some() && crate::drop::alt_held() {
+            cx.emit(TerminalViewEvent::Notice(crate::i18n::text("拖入的是本地路径，远端看不到", "Dropped paths are local; the remote cannot see them")));
+            cx.notify();
+            return;
+        }
         let foreground = self.session.foreground_name();
         match drop_action(foreground.as_deref(), crate::drop::alt_held(), paths.paths()) {
             Some(DropAction::Insert(text)) => self.paste_text(&text),
@@ -1022,5 +1029,26 @@ mod tests {
         assert_eq!(typed_char("12"), None);
         assert_eq!(typed_char("\t"), None);
         assert_eq!(typed_char("修"), Some(PaneKey::Char('修')));
+    }
+}
+
+/// The cwd and existence test ⌘-click uses: in an ssh pane, the remote cwd and "anything may exist"
+/// (the click is refused with a notice, spec §6) instead of checking the local disk.
+pub(crate) fn link_context(local_cwd: Option<PathBuf>, remote: Option<Option<PathBuf>>) -> (Option<PathBuf>, bool) {
+    match remote {
+        Some(cwd) => (cwd, true),
+        None => (local_cwd, false),
+    }
+}
+
+#[cfg(test)]
+mod link_context_tests {
+    use super::link_context;
+    use std::path::PathBuf;
+    #[test]
+    fn remote_panes_never_resolve_against_local_disk() {
+        assert_eq!(link_context(Some("/l".into()), None), (Some(PathBuf::from("/l")), false));
+        assert_eq!(link_context(None, Some(Some("/r".into()))), (Some(PathBuf::from("/r")), true));
+        assert_eq!(link_context(None, Some(None)), (None, true));
     }
 }
