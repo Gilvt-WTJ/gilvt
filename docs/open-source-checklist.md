@@ -50,7 +50,8 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [ ] GitHub 仓库设置：打开 Private vulnerability reporting（`SECURITY.md` 依赖它）；填 About（简介、topics、主页）和社交预览图。
 
 - [x] 官网 `site/`（中英双语，`sh site/build.sh` → `dist-site/`），`/download` 由 `site/_redirects` 转到最新 Release 的 `Gilvt.dmg`；release workflow 每次额外上传固定名字的 `Gilvt.dmg`。
-- [ ] 在 Cloudflare 注册 `gilvt.com`，Cloudflare Pages 连接本仓库（构建命令 `sh site/build.sh`，输出目录 `dist-site`），绑定 `gilvt.com` / `www.gilvt.com`。仓库公开（或 dmg 搬到 R2）之前，`/download` 对外是 404。
+- [x] `gilvt.com` / `www.gilvt.com` 上线（2026-10-07）：Cloudflare Worker `gilvt` 只提供静态资源，`sh site/build.sh && npx wrangler deploy -c site/wrangler.jsonc` 部署（见 `site/README.md`）。仓库公开（或 dmg 搬到 R2）之前，`/download` 转到的 GitHub 地址对外是 404。
+- [ ] 网站自动部署：推送 `site/` 改动后自动 `wrangler deploy`（GitHub Actions + Cloudflare API token，或 Workers Builds 连接仓库）。现在是手动部署。
 - [ ] 对外只发布 `https://gilvt.com/download` 这一个下载地址；README 的安装一节在官网上线后改成指向它。
 
 ## 4. 分发渠道（按顺序）
