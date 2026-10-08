@@ -2152,6 +2152,7 @@ dependencies = [
 name = "gilvt-agent"
 version = "0.2.0"
 dependencies = [
+ "gilvt-i18n",
  "libc",
  "serde",
  "serde_json",
@@ -2222,6 +2223,7 @@ name = "gilvt-config"
 version = "0.2.0"
 dependencies = [
  "gilvt-agent",
+ "gilvt-i18n",
  "serde_json",
  "tempfile",
  "toml 0.8.23",
@@ -2233,6 +2235,7 @@ version = "0.2.0"
 dependencies = [
  "chardetng",
  "encoding_rs",
+ "gilvt-i18n",
  "ropey",
  "tempfile",
  "unicode-segmentation",
@@ -2308,6 +2311,7 @@ version = "0.2.0"
 dependencies = [
  "async-channel 2.5.0",
  "gilvt-agent",
+ "gilvt-i18n",
  "libc",
  "serde",
  "serde_json",
@@ -2339,6 +2343,7 @@ dependencies = [
 name = "gilvt-snapshot"
 version = "0.2.0"
 dependencies = [
+ "gilvt-i18n",
  "serde",
  "serde_json",
  "tempfile",
@@ -2359,6 +2364,7 @@ dependencies = [
 name = "gilvt-theme"
 version = "0.2.0"
 dependencies = [
+ "gilvt-i18n",
  "gilvt-term",
  "tempfile",
 ]
@@ -2367,6 +2373,7 @@ dependencies = [
 name = "gilvt-viewer"
 version = "0.2.0"
 dependencies = [
+ "gilvt-i18n",
  "gilvt-snapshot",
  "similar",
  "syntect",
