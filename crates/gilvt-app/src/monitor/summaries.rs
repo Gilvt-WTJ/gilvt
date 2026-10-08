@@ -343,7 +343,7 @@ fn subjects(excluded: &Exclusions, cx: &App) -> Vec<Subject> {
         let Some(timeline) = timeline else { continue };
         let done = timeline.turns.last().is_some_and(|t| t.outcome != TurnOutcome::Running);
         let observed = Observed { group: status_group(s), done, activity: agent_activity(&timeline), terminal: false };
-        let name = if s.name.is_empty() { "新会话".to_string() } else { s.name.clone() };
+        let name = if s.name.is_empty() { crate::i18n::text("新会话", "New session").to_string() } else { s.name.clone() };
         out.push(Subject::Agent { key: agent_key(&s.key), session: s.clone(), name, timeline, observed });
     }
     let agent_panes: HashSet<PaneId> = agents.registry().sessions().filter(|s| s.is_live()).filter_map(|s| s.pane).collect();
