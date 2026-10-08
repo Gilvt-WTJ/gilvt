@@ -41,6 +41,9 @@ impl State {
     }
 }
 
+/// Serves until the process ends: a takeover by another build or the idle timeout calls
+/// `process::exit(0)` (it never returns then). Returns `Ok(())` only when a daemon of the same build is
+/// already serving, and `Err` when setup fails.
 pub fn run(cfg: Config) -> io::Result<()> {
     gilvt_ipc::secure_dir(&cfg.layout.run_dir())?;
     let lock = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(cfg.layout.lock())?;
@@ -153,19 +156,27 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config) -> io::R
             };
             let mut writer = conn.try_clone()?;
             std::thread::spawn(move || { for msg in rx { if write_frame(&mut writer, &msg).is_err() { break; } } });
-            while let Some(msg) = read_frame::<AppMsg>(&mut conn)? {
-                if let AppMsg::Request { id: rid, req } = msg {
-                    let resp = match req {
-                        RemoteRequest::Ping => RemoteResponse::Pong,
-                        RemoteRequest::LinkInfo => RemoteResponse::Links { links: state.lock().unwrap().links.all() },
-                    };
-                    if tx.send(DaemonMsg::Response { id: rid, resp }).is_err() { break; }
+            // However the read loop ends (EOF, garbage, reset), the bridge must be deregistered and the
+            // connection shut down, or its writer thread and the idle-exit check would hang on it forever.
+            let result = (|| -> io::Result<()> {
+                while let Some(msg) = read_frame::<AppMsg>(&mut conn)? {
+                    if let AppMsg::Request { id: rid, req } = msg {
+                        let resp = match req {
+                            RemoteRequest::Ping => RemoteResponse::Pong,
+                            RemoteRequest::LinkInfo => RemoteResponse::Links { links: state.lock().unwrap().links.all() },
+                        };
+                        if tx.send(DaemonMsg::Response { id: rid, resp }).is_err() { break; }
+                    }
                 }
+                Ok(())
+            })();
+            {
+                let mut s = state.lock().unwrap();
+                s.bridges.retain(|(b, _)| *b != id);
+                s.last_activity = Instant::now();
             }
-            let mut s = state.lock().unwrap();
-            s.bridges.retain(|(b, _)| *b != id);
-            s.last_activity = Instant::now();
-            Ok(())
+            let _ = conn.shutdown(std::net::Shutdown::Both);
+            result
         }
         Some(LocalMsg::Bridge { .. }) | None => Ok(()),
     }
@@ -174,7 +185,6 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config) -> io::R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gilvt_ipc::remote::*;
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
@@ -237,6 +247,27 @@ mod tests {
             DaemonMsg::Event { event: RemoteEvent::LinkDown { link }, .. } => assert_eq!(link, "t-2"),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn bridge_is_deregistered_when_its_connection_breaks() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg = cfg(home.path(), "0.1.0-aaaaaaaa");
+        let state = Arc::new(Mutex::new(State { links: Links::default(), seq: 0, next_bridge: 0, bridges: Vec::new(), last_activity: Instant::now() }));
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let st = state.clone();
+        let h = std::thread::spawn(move || serve(server, &st, &cfg));
+        write_frame(&mut client, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.1.0-aaaaaaaa".into(), app_instance: "t".into(), cursor: 0 } }).unwrap();
+        assert!(matches!(read_frame::<DaemonMsg>(&mut client).unwrap(), Some(DaemonMsg::Welcome { .. })));
+        assert_eq!(state.lock().unwrap().bridges.len(), 1);
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        // a valid length prefix followed by a body that is not JSON
+        use std::io::Write;
+        client.write_all(&5u32.to_be_bytes()).unwrap();
+        client.write_all(b"xxxxx").unwrap();
+        assert!(h.join().unwrap().is_err(), "garbage ends the connection with an error");
+        assert!(state.lock().unwrap().bridges.is_empty(), "the bridge is deregistered");
+        assert_eq!(read_frame::<DaemonMsg>(&mut client).unwrap(), None, "the peer sees EOF");
     }
 
     #[test]
