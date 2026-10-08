@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gilvt：面向 Agent 时代的原生 macOS 终端</title>
+<meta name="description" content="gilvt 让 Claude Code 和 Codex 照常在自己的 TUI 里运行，并告诉你哪个会话在等你：一个左栏看全所有 Agent，每轮的时间线与 diff，可以提问的监控官，725 套主题。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="en" href="/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:title" content="gilvt：面向 Agent 时代的原生 macOS 终端">
+<meta property="og:description" content="同时跑多个 Claude Code、Codex，随时知道哪个会话在等你。">
+<meta property="og:image" content="/images/gilvt-light.png">
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a>
+  <nav>
+    <a href="#features">功能</a>
+    <a href="#install">安装</a>
+    <a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a>
+    <a class="lang" href="/" hreflang="en" lang="en">English</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <span class="badge">v0.1 预览版 · macOS</span>
+    <h1>让终端知道你的 Agent 在做什么</h1>
+    <p class="lead">Claude Code 和 Codex 照常在自己的原生界面里并排运行。gilvt 告诉你哪个会话在等你、每一轮改了什么，一个快捷键就跳过去。</p>
+    <div class="actions">
+      <a class="btn primary" href="/download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+        下载 macOS 版
+      </a>
+      <a class="btn" href="https://github.com/Gilvt-WTJ/gilvt">在 GitHub 上查看</a>
+    </div>
+    <p class="fineprint">通用版（Apple 芯片与 Intel）· macOS 11 及以上 · 经 Apple 签名与公证 · Apache-2.0</p>
+    <div class="demo">
+      <img src="/images/gilvt-demo.gif" width="1600" height="1048" alt="44 秒演示：左栏会话状态实时变化、跳到需要你的会话、每轮 diff、找文件并预览 Markdown 与 Mermaid、Session Center、监控官、向监控官提问、切换主题。">
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>一个真正的终端，再加上所有 Agent 的全景</h2>
+      <p class="sub">gilvt 首先是一个完整的日常终端：标签页、分屏、真彩色、Kitty 键盘协议、中文输入法和 GPU 渲染。在此之上，它读懂 Claude Code 和 Codex 在做什么，但从不替你往里面输入任何东西。</p>
+      <div class="grid">
+        <div class="card"><h3>一个左栏看全所有会话</h3><p>所有 Agent 会话按项目或状态分组，等你审批、在问你问题的始终排在最上面。</p></div>
+        <div class="card"><h3>跳到需要你的会话 <kbd>⇧⌘J</kbd></h3><p>跨标签页、跨窗口，在需要你的会话之间循环跳转；pane 描边和标签圆点一眼看清状态。</p></div>
+        <div class="card"><h3>每一轮都是一条时间线</h3><p>命令、文件修改、TODO 和失败，按轮次列出；点一行，终端就滚回那里。</p></div>
+        <div class="card"><h3>每一轮改了什么 <kbd>⌥⌘2</kbd></h3><p>每轮的产物和「本轮」diff，不离开终端就能检查 Agent 的工作。</p></div>
+        <div class="card"><h3>找回并恢复会话 <kbd>⇧⌘R</kbd></h3><p>搜索几天前的会话接着做，离线 Review 跑完的会话，在新的 git worktree 里开出新 Agent。</p></div>
+        <div class="card"><h3>监控官 <kbd>⇧⌘O</kbd></h3><p>所有 Agent 和终端排成卡片墙；在任意标签的命令条里问"什么需要我处理"，由你本机的 CLI 回答。</p></div>
+        <div class="card"><h3>Quick Look 与编辑器</h3><p>代码高亮与 diff、排版后的 Markdown 和 Mermaid、<kbd>⌘P</kbd> 模糊找文件，以及带实时预览的内置编辑器。</p></div>
+        <div class="card"><h3>725 套主题</h3><p>与 Ghostty 同格式的主题库，也支持你自己的主题，深浅色各选一套，窗口外框跟着主题变。</p></div>
+      </div>
+      <figure class="shot">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="/images/gilvt-dark.png">
+          <img src="/images/gilvt-light.png" width="3200" height="1928" loading="lazy" alt="一个窗口里的六个会话：等待审批、提问、执行中、出错、已完成，右侧是检查器时间线，底部是监控官命令条。">
+        </picture>
+        <figcaption>一个窗口里的六个会话：等待审批、提问、执行中、出错、已完成。</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>几条基本原则</h2>
+      <ul class="principles">
+        <li><strong>Agent 始终是原生 TUI。</strong>不另做聊天界面，也不提供审批按钮。</li>
+        <li><strong>只观察，不代答。</strong>gilvt 只展示状态、移动焦点，从不向 Agent 输入按键。</li>
+        <li><strong>不改你的配置。</strong>hooks 在启动时注入，你的 rc 文件、<code>~/.claude</code>、<code>~/.codex</code> 原样不动。</li>
+        <li><strong>没有遥测。</strong>gilvt 自己不发起任何网络请求。<a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/PRIVACY.zh-CN.md">隐私说明</a></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>安装</h2>
+      <p class="sub">需要 macOS 11 及以上。界面默认简体中文，可以在设置（<kbd>⌘,</kbd>）→「语言」里切换成 English。</p>
+      <ol class="steps">
+        <li><a href="/download">下载磁盘映像</a>并打开。</li>
+        <li>把 <strong>Gilvt</strong> 拖进<strong>「应用程序」</strong>，再从那里打开。如果直接在磁盘映像里打开，gilvt 会提示把自己移过去。</li>
+        <li>在 pane 里运行 <code>claude</code> 或 <code>codex</code>，左栏和检查器会自动识别这个会话。</li>
+      </ol>
+      <p class="sub" style="margin-top:24px">也可以用 Rust 和 Xcode Command Line Tools 从源码构建：</p>
+      <pre>git clone https://github.com/Gilvt-WTJ/gilvt.git
+cd gilvt
+scripts/bundle.sh release
+open target/release/Gilvt.app</pre>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span>
+      <span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/docs/user-guide.zh-CN.md">产品手册</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/PRIVACY.zh-CN.md">隐私</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/SECURITY.zh-CN.md">安全</a></span>
+    </div>
+    <p>gilvt 是独立项目，与 Anthropic、OpenAI 没有关联。Claude 和 Claude Code 是 Anthropic 的商标；Codex 是 OpenAI 的商标。</p>
+  </div>
+</footer>
+</body>
+</html>

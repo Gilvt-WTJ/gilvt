@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gilvt — a native macOS terminal for the agent era</title>
+<meta name="description" content="gilvt runs Claude Code and Codex in their own TUIs and shows you which session needs you: one sidebar for every agent, per-turn timelines and diffs, a Monitor you can ask, 725 themes.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="zh-CN" href="/zh-CN/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:title" content="gilvt — a native macOS terminal for the agent era">
+<meta property="og:description" content="Run Claude Code and Codex side by side, and always know which session needs you.">
+<meta property="og:image" content="/images/gilvt-light.png">
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a>
+  <nav>
+    <a href="#features">Features</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a>
+    <a class="lang" href="/zh-CN/" hreflang="zh-CN" lang="zh-CN">简体中文</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <span class="badge">v0.1 preview · macOS</span>
+    <h1>The terminal that knows what your agents are doing</h1>
+    <p class="lead">Run Claude Code and Codex side by side in their own native TUIs. gilvt shows which session is waiting for you, what each turn changed, and takes you there in one keystroke.</p>
+    <div class="actions">
+      <a class="btn primary" href="/download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
+        Download for macOS
+      </a>
+      <a class="btn" href="https://github.com/Gilvt-WTJ/gilvt">View on GitHub</a>
+    </div>
+    <p class="fineprint">Universal (Apple silicon and Intel) · macOS 11 or later · signed and notarized by Apple · Apache-2.0</p>
+    <div class="demo">
+      <img src="/images/gilvt-demo.gif" width="1600" height="1048" alt="A 44-second tour: sessions changing state in the sidebar, jumping to the one that needs you, per-turn diffs, file search with rendered Markdown and Mermaid, Session Center, the Monitor, asking the Monitor, and switching themes.">
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>A real terminal, plus a view of every agent</h2>
+      <p class="sub">gilvt is first a complete everyday terminal: tabs, splits, true color, the Kitty keyboard protocol, input methods and GPU rendering. On top of that it reads what Claude Code and Codex are doing, without ever typing into them.</p>
+      <div class="grid">
+        <div class="card"><h3>One sidebar for every session</h3><p>Every agent session, grouped by project or status. The ones waiting for approval or asking a question stay on top.</p></div>
+        <div class="card"><h3>Jump to whoever needs you <kbd>⇧⌘J</kbd></h3><p>Cycle through the sessions that need you, across tabs and windows. Pane borders and tab dots show state at a glance.</p></div>
+        <div class="card"><h3>Every turn, as a timeline</h3><p>Commands, edits, TODOs and failures, turn by turn. Click a row and the terminal scrolls back to it.</p></div>
+        <div class="card"><h3>What each turn changed <kbd>⌥⌘2</kbd></h3><p>Per-turn artifacts with a "this turn" diff, so you can review an agent's work without leaving the terminal.</p></div>
+        <div class="card"><h3>Find and resume sessions <kbd>⇧⌘R</kbd></h3><p>Search sessions from days ago, resume them, review finished ones offline, start a new agent in a fresh git worktree.</p></div>
+        <div class="card"><h3>The Monitor <kbd>⇧⌘O</kbd></h3><p>All agents and terminals as cards. Ask "what needs me?" from a command bar in any tab, answered by your own local CLI.</p></div>
+        <div class="card"><h3>Quick Look and an editor</h3><p>Code with diffs, rendered Markdown and Mermaid, <kbd>⌘P</kbd> fuzzy file search, and a built-in editor with live preview.</p></div>
+        <div class="card"><h3>725 themes</h3><p>The Ghostty-format theme collection plus your own, with separate light and dark picks. The window chrome follows the theme.</p></div>
+      </div>
+      <figure class="shot">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="/images/gilvt-dark.png">
+          <img src="/images/gilvt-light.png" width="3200" height="1928" loading="lazy" alt="Six sessions in one window: awaiting approval, asking, running, errored and done, with the inspector timeline and the Monitor command bar.">
+        </picture>
+        <figcaption>Six sessions in one window: awaiting approval, asking, running, errored and done.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Built on a few rules</h2>
+      <ul class="principles">
+        <li><strong>Agents stay in their native TUI.</strong> No chat UI of its own, no approval buttons.</li>
+        <li><strong>Observe, never answer.</strong> gilvt shows state and moves focus; it never types into an agent.</li>
+        <li><strong>Your configuration is untouched.</strong> Hooks are injected at launch; your rc files, <code>~/.claude</code> and <code>~/.codex</code> stay as they are.</li>
+        <li><strong>No telemetry.</strong> gilvt makes no network requests of its own. <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/PRIVACY.md">Privacy</a></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Install</h2>
+      <p class="sub">Requires macOS 11 or later. The interface defaults to Simplified Chinese; switch to English in Settings (<kbd>⌘,</kbd>) → Language.</p>
+      <ol class="steps">
+        <li><a href="/download">Download the disk image</a> and open it.</li>
+        <li>Drag <strong>Gilvt</strong> into <strong>Applications</strong>, then open it from there. If you open it straight from the disk image, gilvt offers to move itself.</li>
+        <li>Run <code>claude</code> or <code>codex</code> in a pane. The sidebar and inspector pick the session up automatically.</li>
+      </ol>
+      <p class="sub" style="margin-top:24px">Or build from source with Rust and the Xcode Command Line Tools:</p>
+      <pre>git clone https://github.com/Gilvt-WTJ/gilvt.git
+cd gilvt
+scripts/bundle.sh release
+open target/release/Gilvt.app</pre>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span>
+      <span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/docs/user-guide.md">User guide</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/PRIVACY.md">Privacy</a> · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/SECURITY.md">Security</a></span>
+    </div>
+    <p>gilvt is an independent project, not affiliated with Anthropic or OpenAI. Claude and Claude Code are trademarks of Anthropic; Codex is a trademark of OpenAI.</p>
+  </div>
+</footer>
+</body>
+</html>

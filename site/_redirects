@@ -1,0 +1,4 @@
+# Cloudflare Pages redirects. /download is the one download link published anywhere (README, docs, posts):
+# point it at a new host by changing this line only, e.g. https://release.gilvt.com/Gilvt.dmg once the
+# dmg lives on Cloudflare R2.
+/download  https://github.com/Gilvt-WTJ/gilvt/releases/latest/download/Gilvt.dmg  302

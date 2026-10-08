@@ -60,16 +60,20 @@ jobs:
           echo "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary.p8"
           NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8" scripts/package.sh
 
-      - name: Checksum
+      - name: Checksum, and a copy under a fixed name
+        # Gilvt.dmg is what https://gilvt.com/download (site/_redirects) points at through
+        # releases/latest/download/Gilvt.dmg; the versioned file is what the Homebrew cask uses.
         run: |
           cd target/dist
-          shasum -a 256 Gilvt-*.dmg | tee SHA256SUMS
+          cp Gilvt-*.dmg Gilvt.dmg
+          shasum -a 256 Gilvt-*.dmg Gilvt.dmg | tee SHA256SUMS
 
       - name: GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             target/dist/Gilvt-*.dmg
+            target/dist/Gilvt.dmg
             target/dist/SHA256SUMS
           generate_release_notes: true
 
@@ -78,7 +82,7 @@ jobs:
           GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          sha="$(awk '{print $1}' target/dist/SHA256SUMS)"
+          sha="$(awk '$2 ~ /^Gilvt-/ {print $1}' target/dist/SHA256SUMS)"
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-gilvt.git" tap
           cd tap
           sed -i '' -e "s/^  version \".*\"/  version \"${version}\"/" -e "s/^  sha256 \".*\"/  sha256 \"${sha}\"/" Casks/gilvt.rb
