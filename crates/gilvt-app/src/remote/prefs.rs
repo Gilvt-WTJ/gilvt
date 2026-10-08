@@ -37,8 +37,6 @@ impl RemotePrefs {
         std::fs::read(path(dir)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
 
-    // used by Task 9 (bridge records installs)
-    #[allow(dead_code)]
     pub fn save(&self, dir: &Path) -> io::Result<()> {
         std::fs::create_dir_all(dir)?;
         let tmp = dir.join(format!("remote.json.tmp-{}", std::process::id()));

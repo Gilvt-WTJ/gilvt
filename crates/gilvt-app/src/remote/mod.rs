@@ -14,8 +14,6 @@ use gpui::{App, Global};
 pub use pane::PaneRemote;
 use prefs::RemotePrefs;
 
-// BridgeStatus variants other than `None` are used by Task 9.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BridgeStatus { None, Connecting, Up, Down, Mismatch }
 
@@ -27,10 +25,9 @@ impl BridgeStatus {
     }
 }
 
-// Fields read by Task 9+ (bridge, DebugState).
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct HostEntry {
+    #[allow(dead_code)] // read by DebugState (later task)
     pub display: String,
     pub hostname: Option<String>,
     pub bridge: BridgeStatus,
@@ -85,8 +82,6 @@ impl RemoteHosts {
     }
 
     /// The bridge reported the remote hostname: every link of `host` learns it.
-    // used by Task 9 (bridge)
-    #[allow(dead_code)]
     pub fn set_hostname(&mut self, host: &str, hostname: String) -> Vec<(u64, PaneRemote)> {
         if let Some(h) = self.hosts.get_mut(host) { h.hostname = Some(hostname.clone()); }
         self.links.iter_mut().filter(|(_, e)| e.host == host).filter_map(|(link, e)| {
@@ -101,14 +96,10 @@ impl RemoteHosts {
         e.pane
     }
 
-    // used by Task 9 (bridge teardown)
-    #[allow(dead_code)]
     pub fn links_of(&self, host: &str) -> Vec<String> {
         self.links.iter().filter(|(_, e)| e.host == host).map(|(l, _)| l.clone()).collect()
     }
 
-    // used by Task 9 (bridge records installs)
-    #[allow(dead_code)]
     pub fn record(&mut self, host: &str, install: Option<String>, installed: Option<String>, arch: Option<String>, hostname: Option<String>, forget_installed: bool) {
         let h = self.prefs.hosts.entry(host.to_string()).or_default();
         if install.is_some() { h.install = install; }
