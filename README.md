@@ -19,10 +19,7 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/gilvt-dark.png">
-    <img src="docs/images/gilvt-light.png" alt="gilvt with six agent sessions: the sidebar grouped by status, four split panes (awaiting approval, running, error, done), the inspector timeline, and the Monitor command bar answering “What needs me right now?”" width="100%">
-  </picture>
+  <img src="docs/images/gilvt-demo.gif" alt="A 44-second tour of gilvt: sessions changing state in the sidebar, jumping to the one that needs you, per-turn artifacts and diff, ⌘P with rendered Markdown and Mermaid, Session Center, the Monitor, asking the Monitor, and switching themes" width="100%">
 </p>
 
 > [!NOTE]
@@ -56,6 +53,14 @@ that it understands what your coding agents are doing:
   `⌘P` fuzzy file search, and a built-in editor with live preview.
 - **725 built-in themes** (the same Ghostty-format collection) plus your own; the window chrome follows
   the theme.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/gilvt-dark.png">
+    <img src="docs/images/gilvt-light.png" alt="gilvt with six agent sessions: the sidebar grouped by status, four split panes (awaiting approval, running, error, done), the inspector timeline, and the Monitor command bar answering “What needs me right now?”" width="100%">
+  </picture>
+</p>
+<p align="center"><sub>Six sessions in one window: awaiting approval, asking, running, errored and done, with the inspector timeline and the Monitor command bar.</sub></p>
 
 Design principles:
 

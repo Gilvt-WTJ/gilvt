@@ -19,10 +19,7 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/gilvt-dark.png">
-    <img src="docs/images/gilvt-light.png" alt="gilvt 同时运行六个 Agent 会话：左栏按状态分组，四个分屏分别是等待审批、执行中、出错和已完成，右栏是检查器时间线，底部的监控官命令条在回答 “What needs me right now?”" width="100%">
-  </picture>
+  <img src="docs/images/gilvt-demo.gif" alt="gilvt 44 秒演示：左栏会话状态实时变化、跳到需要你的会话、每轮产物与 diff、⌘P 与 Markdown / Mermaid 预览、Session Center、监控官、向监控官提问、切换主题" width="100%">
 </p>
 
 > [!NOTE]
@@ -47,6 +44,14 @@ gilvt 首先是一个完整的日常终端：标签页、分屏、真彩色、Ki
 - **监控官**（`⌘⇧O`）：所有窗口的会话和终端排成卡片墙，可选的 AI 总结和只读对话（默认关闭，用你本机的 CLI）。
 - **Quick Look 与编辑器**：代码高亮与 diff、排版后的 Markdown 和 Mermaid、`⌘P` 模糊找文件，以及带实时预览的内置编辑器。
 - **725 套内置主题**（与 Ghostty 同一套格式和主题库），也支持自己的主题；窗口外框跟着主题变。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/gilvt-dark.png">
+    <img src="docs/images/gilvt-light.png" alt="gilvt 同时运行六个 Agent 会话：左栏按状态分组，四个分屏分别是等待审批、执行中、出错和已完成，右栏是检查器时间线，底部的监控官命令条在回答 “What needs me right now?”" width="100%">
+  </picture>
+</p>
+<p align="center"><sub>一个窗口里的六个会话：等待审批、提问、执行中、出错、已完成，右侧是检查器时间线，底部是监控官命令条。</sub></p>
 
 设计原则：
 
