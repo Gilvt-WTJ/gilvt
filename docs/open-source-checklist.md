@@ -41,7 +41,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [x] `.github/workflows/ci.yml`：`cargo test`，只在 Actions 页面手动触发（私有仓库的 macOS 分钟按 10 倍计）；公开后可改为 push / PR 自动触发。
 - [x] `packaging/homebrew/gilvt.rb`：cask 模板。
 - [ ] 决定是否统一 `cargo fmt` / 启用 `cargo clippy -D warnings`，再加进 CI（代码目前没有按 rustfmt 格式化）。
-- [ ] 建 `homebrew-gilvt` tap 仓库，放 `Casks/gilvt.rb`；release workflow 的 cask 更新步骤依赖它。
+- [x] 建 `homebrew-gilvt` tap 仓库，放 `Casks/gilvt.rb`；release workflow 的 cask 更新步骤依赖它。（2026-10-08：`Gilvt-WTJ/homebrew-gilvt`，0.1.0；v0.1.0 的 GitHub Release 已补建，附 R2 上同一个 dmg。）
 - [ ] 在仓库 Secrets 里配好签名与公证的密钥（名字见 `release.yml` 开头的注释）。
 - [x] 本机发版：`GILVT_NOTARIZE=1 scripts/package.sh`（约 2 分钟；自动用钥匙串里的 Developer ID 证书、打开硬化运行时、用 `gilvt-notary` 公证凭据，显式设置的变量优先）。`hdiutil create` 偶发失败（已见过一次），脚本会重试并打印退出码。`package.sh` 现在也给 dmg 签名，`hdiutil` 失败会重试。
 - [ ] 在一台没装过 gilvt 的 Mac 上从浏览器下载 dmg 打开（Intel 机器更好），确认没有 Gatekeeper 提示、通知 / Apple Events 授权弹窗文案正常。

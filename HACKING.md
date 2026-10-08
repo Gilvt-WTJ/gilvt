@@ -99,7 +99,9 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 
    带版本号的文件给 Homebrew cask 用。
 
-6. **以后改为自动发布**：仓库 Secrets 配好之后（名字见 `.github/workflows/release.yml` 开头），第 2 步推送 tag 就会在 GitHub Actions 上自动完成第 3、5 步，并更新 Homebrew tap 里的 cask，不用再在本机打包（第 4 步仍在本机做，它要用钥匙串里的 Sparkle 私钥）。
+6. **更新 Homebrew cask**（tap 仓库 `Gilvt-WTJ/homebrew-gilvt`）：把 `Casks/gilvt.rb` 的 `version` 和 `sha256`（`SHA256SUMS` 里 `Gilvt-0.2.0.dmg` 那一行）改成新版本，提交并推送；`packaging/homebrew/gilvt.rb` 同步改成一样的内容。改完用 `brew fetch --cask gilvt-wtj/gilvt/gilvt` 确认能下载、校验和对得上。
+
+7. **以后改为自动发布**：仓库 Secrets 配好之后（名字见 `.github/workflows/release.yml` 开头），第 2 步推送 tag 就会在 GitHub Actions 上自动完成第 3、5 步，并更新 Homebrew tap 里的 cask，不用再在本机打包（第 4 步仍在本机做，它要用钥匙串里的 Sparkle 私钥）。
 
 ### 自动更新（Sparkle）
 
