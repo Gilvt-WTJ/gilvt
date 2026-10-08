@@ -7,7 +7,9 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
-First public release, in preparation as 0.1.0.
+## [0.1.0] - 2026-10-08
+
+First public release.
 
 ### Added
 
@@ -33,4 +35,5 @@ First public release, in preparation as 0.1.0.
   downloads, and installs when you quit gilvt, so running agents are never interrupted; "Check for
   Updates…" in the app menu, and `[update] mode = "download" | "check" | "off"` in `config.toml`.
 
-[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/commits/main
+[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.1.0...main
+[0.1.0]: https://github.com/Gilvt-WTJ/gilvt/commits/v0.1.0
