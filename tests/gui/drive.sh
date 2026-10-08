@@ -28,7 +28,7 @@
 #   sh <command>                  run a shell command in the sandbox HOME (fixtures: mv, mkdir, files)
 #   clipboard [==|contains <text>]  print the clipboard, or compare it
 #   sleep <duration>              wait (500ms, 2s): only to check that something does NOT happen
-#   restart [--set KEY=VALUE]...  restart gilvt in the same sandbox (sandbox.sh restart), editing config.toml
+#   restart [--set KEY=VALUE]... [--env GILVT_TEST_X=V]...  restart gilvt in the same sandbox (sandbox.sh restart), editing config.toml
 #   step '<line>'                 one line of a case's gilvt-steps block, split as tests/gui/README.md says;
 #                                 a failed step (exit 1 or 4) leaves a window screenshot in <sandbox>/failures/
 #

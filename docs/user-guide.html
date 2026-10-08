@@ -365,6 +365,7 @@ open target/debug/Gilvt.app</code></pre></div></li>
     <li><div><strong>Use it as usual.</strong> Run <code>claude</code> or <code>codex</code> directly in a pane; its state appears automatically in the sidebar and the inspector, with no extra setup.</div></li>
   </ol>
   <p>If you only want to try it out, you can also run the debug build directly: <code>cargo build --workspace &amp;&amp; ./target/debug/gilvt-app</code>. In that case notifications go through <code>osascript</code>, have no sound, and clicking them cannot take you back to the pane.</p>
+  <p><strong>When installing from the download</strong>, drag Gilvt into the Applications folder before opening it. If you open it straight from the dmg window or from Downloads, gilvt shows a banner saying it is running from a temporary location: macOS then runs a random read-only copy, so later updates and the hooks written by <code>gilvt integrate install</code> would stop working. Click “Move to Applications” on the banner and gilvt copies itself to <code>/Applications</code> (<code>~/Applications</code> when that is not writable) and reopens from there; an older copy already there goes to the Trash first. “Not Now” hides the banner for this run only.</p>
 </section>
 
 <section id="layout">

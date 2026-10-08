@@ -17,7 +17,7 @@ mod sessions_render;
 pub mod sessions_model;
 pub mod sessions_view;
 mod dir_label;
-mod trash;
+pub(crate) mod trash;
 
 pub use archive::archive_sessions;
 pub use dir_label::{copy_text as dir_copy_text, label_home, last_component, shorten_dir, DIR_MAX_CHARS};

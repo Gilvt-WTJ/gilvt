@@ -976,6 +976,7 @@ impl Workspace {
                         cx.notify();
                     }))
             }))
+            .children(crate::install_notice::render(&p, cx))
             .children(self.editor_refusal.as_ref().map(|r| self.render_editor_refusal(r, &p, cx)))
             .child(
                 div()

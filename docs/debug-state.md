@@ -39,6 +39,7 @@ GUI 验收测试通过 socket 读取 gilvt 的界面状态（`Request::DebugStat
 | `overlay` | 对象或 `null` | pane 区域上最上层的浮层 |
 | `inspector` | 对象 | 右侧检查器 |
 | `error_banner` | 字符串或 `null` | pane 区域上方的错误横幅（如 `无法启动 shell：…`），不含「（点击关闭）」 |
+| `install_banner` | 对象或 `null` | 「移到应用程序」横幅：Gilvt.app 从 macOS 的临时副本（translocation）或 dmg 里运行时出现，见下 `### install_banner`；点「以后再说」后为 `null` |
 | `dividers` | 数组 | 可以拖动的分界线 `{ between, rect }`：`between` 目前只有 `center\|inspector`（pane 区域与检查器之间，4 点宽；检查器隐藏时没有）。左栏宽度固定、不能拖，所以没有 `sidebar\|center`；分屏 pane 之间的分界线暂不导出 |
 | `layout` | 对象 | 这个窗口此刻会被写进 `workspace.json` 的内容（`persist::snapshot` 的 `WindowSnap`，每次查询现算，不是读文件）：`frame`（`{ x, y, w, h }`，窗口位置与大小，逻辑点；可能为 `null`）、`active_tab`（当前标签的下标，只数有终端的标签）、`tabs`（`[{ tree, focused }]`）。`tree` 是分屏树：`{ "type": "leaf", "pane": { pane_id, cwd, agent } }` 或 `{ "type": "split", "axis": "row" \| "column", "ratios": [0.5, 0.5], "children": [...] }`；`agent` 是 `{ kind, session_id, name, last_status }`（pane 里有会话时）或 `null`。预览 pane 不在里面，只剩预览的标签不列出；`focused` 是标签里有焦点的 pane id。`monitor` / `monitor_active`（布尔）：窗口有一个监控官独占的标签 / 它是当前标签（这时 `active_tab` 指的是保存的终端标签；`tabs` 为空的窗口——只有监控官——不写进文件）。用它比较重启前后的布局、比例、cwd 和窗口位置 |
 | `close_confirm` | 对象或 `null` | 关闭确认条（`⌘W` / `⌘⇧W` / 红色关闭按钮 / `⌘Q` 在有 agent 执行中或等你时弹出；关标签 / 关窗口 / `⌘Q` 会丢失编辑 pane 未保存的修改时也弹出）：`{ "action": "pane" \| "tab" \| "window" \| "quit", "items": [{ session, pane, name, status }], "dirty": ["SKILL.md", …] }`。`items` 列出会受影响的会话（`quit` 时合并所有窗口、每个会话一次）；`status` 是条上画出的状态文字（`思考中` / `执行 <工具>` / `等待授权` / `在问你`）。`dirty` 是会丢失未保存修改的文件名（只有文件名，不含目录；`quit` 时合并所有窗口），没有时为 `[]`。没有确认条时为 `null`。`dirty` 为空时条上 `⌘↩` 是「仍然关闭」，`↩` / `Esc` 是取消（默认）；`dirty` 非空时按钮是「取消」（`Esc`）「不保存并关闭」（`⌘↩`）「全部保存并关闭」（默认，`↩` / `⌘S`），任一文件没保存成功（外部已修改 / 写入失败）就中止关闭，确认条消失，该编辑 pane 被切到前台并聚焦，由它自己的横条说明原因；保存后若仍有 agent 在执行或等你，改为只列 agent 的确认条再问一次 |
@@ -284,6 +285,23 @@ rect 什么时候有：这些 rect 都在元素绘制（prepaint）时记录，�
 
 `{ "items": [{ "label", "checked", "enabled", "rect" }] }`，按菜单里的顺序（分隔线不算）。`checked`：前面有 ✓（静音）；`enabled`：可点
 （会话面板里运行中的会话不能移到废纸篓）。
+
+### `install_banner`
+
+Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这条横幅（`gilvt_agent::install_location`）。GUI 用例用
+`restart --env GILVT_TEST_INSTALL_LOCATION=disk_image|translocated` 模拟，`--env GILVT_TEST_APPLICATIONS_DIR=~/…` 把「应用程序」指到沙盒里。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `kind` | 字符串 | `translocated`（下载后原地打开、被 macOS 放到随机只读路径）或 `disk_image`（在 dmg 里运行） |
+| `bundle` | 字符串 | 正在运行的 `.app` 路径 |
+| `target` | 字符串 | 「移到应用程序」会复制到的路径：`/Applications/Gilvt.app`，没有写权限时 `~/Applications/Gilvt.app` |
+| `replaces` | 布尔 | `target` 已经有东西（会先移到废纸篓，文案里会说明） |
+| `stage` | 字符串 | `offer`（刚出现）、`moving`（复制中）、`moved`（已复制，退出后从新位置重新打开）、`failed`（失败，按钮变成「重试」） |
+| `text` | 字符串 | 横幅上的那句话 |
+| `error` | 字符串或 `null` | `failed` 时的原因 |
+| `move_button` | rect 或 `null` | 「移到「应用程序」」/「重试」按钮；`moved` 时没有 |
+| `dismiss_button` | rect 或 `null` | 「以后再说」按钮 |
 
 ### `overlay`
 

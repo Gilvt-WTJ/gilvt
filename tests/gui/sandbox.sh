@@ -7,8 +7,10 @@
 #   tests/gui/sandbox.sh real-up [--label X] [--app PATH] [--record DIR]   real HOME, real claude / codex;
 #                                                             DIR (absolute): GILVT_MONITOR_RECORD for the 监控官
 #   tests/gui/sandbox.sh down [--keep DIR]                    DIR: copy shots/ and failures/ there first
-#   tests/gui/sandbox.sh restart [--set KEY=VALUE]...         same sandbox and HOME, a fresh gilvt; KEY is
-#                                                             `name` or `table.name` in config.toml
+#   tests/gui/sandbox.sh restart [--set KEY=VALUE]... [--env GILVT_TEST_X=V]...
+#                                                             same sandbox and HOME, a fresh gilvt; KEY is
+#                                                             `name` or `table.name` in config.toml; --env
+#                                                             passes a GILVT_TEST_* switch to that gilvt
 #   tests/gui/sandbox.sh status
 #
 # The app defaults to <target>/debug/Gilvt.app (scripts/bundle.sh). The fake agent is not in the
@@ -623,10 +625,15 @@ stop_recorded() {
 # --set edits to config.toml (gilvt reads it only at startup). Sandbox mode only: real-up's config is the
 # user's own.
 cmd_restart() {
-  local sets=()
+  local sets=() envs=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --set) [ $# -ge 2 ] || usage; sets+=("$2"); shift 2 ;;
+      # Only gilvt's test switches (GILVT_TEST_*) may be passed into the sandboxed app.
+      --env)
+        [ $# -ge 2 ] || usage
+        case "$2" in GILVT_TEST_[A-Z_]*=*) envs+=("$2") ;; *) die "restart: --env takes GILVT_TEST_<NAME>=<value>, not $2" ;; esac
+        shift 2 ;;
       *) usage ;;
     esac
   done
@@ -642,7 +649,8 @@ cmd_restart() {
     say "restart: config.toml: ${sets[*]}"
   fi
   local pid wid
-  pid="$(launch "$APP" "$HOME_DIR" "$BIN_DIR:$base_path" GILVT_FAKE_SCENARIOS_DIR="$SANDBOX_DIR/scenarios" GILVT_SANDBOX_HOME="$HOME_DIR")"
+  pid="$(launch "$APP" "$HOME_DIR" "$BIN_DIR:$base_path" GILVT_FAKE_SCENARIOS_DIR="$SANDBOX_DIR/scenarios" GILVT_SANDBOX_HOME="$HOME_DIR" ${envs[@]+"${envs[@]}"})"
+  [ ${#envs[@]} -eq 0 ] || say "restart: env: ${envs[*]}"
   [ -n "$pid" ] || die "restart: gilvt-app did not start within ${launch_timeout}s"
   if ! wid="$(await_window "$APP/Contents/MacOS/gilvt" "$pid")"; then
     kill "$pid" 2>/dev/null

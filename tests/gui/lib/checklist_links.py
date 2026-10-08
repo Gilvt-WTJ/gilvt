@@ -81,7 +81,7 @@ def check(doc, cases):
     doc_dir = os.path.dirname(os.path.abspath(doc))
     errors = []
     all_rows = set()
-    for m in re.finditer(r"^## ([A-Z])\. .*?(?=^## |\Z)", text, re.S | re.M):
+    for m in re.finditer(r"^## ([A-Z]{1,2})\. .*?(?=^## |\Z)", text, re.S | re.M):
         sec, part = m.group(1), m.group(0)
         rows = [l for l in part.splitlines() if re.match(r"\| %s\d+ \|" % sec, l)]
         all_rows.update(cells(l)[0] for l in rows)

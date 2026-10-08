@@ -41,13 +41,28 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
+/// Why hooks must not point at this gilvt: it runs from a translocated or read-only copy of the app, whose
+/// path is gone after a reboot or an eject (so every agent run would fail its hooks).
+fn location_problem(loc: Option<(PathBuf, gilvt_agent::install_location::Problem)>) -> Option<String> {
+    use gilvt_agent::install_location::Problem;
+    let (bundle, problem) = loc?;
+    let where_ = match problem {
+        Problem::Translocated => "a temporary copy macOS made of a downloaded app",
+        Problem::DiskImage => "the disk image",
+    };
+    Some(format!(
+        "{} runs from {where_}; move Gilvt.app to the Applications folder, open it from there, then run this again",
+        bundle.display()
+    ))
+}
+
 fn status(home: &Path) -> Result<Vec<String>, String> {
     let gilvt = super::hook::gilvt_path();
     let claude_path = home.join(".claude/settings.json");
     let codex_path = home.join(".codex/config.toml");
     let claude = load_json(&claude_path)?;
     let codex = load_toml(&codex_path)?;
-    Ok(vec![
+    let mut lines = vec![
         status_line(
             "Claude",
             &claude_path,
@@ -60,10 +75,17 @@ fn status(home: &Path) -> Result<Vec<String>, String> {
             codex_count(codex.as_ref().map(toml_value).transpose()?.as_ref(), &gilvt),
             super::hook::codex::EVENTS.len(),
         ),
-    ])
+    ];
+    if let Some(problem) = location_problem(gilvt_agent::install_location::current()) {
+        lines.push(format!("Warning: {problem}"));
+    }
+    Ok(lines)
 }
 
 fn install(home: &Path) -> Result<Vec<String>, String> {
+    if let Some(problem) = location_problem(gilvt_agent::install_location::current()) {
+        return Err(problem);
+    }
     let gilvt = super::hook::gilvt_path();
     let claude_path = home.join(".claude/settings.json");
     let codex_path = home.join(".codex/config.toml");
@@ -359,6 +381,16 @@ fn backup_and_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn location_problem_names_the_bundle_only_when_it_cannot_stay() {
+        use gilvt_agent::install_location::Problem;
+        assert_eq!(location_problem(None), None);
+        let t = location_problem(Some((PathBuf::from("/private/var/x/AppTranslocation/1/d/Gilvt.app"), Problem::Translocated))).unwrap();
+        assert!(t.contains("AppTranslocation/1/d/Gilvt.app") && t.contains("temporary copy") && t.contains("Applications"), "{t}");
+        let d = location_problem(Some((PathBuf::from("/Volumes/Gilvt/Gilvt.app"), Problem::DiskImage))).unwrap();
+        assert!(d.contains("disk image"), "{d}");
+    }
 
     #[test]
     fn install_is_idempotent_and_uninstall_keeps_user_hooks() {

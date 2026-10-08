@@ -61,6 +61,7 @@ impl Workspace {
             overlay: self.debug_overlay(info.modifiers, &rect, cx),
             inspector: self.debug_inspector(&rect, cx),
             error_banner: self.error.clone(),
+            install_banner: crate::install_notice::debug(&rect, cx),
             dividers: match self.inspector.hidden {
                 true => Vec::new(),
                 false => vec![ds::Divider { between: "center|inspector", rect: rect(RectId::InspectorEdge) }],

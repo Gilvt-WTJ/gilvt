@@ -1701,7 +1701,7 @@ description: test
 mkdir -p "$T/skill"
 printf '%s\n' "$good_front" 'tests/gui/drive.sh wait, `tests/gui/sandbox.sh real-up`, tests/gui/drive.sh <动作>, `tests/gui/cases/<节>/<ID>.md`, `docs/debug-state.md`' >"$T/skill/ok.md"
 check_rc "skill lint: good" 0 sk "$T/skill/ok.md"
-printf '%s\n' "$good_front" '先 scripts/bundle.sh。再看 `docs/design/x.md`' >"$T/skill/ok.md"
+printf '%s\n' "$good_front" '先 scripts/bundle.sh。再看 `../elsewhere/x.md`' >"$T/skill/ok.md"
 check_rc "skill lint: trailing punctuation, a path outside the repo" 0 sk "$T/skill/ok.md"
 for body in 'tests/gui/drive.sh tap row(1)' 'tests/gui/sandbox.sh start' 'see `tests/gui/nope.md`'; do
   printf '%s\n' "$good_front" "$body" >"$T/skill/bad.md"

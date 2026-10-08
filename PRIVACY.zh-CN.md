@@ -23,6 +23,7 @@ gilvt 没有遥测、统计、崩溃上传或更新检查，自己不发起任�
   - `state/snapshots/`：每轮的工作区快照，供「产物」标签的「本轮」diff 使用。轮进行中，没被 git 跟踪也没被忽略的文件
     会被复制到这里。某个仓库 30 天没有新快照时，它的快照会被删除。
 - 启动 Claude Code 和 Codex 时传递 gilvt hooks 用的临时文件。
+- 只在你点「移到「应用程序」」时（gilvt 从 dmg 或下载后的临时副本里运行时才会出现）：把 `Gilvt.app` 复制到 `/Applications`（或 `~/Applications`）；那里已有的 `Gilvt.app` 先移到废纸篓。
 
 gilvt 不会修改你的 shell rc 文件、`~/.claude` 或 `~/.codex`，只有一个需要你主动开启的例外：`gilvt integrate install`
 会把 gilvt 的 hooks 合并进 `~/.claude/settings.json` 和 `~/.codex/config.toml`（改写前先备份），以便追踪在其他终端里运行的

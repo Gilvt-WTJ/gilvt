@@ -8,6 +8,7 @@ mod external_navigation;
 mod finder;
 mod i18n;
 mod inspector;
+mod install_notice;
 mod ipc_bridge;
 mod launch;
 mod launcher;
@@ -108,6 +109,7 @@ fn main() {
         cx.on_action(|_: &Quit, cx| cx.defer(workspace::quit_requested));
         cx.on_action(|_: &NewWindow, cx| open_window(None, None, cx));
         settings_window::init(cx);
+        install_notice::init(cx);
         let mut quitting = false;
         cx.on_window_closed(move |cx| {
             debug_state::rects::forget_closed_windows(cx);

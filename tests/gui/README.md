@@ -43,7 +43,7 @@ Claude 仍可从 `.claude/skills/gilvt-acceptance/SKILL.md` 进入同一份流�
 | `up [--label X] [--app PATH] [--fake PATH] [--keep DIR]` | 创建 `$TMPDIR/gilvt-gui-<yyyymmdd-HHMMSS>/`，启动沙盒 gilvt，写 `session.env`，把 `$TMPDIR/gilvt-gui-current` 指向它。安全检查失败时自己 `down`，`--keep` 把 `failures/` 先复制到 DIR（`run.sh` 传 `<out>/<ID>`） |
 | `real-up [--label X] [--app PATH] [--record DIR]` | 真实 HOME、真实 claude / codex（`real-*` 用例），`DISABLE_AUTOUPDATER=1`，`MODE=real`。`--record`（绝对路径）以 `GILVT_MONITOR_RECORD=DIR` 启动：监控官对话进程把写入（`> `）与读到（`< `）的每一行追加到 `DIR/<claude\|codex>-<pid>.jsonl` |
 | `down [--keep DIR]` | 只结束 `session.env` 里的 pid，删除沙盒目录和链接；列出 `trashed.txt` 里记下的废纸篓条目（不清空） |
-| `restart [--set KEY=VALUE]…` | 同一个沙盒（HOME、seed、`ui.json`、`trashed.txt` 都保留）里重启 gilvt：先按 `--set` 改 `config.toml`（`name` 或 `table.name`，值是 TOML 字面量，如 `--set 'agent.codex_launch="codex w"'`），再启动、重做 pane 安全检查，更新 `session.env`。gilvt 会热重载 config.toml，但 `shell`、`[agent]` 等仍只在启动时读；改配置的用例照旧用 `restart --set`；也用来清零 `dock_bounces`、让「已结束」回到只有本次运行的会话。只用于 `up` 的沙盒 |
+| `restart [--set KEY=VALUE]… [--env GILVT_TEST_<NAME>=<值>]…` | 同一个沙盒（HOME、seed、`ui.json`、`trashed.txt` 都保留）里重启 gilvt：`--env` 只接受 `GILVT_TEST_` 开头的测试开关，原样传给这次启动的 gilvt（如 `GILVT_TEST_INSTALL_LOCATION=disk_image`）；先按 `--set` 改 `config.toml`（`name` 或 `table.name`，值是 TOML 字面量，如 `--set 'agent.codex_launch="codex w"'`），再启动、重做 pane 安全检查，更新 `session.env`。gilvt 会热重载 config.toml，但 `shell`、`[agent]` 等仍只在启动时读；改配置的用例照旧用 `restart --set`；也用来清零 `dock_bounces`、让「已结束」回到只有本次运行的会话。只用于 `up` 的沙盒 |
 | `status` | 打印 `session.env`，以及 gilvt 是否还在、是否应答 |
 
 沙盒目录：
@@ -169,7 +169,7 @@ finalize 为 `interrupted` / `not_run`，留下可检查的部分报告。
 | `clipboard [== 文字 \| contains 文字]` | 打印剪贴板，或比较（会覆盖剪贴板的用例在报告里注明） | 否 |
 | `step '<行>'` | 用例 `gilvt-steps` 块里的一行，按下面「用例里的 `gilvt-steps`」的规则拆成参数（`lib/guilib.py step-args`），再当作那个动作执行；注释行和空行什么也不做 | 看动作 |
 | `sleep <时长>` | 等一会儿（`500ms`、`2s`）：只用来确认某件事**没有**发生（例如 Dock 不重复跳） | 否 |
-| `restart [--set KEY=VALUE]…` | 调用 `sandbox.sh restart` | 否 |
+| `restart [--set KEY=VALUE]… [--env GILVT_TEST_<NAME>=<值>]…` | 调用 `sandbox.sh restart` | 否 |
 
 - **`--window key|<id>|<n>`**（紧跟在动作后面，如 `type --window key "…\n"`、`click --window 1 pane(focused)`）：这个动作针对的
   gilvt 窗口。默认是本沙盒的窗口（`session.env` 的 `WINDOW_ID`）；`key` 是当前的 key window，`<n>` 是 debug state 的 `windows[n]`

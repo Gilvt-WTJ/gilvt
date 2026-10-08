@@ -365,6 +365,7 @@ open target/debug/Gilvt.app</code></pre></div></li>
     <li><div><strong>照常使用。</strong>在 pane 里直接运行 <code>claude</code> 或 <code>codex</code>，左栏和检查器会自动出现它的状态，不需要任何额外设置。</div></li>
   </ol>
   <p>只想试试也可以直接运行调试构建：<code>cargo build --workspace &amp;&amp; ./target/debug/gilvt-app</code>。这种方式下通知改用 <code>osascript</code>，没有声音，点击也不能跳回 pane。</p>
+  <p><strong>从下载的安装包安装时</strong>，请把 Gilvt 拖进「应用程序」文件夹再打开。如果直接在 dmg 窗口里、或在「下载」文件夹里原地打开，gilvt 会在窗口顶部提示「正在从临时位置运行」：macOS 这时让它跑在一个随机的只读副本里，以后的更新和 <code>gilvt integrate install</code> 写入的 hooks 都会失效。点横幅上的「移到「应用程序」」，gilvt 会把自己复制到 <code>/Applications</code>（没有写权限时 <code>~/Applications</code>）并从那里重新打开；那里已有旧版本时，旧版本先移到废纸篓。「以后再说」只在本次运行中隐藏提示。</p>
 </section>
 
 <section id="layout">

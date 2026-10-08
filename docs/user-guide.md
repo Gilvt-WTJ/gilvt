@@ -92,6 +92,8 @@ You need macOS, Rust 1.95 (selected automatically by the repository's `rust-tool
 
 If you just want to try it, you can run a debug build directly: `cargo build --workspace && ./target/debug/gilvt-app`. In this mode notifications go through `osascript`, have no sound, and clicking them can't jump back to the pane.
 
+**When installing from the download**, drag Gilvt into the Applications folder before opening it. If you open it straight from the dmg window or from Downloads, gilvt shows a banner saying it is running from a temporary location: macOS then runs a random read-only copy, so later updates and the hooks written by `gilvt integrate install` would stop working. Click “Move to Applications” on the banner and gilvt copies itself to `/Applications` (`~/Applications` when that is not writable) and reopens from there; an older copy already there goes to the Trash first. “Not Now” hides the banner for this run only.
+
 ### Interface and basics
 
 The window has three columns: the sidebar is the session overview, the center holds terminal tabs and splits, and the right column is the inspector. `⌘B` and `⌘I` collapse each side; with both collapsed it is a plain terminal.

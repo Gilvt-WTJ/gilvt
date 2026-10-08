@@ -21,6 +21,8 @@ use crate::pane_tree::PaneId;
 pub enum RectId {
     /// The n-th row drawn in the sidebar.
     SidebarRow(usize),
+    /// The install banner's buttons: 0 移到「应用程序」, 1 以后再说.
+    InstallButton(usize),
     /// The n-th grouping button of the sidebar header (0 按项目, 1 按状态).
     SidebarGrouping(usize),
     Pane(PaneId),

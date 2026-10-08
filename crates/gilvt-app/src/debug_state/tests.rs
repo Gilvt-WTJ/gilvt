@@ -149,6 +149,7 @@ fn window() -> WindowState {
             }],
         },
         error_banner: None,
+        install_banner: None,
         dividers: vec![Divider { between: "center|inspector", rect: Some([998.0, 30.0, 4.0, 770.0]) }],
         layout: WindowSnap {
             frame: Some(FrameSnap { x: 100.0, y: 50.0, w: 1280.0, h: 800.0 }),
@@ -289,6 +290,7 @@ fn window_json_shape() {
             }]
         },
         "error_banner": null,
+        "install_banner": null,
         "dividers": [{"between": "center|inspector", "rect": [998.0, 30.0, 4.0, 770.0]}],
         "layout": {
             "frame": {"x": 100.0, "y": 50.0, "w": 1280.0, "h": 800.0},
@@ -863,4 +865,29 @@ fn chat_process_is_always_reported() {
     let state = top_level(7, false, None, 0);
     let v = serde_json::to_value(&state).unwrap();
     assert_eq!(v["chat_process"], json!({"running": false, "status": "idle", "provider": null, "pid": null, "turns": 0, "starts": 0}));
+}
+
+#[test]
+fn install_banner_shape() {
+    let mut w = window();
+    w.install_banner = Some(super::InstallBanner {
+        kind: "disk_image",
+        bundle: "/Volumes/Gilvt/Gilvt.app".into(),
+        target: "/Applications/Gilvt.app".into(),
+        replaces: true,
+        stage: "offer",
+        text: "gilvt is running from the disk image.".into(),
+        error: None,
+        move_button: Some([900.0, 40.0, 140.0, 18.0]),
+        dismiss_button: Some([1046.0, 40.0, 60.0, 18.0]),
+    });
+    let w = serde_json::to_value(w).unwrap();
+    assert_eq!(
+        w["install_banner"],
+        json!({
+            "kind": "disk_image", "bundle": "/Volumes/Gilvt/Gilvt.app", "target": "/Applications/Gilvt.app",
+            "replaces": true, "stage": "offer", "text": "gilvt is running from the disk image.", "error": null,
+            "move_button": [900.0, 40.0, 140.0, 18.0], "dismiss_button": [1046.0, 40.0, 60.0, 18.0]
+        })
+    );
 }

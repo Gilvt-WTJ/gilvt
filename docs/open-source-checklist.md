@@ -35,6 +35,7 @@ gilvt 的仓库是 `Gilvt-WTJ/gilvt`（目前私有）。公开发布前还要�
 - [x] `scripts/package.sh`：universal2 构建加 dmg（本地可跑）。
 - [x] `scripts/bundle.sh` 支持 `GILVT_HARDENED=1`（硬化运行时 + 安全时间戳 + `packaging/entitlements.plist` 里的 Apple Events 权限，供「跳到外部终端」用）。2026-10-07 用 `Developer ID Application: TONGJUE WANG (SNSTF72A9P)` 在本机走通：universal dmg 公证通过（`issues: None`），`spctl` 结果 `source=Notarized Developer ID`。
 - [x] `scripts/notarize.sh`：提交公证、装订、校验。
+- [x] 从临时位置运行（dmg 里、或下载后原地打开被 macOS translocate）：所有窗口顶部提示，一键复制到「应用程序」并从那里重新打开（已有旧版本先移到废纸篓）；`gilvt integrate install` 在这种情况下拒绝写入。验收 AA 节（AA5 真实 dmg 手动）。
 - [x] `.github/workflows/release.yml`：tag 触发的发版流程。Action 固定到 commit SHA（后面注释版本号），由 dependabot 提升级 PR。
 - [x] `.github/dependabot.yml`：cargo 与 GitHub Actions，每月一次、分组。
 - [x] `.github/workflows/ci.yml`：`cargo test`，只在 Actions 页面手动触发（私有仓库的 macOS 分钟按 10 倍计）；公开后可改为 push / PR 自动触发。

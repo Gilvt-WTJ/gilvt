@@ -29,6 +29,7 @@ Everything below happens locally on your Mac.
     diff. Files that are neither tracked nor ignored by git are copied here while a turn runs. A
     repository's snapshots are deleted after 30 days without a new one.
 - Temporary files that pass gilvt's hooks to Claude Code and Codex at launch.
+- Only when you click "Move to Applications" (shown when gilvt runs from the dmg or a translocated download): a copy of `Gilvt.app` in `/Applications` (or `~/Applications`); a `Gilvt.app` already there goes to the Trash first.
 
 gilvt does not modify your shell rc files, `~/.claude` or `~/.codex`, with one opt-in exception:
 `gilvt integrate install` merges gilvt's hooks into `~/.claude/settings.json` and

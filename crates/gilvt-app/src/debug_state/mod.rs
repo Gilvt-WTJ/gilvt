@@ -200,6 +200,8 @@ pub struct WindowState {
     pub inspector: Inspector,
     /// The error banner over the pane area (e.g. 「无法启动 shell：…」), without its 「（点击关闭）」.
     pub error_banner: Option<String>,
+    /// The banner offering to move Gilvt.app to Applications (running translocated or from the dmg).
+    pub install_banner: Option<InstallBanner>,
     /// The column edges that can be dragged.
     pub dividers: Vec<Divider>,
     /// What `workspace.json` would hold for this window right now: frame, active tab, each tab's split tree
@@ -302,6 +304,28 @@ pub struct ChatTool {
     pub label: String,
     pub done: bool,
     pub ok: bool,
+}
+
+/// `windows[].install_banner`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct InstallBanner {
+    /// `translocated` or `disk_image`.
+    pub kind: &'static str,
+    /// The running bundle.
+    pub bundle: String,
+    /// Where 移到「应用程序」 copies it.
+    pub target: String,
+    /// A bundle is already at `target` (it goes to the Trash first).
+    pub replaces: bool,
+    /// `offer`, `moving`, `moved` (copied; reopens after this process quits) or `failed`.
+    pub stage: &'static str,
+    /// The sentence shown.
+    pub text: String,
+    pub error: Option<String>,
+    /// 移到「应用程序」 / 重试; null while moved.
+    pub move_button: Option<Rect4>,
+    /// 以后再说.
+    pub dismiss_button: Option<Rect4>,
 }
 
 /// `windows[].command_bar`.

@@ -510,6 +510,20 @@ Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。
 | S1 | 用 `language = "en"` 启动并打开设置窗口 | DebugState 为 `en`；设置页导航、外观页和监控官页显示英文；侧栏与检查器的主要界面文案显示英文 | [S1](../tests/gui/cases/S/S1.md) |
 | S2 | 在「语言」页点击 English，再点「简体中文」 | 每次选择都立即重绘所有窗口并写回 `language`；切回中文后原有界面文案恢复 | [S2](../tests/gui/cases/S/S2.md) |
 
+## AA. 从临时位置运行（移到「应用程序」）
+
+Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直接在 dmg 里运行时，自动更新无法替换它，`gilvt integrate install` 写进
+`~/.claude` / `~/.codex` 的路径重启或推出后就失效。gilvt 在所有窗口顶部提示，一键复制到「应用程序」并从那里重新打开；`gilvt integrate install`
+在这种情况下拒绝写入。用例用 `restart --env GILVT_TEST_INSTALL_LOCATION=…` 模拟，「应用程序」指到沙盒 HOME 里，不碰真实的 `/Applications`。
+
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| AA1 | 以 dmg 方式启动（模拟） | 每个窗口 pane 区域上方出现横幅：说明在磁盘映像里运行、推出后会退出、hooks 会失效；有「移到「应用程序」」与「以后再说」两个按钮；`target` 指向「应用程序」下的 `Gilvt.app`，没有已存在的副本时不提废纸篓 | [AA1](../tests/gui/cases/AA/AA1.md) |
+| AA2 | 点「以后再说」 | 横幅在所有窗口消失，`⌘N` 新开的窗口也没有；本次运行内不再出现 | [AA2](../tests/gui/cases/AA/AA2.md) |
+| AA3 | 「应用程序」里已有一个 `Gilvt.app`，以 translocation 方式启动（模拟），界面为 English | 英文文案说明在下载的临时副本里运行，并写明已有的那个会移到废纸篓（`replaces` 为真） | [AA3](../tests/gui/cases/AA/AA3.md) |
+| AA4 | 在 pane 里以 translocation 方式运行 `gilvt integrate install`（模拟） | 退出码 1，提示先把 Gilvt.app 移到 Applications；`~/.claude/settings.json` 和 `~/.codex/config.toml` 没有被创建或改动；`gilvt integrate status` 末尾多一行 `Warning:` | [AA4](../tests/gui/cases/AA/AA4.md) |
+| AA5 | 从公证过的 dmg 直接双击 Gilvt 打开，点「移到「应用程序」」；「应用程序」里已有旧版本时再做一次 | 横幅变成「正在移动…」，随后 gilvt 退出并从 `/Applications/Gilvt.app` 重新打开、不再出现横幅；旧版本出现在废纸篓；新副本没有 `com.apple.quarantine`，`spctl -a -vv` 仍为 Notarized Developer ID | [AA5](../tests/gui/cases/AA/AA5.md) 手动（要真实的 dmg 与 translocation，重新打开的是沙盒外的 gilvt） |
+
 ## 已知限制（M1）
 
 - Kitty 键盘协议只发送按下 / 重复事件，不发送按键抬起事件。
@@ -613,3 +627,4 @@ Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。
 | 2026-10-01 | P0 | — | — | 状态断言通过；`## judge` 项待人工 | P / K / L 节 14 个用例（P1–P6、K1–K4、L1–L4）用 `tests/gui/run.sh` 跑过，状态断言全部通过（P1、P4、L2、L3 含前台点击，经用户同意后运行）；**用例里看截图判断的 `## judge` 项没有人工检查**。同一轮回归 H / I / J / S 的不需要前台的旧用例：31 通过 0 失败，36 个因前台 / 真实 claude、codex / 手动被跳过，**没有运行**。验收中修复：会话面板（`⌘⇧R`）的「当前项目」把同一仓库的 worktree 当成不同项目（K2 发现）；验收工具的问题（应用被杀或退出后 `restart` / `sleep` / `sh` / `step` 无法执行；重启后恢复了多 pane 布局时沙盒安全检查读错 pane）；用例问题（K4 断言、L1 的思考时间窗口，新增 `think-long` 剧本）。`debug state` 新增 `layout`、`pending`、`rows[].git`、`close_confirm`、`overlay.worktree` / `error` |
 | 2026-10-02 | 侧栏终端行（Q）32d304d | — | — | 状态断言通过；Q1 / Q2 / Q5 / Q6 的 `## judge` 截图已人工看过 | Q1–Q8 八个新用例：不抢前台的 Q1 / Q2 / Q5 与前台的 Q3 / Q4 / Q6 / Q7 / Q8 全部通过（前台部分经用户同意）；同轮回归 S H I J K L M N P 里不抢前台的用例全部通过（先前一次回归因另一会话抢走共享沙盒出现 `sandbox up` 假失败，已逐个重跑）；**34 个旧的前台用例没有重跑**（用户只同意跑 Q 节），行高变化对它们的影响未验证。验收中发现并修复：tooltip 换行后文字重叠、漏出底框（固定宽度修复，Q6 截图确认）；用例问题（Q4 往返式断言空洞、Q7 断言过弱、Q8 的 agent 在用例结束前已 idle 而折叠、Q6 断言了数据层已丢弃的文字）；旧用例 M4 / I26 / S0 的行数断言改为只数 `kind=="agent"`。已知限制：会话名在数据层限制为 40 个字符（`NAME_MAX`）、工具标签在上游缩短，tooltip 无法恢复这些已丢弃的文字，只多给出完整位置 / cwd / git。前台运行偶发因 Gilvt 不在最前（被其他应用抢焦点）而 hover 不触发 tooltip，重跑即可。 |
 | 2026-10-05 | 点击移动光标（X） | 2.1.289 | — | 通过 | X1–X3 用 `tests/gui/run.sh --foreground` 跑过（经用户同意），X4 用真实 claude 逐步驱动，`## judge` 截图已看过。X3 第一次失败是测试工具的问题：Peekaboo 点击失败、改走鼠标模拟时屏幕上多出一个 `e`，单独重跑通过。验收中修正了 X4：`real-up` 用真实 HOME 会恢复用户的布局，改为先 `⌘T` 开新标签、路径用 `tabs[?active==true]`。环境注意：shell 里设了 `GILVT_BIN_DIR` 时 `bundle.sh` 不编译、直接打包那个目录的二进制，要 `env -u GILVT_BIN_DIR`。`cargo test --workspace` 1575 通过 |
+| 2026-10-07 | 移到「应用程序」（AA）7680b7b | — | — | AA1–AA4 通过；AA5（手动）未跑 | `tests/gui/run.sh` 无人值守跑 AA1、AA3、AA4，AA2 经用户同意用 `--foreground` 跑：状态断言全部通过，`## judge` 截图已看（中文 dmg 文案与按钮、英文 translocation 文案写明替换废纸篓、`integrate status` 的 `Warning:` 行、「以后再说」后两个窗口都没有横幅）。AA5 需要真实 dmg。`cargo test --workspace` 2205 通过，1 个失败为已知不稳定的 `gilvt-shell` real_shells（PTY 启动偶发 -6）。`tests/gui/selftest.sh` 811 通过。 |
