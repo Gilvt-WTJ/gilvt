@@ -15,3 +15,9 @@ pub fn uname() -> String {
     let f = |s: &[libc::c_char]| unsafe { std::ffi::CStr::from_ptr(s.as_ptr()) }.to_string_lossy().into_owned();
     format!("{} {}", f(&u.sysname), f(&u.machine))
 }
+
+pub fn tty() -> Option<String> {
+    // SAFETY: ttyname returns static storage or null.
+    let p = unsafe { libc::ttyname(0) };
+    (!p.is_null()).then(|| unsafe { std::ffi::CStr::from_ptr(p) }.to_string_lossy().into_owned())
+}

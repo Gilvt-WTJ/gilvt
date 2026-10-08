@@ -29,12 +29,10 @@ impl Layout {
         self.run_dir().join("daemon.lock")
     }
 
-    #[allow(dead_code)] // used by login/bridge (Task 4)
     pub fn version_dir(&self, build_id: &str) -> PathBuf {
         self.root.join(build_id)
     }
 
-    #[allow(dead_code)] // used by login/bridge (Task 4)
     pub fn stable_bin(&self) -> PathBuf {
         self.root.join("bin").join("gilvt-remote")
     }

@@ -2,11 +2,11 @@
 //! `login`, `bridge`, `daemon`. Called as `gilvt` (the symlink in `<version>/bin/`) it will answer the
 //! `gilvt hook|view|diff` commands (R2).
 
-// `client::login/connect` and `sys::tty` are used by login and bridge (Task 4); until then dead code.
-#[allow(dead_code)]
+mod bridge;
 mod client;
 mod daemon;
 mod links;
+mod login;
 mod paths;
 mod peer;
 mod sys;
@@ -39,6 +39,8 @@ fn main() -> ExitCode {
             let cfg = daemon::Config { layout, build_id, hostname: sys::hostname(), uname: sys::uname(), reap_every: std::time::Duration::from_secs(1), idle_exit: std::time::Duration::from_secs(24 * 3600) };
             match daemon::run(cfg) { Ok(()) => ExitCode::SUCCESS, Err(e) => { eprintln!("gilvt-remote daemon: {e}"); ExitCode::from(1) } }
         }
+        Some("login") => login::run(&argv[1..]),
+        Some("bridge") => bridge::run(),
         _ => {
             eprintln!("usage: gilvt-remote login|bridge|daemon");
             ExitCode::from(2)
