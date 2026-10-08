@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex CLI Terminal Integration for macOS · gilvt</title>
+<meta name="description" content="Run Codex CLI in a native macOS terminal with live Agent status, approval notifications, subagent timelines, per-turn diffs, configuration summaries and session resume.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/integrations/codex/"><link rel="alternate" hreflang="en" href="https://gilvt.com/integrations/codex/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/integrations/codex/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/integrations/codex/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/integrations/codex/"><meta property="og:title" content="Codex CLI Terminal Integration for macOS"><meta property="og:description" content="Keep Codex in its native TUI while gilvt tracks attention, subagents and each turn's changes."><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Codex CLI Terminal Integration for macOS","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/"},"mainEntityOfPage":"https://gilvt.com/integrations/codex/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/features/">Features</a><a href="/docs/">Docs</a><a href="/install/">Download</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/zh-CN/integrations/codex/" hreflang="zh-CN" lang="zh-CN">简体中文</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Integration</span><h1>Codex CLI with live status and per-turn review</h1><p class="lead">Codex continues to run in its native TUI. gilvt combines local hooks, rollout records and process identity to show when a session is running, waiting, failed or finished.</p><p class="article-meta">Updated October 8, 2026 · gilvt {{VERSION}}</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>Setup:</strong> install gilvt, open a pane and run <code>codex</code>. Supported hooks are supplied to the launched process without permanently replacing your Codex configuration.</p></div>
+    <h2>One status model for Codex activity</h2>
+    <p>gilvt reads supported Codex hook events and local rollout data, then associates them with the pane that owns the process. The sidebar can distinguish active work, approval or user-input waits, errors, completed turns and child-agent activity.</p>
+    <ul><li><kbd>⇧⌘J</kbd> jumps to the next session that needs attention.</li><li>The timeline shows commands, edits, TODOs, failures and subagent lifecycle events.</li><li>Artifacts summarize changed files and open a diff scoped to the current turn.</li><li>The Monitor combines Codex, Claude Code and ordinary terminals across windows.</li></ul>
+    <h2>Configuration summary without secrets</h2>
+    <p>The Configuration inspector reads the effective Codex model, permission settings, MCP names, hooks, skills and <code>AGENTS.md</code> sources. Commands, URLs, tokens and environment-variable values are deliberately omitted.</p>
+    <h2>Resume and alternative command names</h2>
+    <p>Session Center indexes durable Codex sessions and can resume supported records in their original project. Teams that wrap Codex under another command can add command names in gilvt's <code>[agent]</code> configuration; exact behavior still depends on the wrapper preserving the relevant process and session signals.</p>
+    <figure><img src="/images/features/sessions.jpg" width="1600" height="964" loading="lazy" alt="gilvt Session Center listing resumable Claude Code and Codex sessions."><figcaption>Session Center provides one place to find and resume durable Agent sessions.</figcaption></figure>
+    <h2>Graceful compatibility</h2>
+    <p>Agent CLI formats evolve. gilvt keeps recorded fixtures and fake-agent scenarios for the supported formats. If a hook is unavailable, the pane remains functional and the session is marked as inferred or reduced rather than receiving unsafe exact controls.</p>
+    <div class="callout"><p><strong>Next:</strong> see how to <a href="/guides/run-claude-code-and-codex-in-parallel/">run Codex and Claude Code in parallel</a>, or <a href="/install/">download gilvt for macOS</a>.</p></div>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · Apache-2.0</span><span><a href="/integrations/">Integrations</a> · <a href="/docs/">User guide</a></span></div><p>Codex is a trademark of OpenAI. gilvt is not affiliated with OpenAI.</p></div></footer>
+</body>
+</html>

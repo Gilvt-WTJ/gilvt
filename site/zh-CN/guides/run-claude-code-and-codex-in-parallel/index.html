@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>如何并行运行 Claude Code 和 Codex · gilvt</title>
+<meta name="description" content="使用 Git worktree、明确的任务所有权、独立验证和统一 Agent 状态，在同一项目中安全并行运行 Claude Code 与 Codex。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/zh-CN/guides/run-claude-code-and-codex-in-parallel/"><link rel="alternate" hreflang="en" href="https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/run-claude-code-and-codex-in-parallel/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/zh-CN/guides/run-claude-code-and-codex-in-parallel/"><meta property="og:title" content="如何并行运行 Claude Code 和 Codex"><meta property="og:description" content="用 worktree 和清晰任务边界建立安全的多 Agent 工作流。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"如何并行运行 Claude Code 和 Codex","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/zh-CN/"},"mainEntityOfPage":"https://gilvt.com/zh-CN/guides/run-claude-code-and-codex-in-parallel/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/guides/run-claude-code-and-codex-in-parallel/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">多 Agent 指南</span><h1>如何并行运行 Claude Code 和 Codex</h1><p class="lead">把它们当作独立工作者，而不是同一个 checkout 里的两只光标。隔离文件与目标，再通过一个注意力队列 review 各自结果。</p><p class="article-meta">发布于 2026-10-08 · 阅读约 6 分钟</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>安全默认值：</strong>每个 Agent 使用独立 Git worktree 和分支。给 Claude Code 与 Codex 不同的任务所有权，在各自 worktree 内验证，通过 review 后再合并。</p></div>
+
+    <h2>创建两个独立 worktree</h2>
+    <pre>git worktree add ../project-feature -b agent/feature
+git worktree add ../project-review -b agent/review
+
+# 终端 1
+cd ../project-feature && claude
+
+# 终端 2
+cd ../project-review && codex</pre>
+    <p>这样可以避免最常见的问题：一个 Agent 读取或替换文件时，另一个 Agent 仍在修改同一个文件。</p>
+
+    <h2>选择互补角色</h2>
+    <p>输出能够独立评估时，并行工作最安全。常见组合包括：</p>
+    <ul><li>Claude Code 实现功能，Codex 在独立分支编写回归测试。</li><li>一个 Agent 调查失败并输出报告，另一个处理无关修复。</li><li>一个 Agent 修改代码，另一个只 review 产生的 commit。</li><li>前端和后端在不同目录工作，并提前约定接口。</li></ul>
+    <p>除非你明确需要两个竞争方案，否则不要让两个 Agent 在同一个 checkout 中“修复同一个 bug”。</p>
+
+    <h2>为两个 Agent 提供同一完成标准</h2>
+    <p>每个 prompt 都应明确目标、边界和验证方式：</p>
+    <pre>修改 crates/example 中的解析器。
+不要修改公共 API 或生成的 fixture。
+为给出的两个情况增加回归测试。
+运行 cargo test -p example，并总结修改文件。</pre>
+    <p>两个工具可以采用不同方法，但因为必须满足相同可观察标准，结果仍然容易比较。</p>
+
+    <h2>在各自 worktree 内独立验证</h2>
+    <p>合并分支前先分别运行测试。共享编译缓存通常没有问题，但端口、数据库和生成文件仍可能冲突。两个任务都启动本地服务时，应分配不同端口或隔离临时目录。</p>
+
+    <h2>统一管理两个 TUI 的注意力</h2>
+    <p>Claude Code 和 Codex 使用不同的 hooks 与会话格式。普通终端只把它们当作两个文字屏幕。gilvt 在保留两个原生界面的同时，把高层状态统一起来。</p>
+    <p>同一个左栏可以显示 Claude 正在等待审批，而 Codex 仍在执行。无论哪个 Agent 需要输入，系统通知和 <kbd>⇧⌘J</kbd> 都能把你带到对应会话。</p>
+    <figure><img src="/images/features/monitor.jpg" width="1600" height="964" loading="lazy" alt="gilvt 监控官统一显示 Claude Code、Codex 和普通终端会话。"><figcaption>监控官汇总 Claude Code、Codex 和普通终端，但不替换它们的 TUI。</figcaption></figure>
+
+    <h2>谨慎合并</h2>
+    <ol><li>检查每个 Agent 的命令、diff 和测试结果。</li><li>在各自分支提交已经接受的工作。</li><li>一次合并或 cherry-pick 一个分支。</li><li>用完整测试处理语义冲突，不只处理 Git 文本冲突。</li></ol>
+    <p>如果第二个分支负责 review，应把问题反馈给实现会话，而不是自动合并它的修改。</p>
+
+    <div class="callout"><p><strong>在 gilvt 中：</strong>用 <kbd>⇧⌘N</kbd> 在新 worktree 启动任一 Agent，<kbd>⌥⌘2</kbd> 查看逐轮产物，<kbd>⇧⌘R</kbd> 查找和恢复旧会话。</p></div>
+    <section class="related"><h2>相关指南</h2><ul><li><a href="/zh-CN/guides/manage-multiple-claude-code-sessions/">管理多个 Claude Code 会话</a></li><li><a href="/zh-CN/agent-terminal/">什么是 Agent 终端？</a></li><li><a href="/zh-CN/install/">下载 macOS 版 gilvt</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/zh-CN/docs/">产品手册</a> · <a href="/zh-CN/install/">下载</a></span></div><p>gilvt 是独立项目，与 Anthropic、OpenAI 没有关联。</p></div></footer>
+</body>
+</html>

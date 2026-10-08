@@ -3,15 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gilvt：一个终端，装下你和 Agent 的全部工作</title>
-<meta name="description" content="gilvt 是原生 macOS 终端：你自己的工作、所有 Claude Code 与 Codex 会话、对它们产出的 review，都在同一个窗口里。每一次切换只花一个按键，而不是你的专注力。">
+<title>gilvt：为 Claude Code 和 Codex 设计的原生 macOS 终端</title>
+<meta name="description" content="并行运行 Claude Code 和 Codex，在一个原生 macOS 终端里看清哪些 Agent 正在工作、被阻塞、等待输入或已经完成。">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="alternate" hreflang="en" href="/">
+<link rel="canonical" href="https://gilvt.com/zh-CN/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/">
 <link rel="stylesheet" href="/style.css">
-<meta property="og:title" content="gilvt：一个终端，装下你和 Agent 的全部工作">
-<meta property="og:description" content="Agent 可以并行，你的注意力不能。一个终端，装下你和 Agent 的全部工作。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://gilvt.com/zh-CN/">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="gilvt：为 Claude Code 和 Codex 设计的原生 macOS 终端">
+<meta property="og:description" content="并行运行编程 Agent，随时看清谁在工作、被阻塞、等待你或已经完成。">
 <meta property="og:image" content="https://gilvt.com/images/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="gilvt：为编程 Agent 设计的原生 macOS 终端">
+<meta name="twitter:description" content="并行运行 Claude Code 和 Codex，不再逐个标签寻找谁在等你。">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "gilvt",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS 11 or later",
+  "softwareVersion": "{{VERSION}}",
+  "description": "用于并行运行和监控 Claude Code、Codex 会话的原生 macOS 终端。",
+  "url": "https://gilvt.com/zh-CN/",
+  "downloadUrl": "https://gilvt.com/download",
+  "image": "https://gilvt.com/images/social-preview.png",
+  "codeRepository": "https://github.com/Gilvt-WTJ/gilvt",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Tongjue Wang" }
+}
+</script>
 </head>
 <body>
 <header class="wrap top">
@@ -28,7 +55,7 @@
 <main>
   <div class="wrap hero">
     <span class="badge">v0.1 · macOS</span>
-    <h1>一个终端，装下你和 Agent 的全部工作</h1>
+    <h1>为并行编程 Agent 设计的原生 macOS 终端</h1>
     <p class="lead">Agent 可以并行，你的注意力不能。gilvt 把你的终端、所有 Claude Code 与 Codex 会话、以及对它们工作的 review 收进同一个原生窗口——每一次切换只花一个按键，而不是你的专注力。</p>
     <div class="actions">
       <a class="btn primary" href="/download">
@@ -52,6 +79,20 @@
         <div class="pillar"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></span><h3>所有 Agent 尽收眼底</h3><p>一个左栏列出所有会话，等你的那些自动排到最上面；<kbd>⇧⌘J</kbd> 跨标签页、跨窗口直接跳过去。系统通知、Dock 角标和监控官帮你把握全局。</p></div>
         <div class="pillar"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span><h3>点一下就 review，就地修改</h3><p>点时间线的一行回到那一刻，打开任意一轮的 diff，预览代码、Markdown 和 Mermaid，在内置编辑器里直接改。Agent 也能用 <code>gilvt view</code> 把文件递到你面前。</p></div>
       </div>
+    </div>
+  </section>
+
+  <section class="explore">
+    <div class="wrap">
+      <h2>建立更从容的多 Agent 工作流</h2>
+      <p class="sub">并行使用 Claude Code、Codex 的实用方法，以及 gilvt 与 tmux 的真实差异。</p>
+      <div class="grid">
+        <a class="card" href="/zh-CN/agent-terminal/"><h3>什么是 Agent 终端？</h3><p>终端如何理解编程 Agent 的状态，同时保留它们原生的 TUI。</p><span>阅读介绍 →</span></a>
+        <a class="card" href="/zh-CN/guides/manage-multiple-claude-code-sessions/"><h3>管理多个 Claude Code 会话</h3><p>安全隔离任务、管理注意力，并在不翻找标签的情况下恢复会话。</p><span>阅读指南 →</span></a>
+        <a class="card" href="/zh-CN/guides/run-claude-code-and-codex-in-parallel/"><h3>并行运行 Claude Code 和 Codex</h3><p>使用 worktree 和明确的任务边界，让两个 Agent 在同一仓库协作。</p><span>阅读指南 →</span></a>
+        <a class="card" href="/zh-CN/compare/gilvt-vs-tmux/"><h3>gilvt 与 tmux</h3><p>原生 Agent 工作台与持久终端服务器的区别，以及如何组合使用。</p><span>阅读对比 →</span></a>
+      </div>
+      <p class="note"><a href="/zh-CN/guides/">浏览全部指南</a> · <a href="/zh-CN/integrations/">Claude Code 与 Codex 集成细节</a></p>
     </div>
   </section>
 

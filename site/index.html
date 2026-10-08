@@ -3,15 +3,49 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gilvt — one terminal for you and all your agents</title>
-<meta name="description" content="gilvt is a native macOS terminal that keeps your own work, every Claude Code and Codex session, and the review of their changes in one window, so switching costs a keystroke instead of your focus.">
+<title>gilvt: Native macOS Terminal for Claude Code and Codex</title>
+<meta name="description" content="Run Claude Code and Codex sessions in parallel. See which coding agents are working, blocked, waiting for input, or finished in one native macOS terminal.">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="alternate" hreflang="zh-CN" href="/zh-CN/">
+<link rel="canonical" href="https://gilvt.com/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/">
 <link rel="stylesheet" href="/style.css">
-<meta property="og:title" content="gilvt — one terminal for you and all your agents">
-<meta property="og:description" content="Agents run in parallel. Your attention does not. One terminal for you and all your agents.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://gilvt.com/">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta property="og:title" content="gilvt: Native macOS Terminal for Claude Code and Codex">
+<meta property="og:description" content="Run coding agents in parallel and see who is working, blocked, waiting, or done.">
 <meta property="og:image" content="https://gilvt.com/images/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="gilvt: Native macOS Terminal for Coding Agents">
+<meta name="twitter:description" content="Run Claude Code and Codex in parallel without losing track of who needs you.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "gilvt",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS 11 or later",
+  "softwareVersion": "{{VERSION}}",
+  "description": "A native macOS terminal for running and monitoring parallel Claude Code and Codex sessions.",
+  "url": "https://gilvt.com/",
+  "downloadUrl": "https://gilvt.com/download",
+  "image": "https://gilvt.com/images/social-preview.png",
+  "codeRepository": "https://github.com/Gilvt-WTJ/gilvt",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+  },
+  "author": {
+    "@type": "Person",
+    "name": "Tongjue Wang"
+  }
+}
+</script>
 </head>
 <body>
 <header class="wrap top">
@@ -28,7 +62,7 @@
 <main>
   <div class="wrap hero">
     <span class="badge">v0.1 · macOS</span>
-    <h1>One terminal for you and all your agents</h1>
+    <h1>A native macOS terminal for parallel coding agents</h1>
     <p class="lead">Agents work in parallel; your attention doesn&rsquo;t. gilvt keeps your shell, every Claude Code and Codex session, and the review of their work in one native window, so every switch costs a keystroke instead of your focus.</p>
     <div class="actions">
       <a class="btn primary" href="/download">
@@ -52,6 +86,20 @@
         <div class="pillar"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></span><h3>Every agent in view</h3><p>One sidebar lists every session; the ones waiting for you rise to the top. <kbd>⇧⌘J</kbd> jumps there across tabs and windows. Notifications, a Dock badge and the Monitor give you the big picture.</p></div>
         <div class="pillar"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span><h3>Click to review, edit in place</h3><p>Click a timeline row to return to that moment, open any turn&rsquo;s diff, preview code, Markdown and Mermaid, and fix it in the built-in editor. Agents can hand you a file with <code>gilvt view</code>.</p></div>
       </div>
+    </div>
+  </section>
+
+  <section class="explore">
+    <div class="wrap">
+      <h2>Build a calmer multi-agent workflow</h2>
+      <p class="sub">Practical guides for running Claude Code and Codex in parallel, plus an honest comparison with tmux.</p>
+      <div class="grid">
+        <a class="card" href="/agent-terminal/"><h3>What is an agent terminal?</h3><p>How a terminal can understand coding-agent state without replacing the agents' native TUIs.</p><span>Read the overview →</span></a>
+        <a class="card" href="/guides/manage-multiple-claude-code-sessions/"><h3>Manage multiple Claude Code sessions</h3><p>Separate work safely, keep track of attention, and resume sessions without tab hunting.</p><span>Read the guide →</span></a>
+        <a class="card" href="/guides/run-claude-code-and-codex-in-parallel/"><h3>Run Claude Code and Codex in parallel</h3><p>Use worktrees and clear ownership to keep two agents productive in the same repository.</p><span>Read the guide →</span></a>
+        <a class="card" href="/compare/gilvt-vs-tmux/"><h3>gilvt vs tmux</h3><p>Native Agent workspace versus persistent terminal server: where they differ and how to use both.</p><span>Read the comparison →</span></a>
+      </div>
+      <p class="note"><a href="/guides/">Browse all guides</a> · <a href="/integrations/">Claude Code and Codex integration details</a></p>
     </div>
   </section>
 
