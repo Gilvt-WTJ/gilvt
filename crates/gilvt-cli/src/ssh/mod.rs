@@ -106,6 +106,8 @@ pub fn run(argv: &[String]) -> ExitCode {
         return plain(&format!("控制目录 {} 不安全（{e}）", dir.display()), None, hostname);
     }
     let ctl = plan::control_path(&dir, &host);
+    // Serialize master startup per host across panes; released before probe / upload / exec.
+    let lock = master::lock(&ctl);
     if !master::running(&ssh, &ctl, &a.opts, &a.destination) {
         if let Err(e) = master::clear_stale(&ctl, false) {
             return plain(&format!("无法清理旧的控制套接字 {}（{e}）", ctl.display()), None, hostname);
@@ -128,6 +130,7 @@ pub fn run(argv: &[String]) -> ExitCode {
             }
         }
     }
+    drop(lock);
     // Probe and upload through the master. `-T` after the user's options (for flags the last one wins):
     // a user `-t`/`-tt` must not put a pty between us and the probe output or the gzip stream.
     // `ControlMaster=no` before the user's options (for `-o` the first one wins): a configured
