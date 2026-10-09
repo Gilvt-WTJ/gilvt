@@ -13,6 +13,7 @@ mod discover;
 mod event;
 mod history;
 mod git;
+pub mod host;
 pub mod install_location;
 mod launch;
 mod registry;

@@ -508,6 +508,7 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
 
   d="$T/gilvt-gui-20260929-120000"
   mkdir -p "$d/home" "$d/bin"
+  in_sub_q() { ("$@") 2>/dev/null; }
   write_home "$d"
   check "wrapper HOME and PATH" "$d/home|$d/bin:/usr/bin:/bin:/usr/sbin:/sbin|en_US.UTF-8" \
     env -i GILVT_SANDBOX_HOME="$d/home" "$d/bin/bash" -c 'echo "$HOME|$PATH|$LANG"'
@@ -521,6 +522,47 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
   if python3 -c 'import tomllib' 2>/dev/null; then
     check "config.toml parses" "ok" python3 -c 'import sys,tomllib; c=tomllib.load(open(sys.argv[1],"rb")); assert c["shell_integration"] and c["notify"]["dock_bounce"] and c["language"] == "zh-CN"; print("ok")' "$d/home/.config/gilvt/config.toml"
   fi
+
+  # --remote: install_remote_home against a stub remote.sh (status up) and a fake state directory.
+  rs="$T/gilvt-gui-remote"; rh="$T/remote-gui"
+  mkdir -p "$rs" "$rh" "$T/rhome" "$T/rbin"
+  printf 'k\n' >"$rs/id_ed25519"; printf 'h k\n' >"$rs/known_hosts"
+  printf 'Host devbox-test\n  IdentityFile ~/.ssh/id_ed25519\n  UserKnownHostsFile ~/.ssh/known_hosts\nHost *\n  IdentityAgent none\n' >"$rs/ssh_config"
+  printf '#!/bin/sh\n[ "$1" = status ] && { echo "up x"; exit 0; }\nexit 1\n' >"$rh/remote.sh"
+  chmod +x "$rh/remote.sh"
+  sbx_here="$here"; here="$rh"; GILVT_GUI_REMOTE_STATE="$rs"
+  ( install_remote_home "$d" "$T/rhome" "$T/rbin" "$T/App.app" ) && ok || bad "install_remote_home"
+  check "remote: ssh config names the sandbox home" "  IdentityFile $T/rhome/.ssh/id_ed25519" sed -n 2p "$T/rhome/.ssh/config"
+  if grep -q '^Host \*$' "$T/rhome/.ssh/config" && grep -q '^  IdentityAgent none$' "$T/rhome/.ssh/config"; then ok; else bad "remote: Host * block"; fi
+  check "remote: key mode" "600" stat -f %Lp "$T/rhome/.ssh/id_ed25519"
+  check "remote: ssh dir mode" "700" stat -f %Lp "$T/rhome/.ssh"
+  if [ -f "$T/rhome/.ssh/known_hosts" ] && [ -x "$T/rbin/remote-test" ] && [ -x "$T/rbin/ssh" ] &&
+    grep -q "^exec /bin/bash $rh/remote.sh \"\$@\"\$" "$T/rbin/remote-test" &&
+    grep -q "^export GILVT_GUI_REMOTE_STATE='$rs'\$" "$T/rbin/remote-test" &&
+    grep -q "^export PATH='[^']*':\"\$PATH\"\$" "$T/rbin/remote-test" &&
+    grep -q "^exec /usr/bin/ssh -F \"$T/rhome/.ssh/config\" \"\$@\"\$" "$T/rbin/ssh"; then ok; else bad "remote: known_hosts / remote-test / ssh wrapper"; fi
+  remote_vars() { install_remote_home "$@" && echo "$REMOTE_CONTROL_DIR|$REMOTE_DIST_DIR"; }
+  check "remote: control dir and dist dir" "/tmp/gilvt-gui-cm-20260929120000|$(target_dir)/remote-dist/remote" \
+    remote_vars "$d" "$T/rhome" "$T/rbin" "$T/App.app"
+  mkdir -p "$T/App.app/Contents/Resources/remote"
+  check "remote: dist dir from the bundle" "/tmp/gilvt-gui-cm-20260929120000|$T/App.app/Contents/Resources/remote" \
+    remote_vars "$d" "$T/rhome" "$T/rbin" "$T/App.app"
+  printf '#!/bin/sh\nexit 2\n' >"$rh/remote.sh"
+  check_rc "remote: refuses without a running remote" 2 in_sub_q install_remote_home "$d" "$T/rhome" "$T/rbin" "$T/App.app"
+  here="$sbx_here"; unset GILVT_GUI_REMOTE_STATE
+  if bash -n "$here/remote.sh"; then ok; else bad "remote.sh syntax"; fi
+  # The state dir feeds rm -rf: remote.sh refuses anything but an absolute .../gilvt-gui-remote without "..".
+  state_refused() { GILVT_GUI_REMOTE_STATE="$1" "$here/remote.sh" status 2>&1 | grep -q 'refusing state dir'; }
+  for sv in / "$HOME" "relative/gilvt-gui-remote" "$T/x/../gilvt-gui-remote" "$T/gilvt-gui-remote-x"; do
+    if state_refused "$sv"; then ok; else bad "remote.sh accepted state dir $sv"; fi
+  done
+  for sv in "$T/gilvt-gui-remote" "$T//gilvt-gui-remote" "$T/gilvt-gui-remote/"; do
+    if state_refused "$sv"; then bad "remote.sh refused state dir $sv"; else ok; fi
+  done
+  if env -u GILVT_GUI_REMOTE_STATE TMPDIR="$T/" "$here/remote.sh" status 2>&1 | grep -q 'refusing state dir'; then bad "remote.sh refused the default state dir"; else ok; fi
+  for sv in / "$HOME" "$T/x/../gilvt-gui-remote"; do
+    if ( GILVT_GUI_REMOTE_STATE="$sv"; install_remote_home "$d" "$T/rhome2" "$T/rbin" "$T/App.app" ) 2>&1 | grep -q 'refusing remote state dir'; then ok; else bad "sandbox.sh accepted remote state dir $sv"; fi
+  done
 
   # With a built workspace: the fake passes check_fake, and the headless Codex trust warm-up (gilvt
   # CLI + fake codex only; PATH has no real codex) writes fake hashes into the sandbox HOME.
@@ -1635,6 +1677,32 @@ for case_id in cases:
     assert os.path.islink(os.path.join(os.path.dirname(sys.argv[1]), case_id))
 PY
 if [ $? -eq 0 ]; then ok; else bad "run.sh parallel evidence and isolation"; fi
+
+# requires: remote under --jobs: the remote comes up BEFORE the schedule is built (a stub remote.sh whose status
+# fails and up succeeds), so the case is scheduled runnable, and a remote this run started is taken down at exit.
+mkdir -p "$T/rem/R"
+mk_case "$T/rem/R" R1 remote 'wait ok == 1'
+RMLOG="$T/remote-stub.log"; : >"$RMLOG"
+# The stub models remote.sh's per-TMPDIR state dir: GILVT_GUI_REMOTE_STATE wins, else ${TMPDIR}/stub-remote-state.
+# A worker (own TMPDIR) that is not handed the parent's state dir sees status fail and reset lose the state.
+printf '%s\n' '#!/bin/bash' 'st="${GILVT_GUI_REMOTE_STATE:-${TMPDIR:-/tmp}/stub-remote-state}"' \
+  "w=''; [ -z \"\${GILVT_GUI_PARALLEL_WORKER:-}\" ] || w='worker '" \
+  "case \"\$1\" in up) mkdir -p \"\$st\"; echo \"\${w}remote up\" >>'$RMLOG'; echo \"up \$st\" ;;" \
+  "down) echo \"\${w}remote down\" >>'$RMLOG'; rm -rf \"\$st\" ;;" \
+  "status) echo \"\${w}remote status\" >>'$RMLOG'; [ -d \"\$st\" ] && echo \"up \$st\" || exit 1 ;;" \
+  "reset) if [ -d \"\$st\" ]; then echo \"\${w}remote reset\" >>'$RMLOG'; else echo \"\${w}remote reset LOST-STATE\" >>'$RMLOG'; exit 1; fi ;;" \
+  'esac' >"$T/stub-remote"
+chmod +x "$T/stub-remote"
+GILVT_GUI_CASES="$T/rem" GILVT_GUI_SANDBOX="$T/stub-sandbox-par" GILVT_GUI_DRIVE="$T/stub-drive" \
+  GILVT_GUI_KEYS="$T/stub-keys" GILVT_GUI_REMOTE="$T/stub-remote" \
+  "$here/run.sh" --jobs 2 --out "$T/out-rem" R >"$T/rem.out" 2>&1
+check "run.sh --jobs: a remote case is scheduled runnable" "R1	serial	remote" cat "$T/out-rem/schedule.tsv"
+if grep -q 'remote-unavailable' "$T/rem.out"; then bad "run.sh --jobs skipped a remote case: $(cat "$T/rem.out")"; else ok; fi
+check "run.sh --jobs: parent brings the remote up and down once; a worker only resets (no status/up/down)" "remote status
+remote up
+remote status
+worker remote reset
+remote down" cat "$RMLOG"
 
 # S0 remains a serial gate: a failure prevents every other selected case from starting.
 mkdir -p "$T/gate/S" "$T/gate/X"

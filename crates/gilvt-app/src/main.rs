@@ -22,6 +22,7 @@ mod persist;
 mod preview_element;
 mod preview_select;
 mod preview_view;
+mod remote;
 pub mod review;
 mod session_center;
 mod session_review;
@@ -86,6 +87,7 @@ fn main() {
         let hooks = agents::init(cx);
         review::ReviewService::init(state_dir.clone(), cx);
         launcher::History::init(state_dir, cx);
+        remote::init(cx);
         let socket = ipc_bridge::start(hooks, cx);
         cx.background_executor().spawn(async { gilvt_viewer::highlight::preload() }).detach();
         cx.background_executor().spawn(async { markdown::mermaid::preload() }).detach();

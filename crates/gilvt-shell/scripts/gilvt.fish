@@ -69,3 +69,18 @@ function __gilvt_define_agents --on-event fish_prompt
         end
     end
 end
+
+# ssh: interactive logins go through `gilvt ssh` (remote features); GILVT_SSH=0 or `command ssh` bypass it.
+# Defined at the first prompt so a user's own ssh function or abbreviation wins.
+function __gilvt_define_ssh --on-event fish_prompt
+    functions -e __gilvt_define_ssh
+    functions -q ssh; and return 0
+    abbr -q ssh 2>/dev/null; and return 0
+    function ssh --wraps ssh
+        if test -n "$GILVT_SOCKET"; and test "$GILVT_SSH" != 0; and test -x "$GILVT_BIN_DIR/gilvt"
+            "$GILVT_BIN_DIR/gilvt" ssh -- $argv
+        else
+            command ssh $argv
+        end
+    end
+end

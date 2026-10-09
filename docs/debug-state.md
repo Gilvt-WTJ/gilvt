@@ -20,6 +20,7 @@ GUI 验收测试通过 socket 读取 gilvt 的界面状态（`Request::DebugStat
 | `windows` | 数组 | 每个工作区窗口的状态，按 gpui 列出窗口的顺序，见下 |
 | `chat_process` | 对象 | 监控官的对话进程（S2 §6.2），**总是存在**：`{ running, status, provider, pid, turns, starts }`。`running`：对话进程在跑；`status`：同 `windows[].monitor.chat.status`（`idle` / `starting` / `answering` / `stopping` / `error`）；`provider`：正在跑的通道（`claude` / `codex`，没有进程时 `null`）；`pid`：进程号（没有进程时 `null`）；`turns`：这个进程结束过的轮数；`starts`：本次 gilvt 运行里启动过几次对话进程（懒启动：发第一条消息前为 `0`；空闲 30 分钟结束后再发消息会加 1） |
 | `update` | 对象 | 自动更新（Sparkle），**总是存在**：`{ available, mode, ready }`。`available`：这个构建带 Sparkle 并已启动（只有 `GILVT_SPARKLE=1` 打包的正式版为真；开发构建和 GUI 沙盒里为 `false`）；`mode`：生效的 `[update] mode`（`download` / `check` / `off`，没配置时 `download`）；`ready`：已下载、等退出时安装的版本号（如 `"0.2.0"`，此时侧栏底部有「已下载，退出时安装」提示），没有时为 `null` |
+| `hosts` | 数组 | 本次运行用过的 ssh 主机：`{ id, display, hostname, install, installed, bridge, links }`。`install`：`ask` / `allowed` / `never`（这台主机记住的选择）；`installed`：已知装在那里的 build id；`bridge`：`none` / `connecting` / `up` / `down` / `mismatch`；`links`：这台主机上正在进行的 ssh 登录 |
 | `settings` | 对象（键可能不存在） | `⌘,` 设置窗口的状态，见下 `## settings`；窗口关着时**没有这个键**（不是 `null`），用 `settings exists` 判断是否打开 |
 
 ## `windows[]`
@@ -115,6 +116,8 @@ pane（`panes[]`）：
 | `cursor` | 对象或 `null` | 终端 pane：上一帧终端光标所在的格子 `{ "row", "col", "rect" }`，`row` / `col` 是可见区里的行列（从 0 起），`rect` 是这一格；TUI（Claude Code）隐藏光标时仍是它的位置。预览 / 编辑器 pane、第一帧之前为 `null` |
 | `commands` | 数组 | 终端 pane：shell 集成（OSC 133）记下的最近 10 条命令块，**最新在前**：`[{ "id", "command", "exit", "running", "has_output", "error_line" }]`。`id` 在 pane 内递增；`command` 是输入的命令原文（shell 没发来时为 `null`，超长截断并以 `…` 结尾）；`exit` 是退出码（还在运行、或没看到结束时为 `null`）；`running` 表示还在运行；`has_output` 表示抓到了输出尾部（备用屏或读不到时为 `false`）；`error_line` 是命令失败时输出的最后一个非空行（S2 起来自 PTY 精确捕获），否则为 `null`。只在内存里，不含输出文字。其他 pane 为 `[]` |
 | `running_command` | 字符串或 `null` | 终端 pane：正在运行的命令（shell 没发原文时为 `""`）；没有在运行的命令、其他 pane 为 `null` |
+| `host` | 字符串或 `null` | 终端 pane 所在的主机：`local`，或 ssh 主机的 `user@hostname:port`；其他种类的 pane 为 `null` |
+| `remote` | 对象或 `null` | 终端 pane 处在 ssh 里时：`{ link, host, display, hostname, enhanced, cwd }`。`display` 是用户输入的主机名；`hostname` 是远端 `uname -n`；`enhanced`：经由 gilvt-remote 登录（装了远端组件）；`cwd`：远端 shell 上报的目录（OSC 7），未知为 `null`。此时上面的 `cwd` 为 `null` |
 
 ### `editors[]`
 

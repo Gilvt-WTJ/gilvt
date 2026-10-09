@@ -35,8 +35,12 @@ use crate::theme::{hsla, AppSettings, CellMetrics};
 pub enum TerminalViewEvent {
     TitleChanged,
     Exited,
+    /// The ssh link in this pane ended (ssh left the foreground).
+    RemoteEnded { link: String },
     /// Cmd+click on a file path; `in_editor` for Cmd+Shift+click.
     OpenPath { hit: PathHit, in_editor: bool },
+    /// A message for the user (shown as the error banner).
+    Notice(&'static str),
     /// ⌘P: open the file palette for this pane.
     FindFile,
     /// Files dropped from Finder, to preview as one Quick Look group.
@@ -87,6 +91,10 @@ pub struct TerminalView {
     search: Option<String>,
     /// Working directory reported by shell integration (OSC 7); preferred over process lookup.
     reported_cwd: Option<PathBuf>,
+    /// Set while this pane is in an ssh link: no local cwd applies.
+    remote: Option<crate::remote::pane::RemoteCwd>,
+    /// A link re-check timer is pending.
+    link_recheck: bool,
     /// Commands run at this pane's prompt (OSC 133).
     commands: CommandLog,
     /// What releasing the files dragged over this pane would do.
@@ -185,6 +193,8 @@ impl TerminalView {
             scroll_accum: 0.0,
             search: None,
             reported_cwd: None,
+            remote: None,
+            link_recheck: false,
             commands: CommandLog::default(),
             drop_hint: None,
             hitbox: Rc::new(Cell::new(None)),
@@ -199,13 +209,45 @@ impl TerminalView {
         self.title.clone().unwrap_or_else(|| self.auto_title.clone())
     }
 
+    /// Ends the ssh link when ssh has left the foreground twice in a row. A first strike schedules a re-check,
+    /// since the terminal may go quiet after the local prompt and nothing else would run the second check.
+    fn check_link(&mut self, cx: &mut Context<Self>) {
+        let Some(r) = self.remote.as_mut() else { return };
+        let fg = self.session.foreground_name();
+        if !r.link_alive(fg.as_deref(), Instant::now()) {
+            let link = r.remote.link.clone();
+            self.remote = None;
+            self.auto_title_checked = None;
+            cx.emit(TerminalViewEvent::RemoteEnded { link });
+            self.refresh_auto_title(cx);
+            cx.notify();
+        } else if r.needs_recheck() && !self.link_recheck {
+            self.link_recheck = true;
+            cx.spawn(async move |view, cx| {
+                cx.background_executor().timer(Duration::from_millis(600)).await;
+                let _ = view.update(cx, |v, cx| {
+                    v.link_recheck = false;
+                    v.check_link(cx);
+                    // Local again: the title follows.
+                    v.auto_title_checked = None;
+                    v.refresh_auto_title(cx);
+                });
+            })
+            .detach();
+        }
+    }
+
     /// Recomputes the fallback title at most twice a second; emits TitleChanged when it changes.
     fn refresh_auto_title(&mut self, cx: &mut Context<Self>) {
         if self.auto_title_checked.is_some_and(|t| t.elapsed() < Duration::from_millis(500)) {
             return;
         }
         self.auto_title_checked = Some(Instant::now());
-        let next = gilvt_term::procinfo::auto_title(self.session.foreground_name().as_deref(), self.cwd().as_deref());
+        self.check_link(cx);
+        let next = match self.remote.as_ref() {
+            Some(r) => gilvt_term::procinfo::auto_title(Some(&r.remote.display), r.cwd()),
+            None => gilvt_term::procinfo::auto_title(self.session.foreground_name().as_deref(), self.cwd().as_deref()),
+        };
         if next != self.auto_title {
             self.auto_title = next;
             if self.title.is_none() {
@@ -219,10 +261,36 @@ impl TerminalView {
         &self.commands
     }
 
-    /// The shell's working directory: the last OSC 7 report when it is local, else the
-    /// foreground process's cwd.
+    /// The shell's working directory on this Mac: the last local OSC 7, else the foreground process's cwd.
+    /// `None` in an ssh pane: the local ssh's cwd says nothing about the remote (spec §4.5).
     pub fn cwd(&self) -> Option<PathBuf> {
+        if self.remote.is_some() { return None; }
         self.reported_cwd.clone().or_else(|| self.session.cwd())
+    }
+
+    pub fn remote(&self) -> Option<&crate::remote::PaneRemote> { self.remote.as_ref().map(|r| &r.remote) }
+
+    pub fn remote_cwd(&self) -> Option<PathBuf> { self.remote.as_ref().and_then(|r| r.cwd().map(std::path::Path::to_path_buf)) }
+
+    pub fn set_remote(&mut self, r: Option<crate::remote::PaneRemote>, cx: &mut Context<Self>) {
+        match (r, self.remote.as_mut()) {
+            (Some(r), Some(cur)) if cur.remote.link == r.link => {
+                let h = r.hostname.clone();
+                cur.remote.enhanced = r.enhanced;
+                cur.set_hostname(h);
+            }
+            (Some(r), old) => {
+                // A new link replaces the old one: tell the app, or RemoteHosts keeps the old link forever.
+                if let Some(old) = old {
+                    cx.emit(TerminalViewEvent::RemoteEnded { link: old.remote.link.clone() });
+                }
+                self.remote = Some(crate::remote::pane::RemoteCwd::new(r));
+            }
+            (None, _) => self.remote = None,
+        }
+        self.auto_title_checked = None;
+        self.refresh_auto_title(cx);
+        cx.notify();
     }
 
 
@@ -306,9 +374,14 @@ impl TerminalView {
                 cx.emit(TerminalViewEvent::Notify { note, title: self.title(), focused });
             }
             TermEvent::ChildExit(_) => cx.emit(TerminalViewEvent::Exited),
-            // A remote report (ssh) says nothing about local paths: fall back to the process cwd.
             TermEvent::Cwd(c) => {
-                self.reported_cwd = c.is_local().then_some(c.path);
+                if c.is_local() {
+                    self.reported_cwd = Some(c.path);
+                } else {
+                    // A remote report: the ssh link's cwd when it is from that host (spec §4.5), never a local path.
+                    self.reported_cwd = None;
+                    if let Some(r) = self.remote.as_mut() { r.observe(&c.host, c.path); }
+                }
                 self.auto_title_checked = None;
                 self.refresh_auto_title(cx);
             }
@@ -552,7 +625,9 @@ impl TerminalView {
     /// The existing file named by the text at (row, col), resolved against this pane's cwd.
     fn path_at(&self, row: usize, col: usize) -> Option<PathHit> {
         let layout = self.layout.as_ref()?;
-        gilvt_term::paths::path_at(&layout.snapshot, row, col, self.cwd().as_deref(), |p| p.is_file())
+        let remote = self.remote.as_ref().map(|r| r.cwd().map(std::path::Path::to_path_buf));
+        let (cwd, assume) = link_context(self.cwd(), remote);
+        gilvt_term::paths::path_at(&layout.snapshot, row, col, cwd.as_deref(), |p| assume || p.is_file())
     }
 
     /// Recomputes `hovered_link` for a mouse at `position` with the current Cmd (platform
@@ -677,6 +752,11 @@ impl TerminalView {
 
     fn drop_paths(&mut self, paths: &ExternalPaths, _: &mut Window, cx: &mut Context<Self>) {
         self.drop_hint = None;
+        if self.remote.is_some() && crate::drop::alt_held() {
+            cx.emit(TerminalViewEvent::Notice(crate::i18n::text("拖入的是本地路径，远端看不到", "Dropped paths are local; the remote cannot see them")));
+            cx.notify();
+            return;
+        }
         let foreground = self.session.foreground_name();
         match drop_action(foreground.as_deref(), crate::drop::alt_held(), paths.paths()) {
             Some(DropAction::Insert(text)) => self.paste_text(&text),
@@ -948,5 +1028,26 @@ mod tests {
         assert_eq!(typed_char("12"), None);
         assert_eq!(typed_char("\t"), None);
         assert_eq!(typed_char("修"), Some(PaneKey::Char('修')));
+    }
+}
+
+/// The cwd and existence test ⌘-click uses: in an ssh pane, the remote cwd and "anything may exist"
+/// (the click is refused with a notice, spec §6) instead of checking the local disk.
+pub(crate) fn link_context(local_cwd: Option<PathBuf>, remote: Option<Option<PathBuf>>) -> (Option<PathBuf>, bool) {
+    match remote {
+        Some(cwd) => (cwd, true),
+        None => (local_cwd, false),
+    }
+}
+
+#[cfg(test)]
+mod link_context_tests {
+    use super::link_context;
+    use std::path::PathBuf;
+    #[test]
+    fn remote_panes_never_resolve_against_local_disk() {
+        assert_eq!(link_context(Some("/l".into()), None), (Some(PathBuf::from("/l")), false));
+        assert_eq!(link_context(None, Some(Some("/r".into()))), (Some(PathBuf::from("/r")), true));
+        assert_eq!(link_context(None, Some(None)), (None, true));
     }
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/gilvt-term", "crates/gilvt-shell", "crates/gilvt-ipc", "crates/gilvt-viewer", "crates/gilvt-markdown", "crates/gilvt-mermaid", "crates/gilvt-finder", "crates/gilvt-agent", "crates/gilvt-config", "crates/gilvt-cli", "crates/gilvt-app", "crates/gilvt-fake-agent", "crates/gilvt-snapshot", "crates/gilvt-editor", "crates/gilvt-monitor", "crates/gilvt-theme"]
+members = ["crates/gilvt-term", "crates/gilvt-shell", "crates/gilvt-ipc", "crates/gilvt-viewer", "crates/gilvt-markdown", "crates/gilvt-mermaid", "crates/gilvt-finder", "crates/gilvt-agent", "crates/gilvt-config", "crates/gilvt-cli", "crates/gilvt-app", "crates/gilvt-fake-agent", "crates/gilvt-snapshot", "crates/gilvt-editor", "crates/gilvt-monitor", "crates/gilvt-theme", "crates/gilvt-remote"]
 
 [workspace.package]
 edition = "2021"
@@ -49,3 +49,11 @@ gilvt-editor = { path = "crates/gilvt-editor" }
 # in debug builds too. Workspace crates keep fast incremental debug builds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# gilvt-remote ships to ssh hosts (spec §10: small and static).
+[profile.release-remote]
+inherits = "release"
+lto = true
+strip = true
+opt-level = "s"
+codegen-units = 1

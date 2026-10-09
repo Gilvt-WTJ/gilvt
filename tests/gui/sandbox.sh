@@ -2,8 +2,9 @@
 # gilvt GUI test sandbox: starts one Gilvt.app with a throwaway HOME whose PATH resolves `claude` /
 # `codex` to copies of gilvt-fake-agent, records it in session.env for drive.sh, and tears it down.
 #
-#   tests/gui/sandbox.sh up [--label X] [--app PATH] [--fake PATH] [--keep DIR]
-#                                                             DIR: where failures/ goes when the pane check fails
+#   tests/gui/sandbox.sh up [--label X] [--app PATH] [--fake PATH] [--keep DIR] [--remote]
+#                                                             DIR: where failures/ goes when the pane check fails;
+#                                                             --remote: ssh config + key for remote.sh's containers
 #   tests/gui/sandbox.sh real-up [--label X] [--app PATH] [--record DIR]   real HOME, real claude / codex;
 #                                                             DIR (absolute): GILVT_MONITOR_RECORD for the 监控官
 #   tests/gui/sandbox.sh down [--keep DIR]                    DIR: copy shots/ and failures/ there first
@@ -34,7 +35,7 @@ launch_timeout=15
 say() { echo "sandbox: $*" >&2; }
 die() { say "$*"; exit 2; }
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -329,6 +330,8 @@ write_session() {
     echo "BIN_DIR='$1/bin'"
     echo "TOOLS_DIR='$1/bin-tools'"
     echo "LABEL='$7'"
+    echo "CONTROL_DIR='${8:-}'"
+    echo "REMOTE_DIR='${9:-}'"
     echo "STARTED='$(date +%Y-%m-%dT%H:%M:%S%z)'"
   } >"$file"
   ln -sfn "$1" "$current"
@@ -418,16 +421,57 @@ verify_pane_paths() {
   return 0
 }
 
+# --remote: the ssh config, key and known_hosts of tests/gui/remote.sh's containers go to $home/.ssh, a
+# `remote-test` helper to $bin, and the app gets GILVT_SSH_CONTROL_DIR / GILVT_REMOTE_DIR (set in
+# REMOTE_CONTROL_DIR / REMOTE_DIST_DIR for the caller). Panes inherit the app's environment, so
+# `gilvt ssh` in a pane sees both. Exits 2 when remote.sh is not up.
+install_remote_home() {
+  local dir="$1" home="$2" bin="$3" app="${4:-}" rstate
+  rstate="${GILVT_GUI_REMOTE_STATE:-${TMPDIR:-/tmp}/gilvt-gui-remote}"
+  case "$rstate" in /*) ;; *) echo "sandbox: refusing remote state dir $rstate" >&2; exit 2 ;; esac
+  case "/$rstate/" in */../*) echo "sandbox: refusing remote state dir $rstate" >&2; exit 2 ;; esac
+  rs_="${rstate%/}"; [ "${rs_##*/}" = gilvt-gui-remote ] || { echo "sandbox: refusing remote state dir $rstate" >&2; exit 2; }
+  "$here/remote.sh" status >/dev/null 2>&1 || { echo "sandbox: --remote needs tests/gui/remote.sh up" >&2; exit 2; }
+  install -d -m 700 "$home/.ssh"
+  install -m 600 "$rstate/id_ed25519" "$home/.ssh/id_ed25519"
+  # ssh finds ~ through the passwd entry (the real home), not $HOME: the config names the sandbox paths
+  # outright, and the `ssh` wrapper (gilvt runs the first ssh on PATH) passes it with -F.
+  sed "s|~/.ssh|$home/.ssh|g" "$rstate/ssh_config" >"$home/.ssh/config"
+  chmod 644 "$home/.ssh/config"
+  printf '#!/bin/sh\nexec /usr/bin/ssh -F "%s/.ssh/config" "$@"\n' "$home" >"$bin/ssh"
+  chmod +x "$bin/ssh"
+  install -m 644 "$rstate/known_hosts" "$home/.ssh/known_hosts"
+  # The sandbox's HOME has no ~/.docker (colima context) and its PATH may lack docker: pin both at install time.
+  local ddir dhost
+  ddir="$(dirname "$(command -v docker 2>/dev/null || echo /usr/bin/docker)")"
+  dhost="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+  [ -n "$dhost" ] || dhost="${DOCKER_HOST:-}"
+  case "$ddir$dhost$rstate$here" in *"'"*) echo "sandbox: remote-test: a path contains a quote" >&2; exit 2 ;; esac
+  {
+    printf '#!/bin/sh\n'
+    printf "export PATH='%s':\"\$PATH\"\n" "$ddir"
+    [ -z "$dhost" ] || printf "export DOCKER_HOST='%s'\n" "$dhost"
+    printf "export GILVT_GUI_REMOTE_STATE='%s'\n" "$rstate"
+    printf 'exec /bin/bash %s "$@"\n' "$here/remote.sh"
+  } >"$bin/remote-test"
+  chmod +x "$bin/remote-test"
+  # ssh's control sockets live here: the path must stay short (sun_path), so not under $tmp.
+  REMOTE_CONTROL_DIR="/tmp/gilvt-gui-cm-$(basename "$dir" | tr -cd '0-9')"
+  REMOTE_DIST_DIR="$app/Contents/Resources/remote"
+  [ -d "$REMOTE_DIST_DIR" ] || REMOTE_DIST_DIR="$(target_dir)/remote-dist/remote"
+}
+
 cmd_up() {
   local mode="$1"
   shift
-  local label="" app="" fake="" keep="" record=""
+  local label="" app="" fake="" keep="" record="" remote="" remote_env=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --label) [ $# -ge 2 ] || usage; label="$2"; shift 2 ;;
       --app) [ $# -ge 2 ] || usage; app="$2"; shift 2 ;;
       --keep) [ $# -ge 2 ] || usage; keep="$2"; shift 2 ;;
       --fake) [ "$mode" = sandbox ] && [ $# -ge 2 ] || usage; fake="$2"; shift 2 ;;
+      --remote) [ "$mode" = sandbox ] || usage; remote=1; shift ;;
       --record) [ "$mode" = real ] && [ $# -ge 2 ] || usage; record="$2"; shift 2 ;;
       *) usage ;;
     esac
@@ -462,10 +506,14 @@ cmd_up() {
     cp "$fake" "$bin/codex"
     cp -L "$here"/scenarios/*.toml "$dir/scenarios/" 2>/dev/null
     write_home "$dir"
+    if [ -n "$remote" ]; then
+      install_remote_home "$dir" "$home" "$bin" "$app"
+      remote_env=("SSH_AUTH_SOCK=" "GILVT_SSH_CONTROL_DIR=$REMOTE_CONTROL_DIR" "GILVT_REMOTE_DIR=$REMOTE_DIST_DIR")
+    fi
     warm_codex_trust "$app" "$home" "$bin"
     path="$bin:$base_path"
     UP_HOME="$home"
-    pid="$(launch "$app" "$home" "$path" GILVT_FAKE_SCENARIOS_DIR="$dir/scenarios" GILVT_SANDBOX_HOME="$home")"
+    pid="$(launch "$app" "$home" "$path" GILVT_FAKE_SCENARIOS_DIR="$dir/scenarios" GILVT_SANDBOX_HOME="$home" ${remote_env[@]+"${remote_env[@]}"})"
   else
     home="$HOME"
     bin=""
@@ -478,7 +526,7 @@ cmd_up() {
   UP_PID="$pid" UP_REAL_HOME="$home"
   wid="$(await_window "$app/Contents/MacOS/gilvt" "$pid")" ||
     die "gilvt (pid $pid) did not answer 'gilvt debug state' with a window within ${launch_timeout}s"
-  write_session "$dir" "$pid" "$wid" "$app" "$mode" "$home" "$label"
+  write_session "$dir" "$pid" "$wid" "$app" "$mode" "$home" "$label" "${REMOTE_CONTROL_DIR:-}" "${REMOTE_DIST_DIR:-}"
 
   if [ "$mode" = sandbox ]; then
     GILVT_CLI_PATH="$app/Contents/MacOS/gilvt" PID_LAUNCHED="$pid" WINDOW_LAUNCHED="$wid"
@@ -517,6 +565,7 @@ up_cleanup() {
     # shellcheck disable=SC2086
     [ -z "$left" ] || { kill -TERM $left 2>/dev/null; sleep 1; left="$(sandbox_pids "$UP_HOME")"; [ -z "$left" ] || kill -KILL $left 2>/dev/null; }
   fi
+  case "${REMOTE_CONTROL_DIR:-}" in /tmp/gilvt-gui-cm-[0-9]*) rm -rf "$REMOTE_CONTROL_DIR" ;; esac
   [ "$(readlink "$current" 2>/dev/null)" = "$UP_DIR" ] && rm -f "$current"
   is_sandbox_dir "$UP_DIR" && rm -rf "$UP_DIR"
   exit $rc
@@ -557,7 +606,7 @@ cmd_down() {
     say "down: no sandbox is up"
     return 0
   fi
-  local SANDBOX_DIR="" PID="" APP_BIN="" MODE="" HOME_DIR=""
+  local SANDBOX_DIR="" PID="" APP_BIN="" MODE="" HOME_DIR="" CONTROL_DIR=""
   # shellcheck disable=SC1091
   . "$current/session.env"
   is_sandbox_dir "$SANDBOX_DIR" || die "session.env names $SANDBOX_DIR, which is not a sandbox directory; refusing"
@@ -566,6 +615,16 @@ cmd_down() {
     say "down: leaving $SANDBOX_DIR in place"
     return 1
   fi
+
+  # --remote: close ssh's master connections, then drop the control directory (only ours: /tmp/gilvt-gui-cm-<digits>).
+  case "$CONTROL_DIR" in
+    /tmp/gilvt-gui-cm-[0-9]*)
+      local s
+      for s in "$CONTROL_DIR"/cm-*; do
+        [ -S "$s" ] && ssh -o ControlPath="$s" -O exit x >/dev/null 2>&1
+      done
+      rm -rf "$CONTROL_DIR" ;;
+  esac
 
   report_trash "$SANDBOX_DIR/trashed.txt"
 
@@ -640,7 +699,7 @@ cmd_restart() {
     esac
   done
   [ -f "$current/session.env" ] || die "restart: no sandbox is up"
-  local SANDBOX_DIR="" PID="" APP="" APP_BIN="" MODE="" HOME_DIR="" BIN_DIR="" LABEL=""
+  local SANDBOX_DIR="" PID="" APP="" APP_BIN="" MODE="" HOME_DIR="" BIN_DIR="" LABEL="" CONTROL_DIR="" REMOTE_DIR=""
   # shellcheck disable=SC1091
   . "$current/session.env"
   is_sandbox_dir "$SANDBOX_DIR" || die "session.env names $SANDBOX_DIR, which is not a sandbox directory; refusing"
@@ -651,14 +710,14 @@ cmd_restart() {
     say "restart: config.toml: ${sets[*]}"
   fi
   local pid wid
-  pid="$(launch "$APP" "$HOME_DIR" "$BIN_DIR:$base_path" GILVT_FAKE_SCENARIOS_DIR="$SANDBOX_DIR/scenarios" GILVT_SANDBOX_HOME="$HOME_DIR" ${envs[@]+"${envs[@]}"})"
+  pid="$(launch "$APP" "$HOME_DIR" "$BIN_DIR:$base_path" GILVT_FAKE_SCENARIOS_DIR="$SANDBOX_DIR/scenarios" GILVT_SANDBOX_HOME="$HOME_DIR" ${CONTROL_DIR:+GILVT_SSH_CONTROL_DIR="$CONTROL_DIR" GILVT_REMOTE_DIR="$REMOTE_DIR"} ${envs[@]+"${envs[@]}"})"
   [ ${#envs[@]} -eq 0 ] || say "restart: env: ${envs[*]}"
   [ -n "$pid" ] || die "restart: gilvt-app did not start within ${launch_timeout}s"
   if ! wid="$(await_window "$APP/Contents/MacOS/gilvt" "$pid")"; then
     kill "$pid" 2>/dev/null
     die "restart: gilvt (pid $pid) did not answer 'gilvt debug state' with a window within ${launch_timeout}s"
   fi
-  write_session "$SANDBOX_DIR" "$pid" "$wid" "$APP" sandbox "$HOME_DIR" "$LABEL"
+  write_session "$SANDBOX_DIR" "$pid" "$wid" "$APP" sandbox "$HOME_DIR" "$LABEL" "$CONTROL_DIR" "$REMOTE_DIR"
   GILVT_CLI_PATH="$APP/Contents/MacOS/gilvt" PID_LAUNCHED="$pid" WINDOW_LAUNCHED="$wid"
   if ! verify_pane_paths "$SANDBOX_DIR" "$BIN_DIR" "$HOME_DIR"; then
     say "!!! SANDBOX LEAK after restart: the pane does not resolve claude/codex/HOME inside $SANDBOX_DIR"

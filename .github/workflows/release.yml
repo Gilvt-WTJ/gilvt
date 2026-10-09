@@ -32,6 +32,12 @@ jobs:
           rustup show active-toolchain || rustup toolchain install
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
+      - name: Linux targets for gilvt-remote
+        run: |
+          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+          brew install zig
+          cargo install cargo-zigbuild --locked
+
       - name: Import signing certificate
         env:
           CERT_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 }}

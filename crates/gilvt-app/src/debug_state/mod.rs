@@ -74,6 +74,8 @@ pub struct DebugState {
     pub chat_process: ChatProcessState,
     /// Automatic updates (Sparkle).
     pub update: UpdateState,
+    /// ssh hosts seen this run.
+    pub hosts: Vec<HostState>,
 }
 
 /// Top-level `update`.
@@ -768,6 +770,51 @@ pub struct Pane {
     pub commands: Vec<CommandRow>,
     /// Terminals: the command running now ("" when the shell did not send its text); null otherwise.
     pub running_command: Option<String>,
+    /// Terminals: "local" or the ssh host id (`user@hostname:port`); null for other panes.
+    pub host: Option<String>,
+    /// Terminals in an ssh link; null otherwise.
+    pub remote: Option<PaneRemoteState>,
+}
+
+/// `panes[].remote`: the ssh link a terminal pane is in.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PaneRemoteState {
+    pub link: String,
+    pub host: String,
+    pub display: String,
+    pub hostname: Option<String>,
+    pub enhanced: bool,
+    pub cwd: Option<String>,
+}
+
+/// Top-level `hosts[]`: ssh hosts this run has seen.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HostState {
+    pub id: String,
+    pub display: String,
+    pub hostname: Option<String>,
+    pub install: &'static str,
+    pub installed: Option<String>,
+    pub bridge: &'static str,
+    pub links: Vec<String>,
+}
+
+/// The `hosts` list from the app-wide remote state (BTreeMap order = sorted by id).
+fn host_states(r: &crate::remote::RemoteHosts) -> Vec<HostState> {
+    r.hosts
+        .iter()
+        .map(|(id, h)| {
+            let prefs = r.prefs.hosts.get(id);
+            let install = match prefs.and_then(|p| p.install.as_deref()) {
+                Some("allowed") => "allowed",
+                Some("never") => "never",
+                _ => "ask",
+            };
+            let mut links = r.links_of(id);
+            links.sort();
+            HostState { id: id.clone(), display: h.display.clone(), hostname: h.hostname.clone(), install, installed: prefs.and_then(|p| p.installed.clone()), bridge: h.bridge.id(), links }
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1515,7 +1562,7 @@ pub struct SettingsTest {
 
 /// The top-level fields, from plain data; `windows` is filled in by the caller.
 pub fn top_level(pid: u32, front: bool, badge: Option<&str>, bounces: u64) -> DebugState {
-    DebugState { version: VERSION, pid, front, dock_badge: badge.map(str::to_string), dock_bounces: bounces, pending: Vec::new(), theme: None, windows: Vec::new(), settings: None, chat_process: ChatProcessState::default(), update: UpdateState::default() }
+    DebugState { version: VERSION, pid, front, dock_badge: badge.map(str::to_string), dock_bounces: bounces, pending: Vec::new(), theme: None, windows: Vec::new(), settings: None, chat_process: ChatProcessState::default(), update: UpdateState::default(), hosts: Vec::new() }
 }
 
 /// Takes the snapshot. `tail_lines` is how much of each pane's screen to include.
@@ -1538,6 +1585,7 @@ pub fn collect(tail_lines: u16, cx: &mut App) -> DebugState {
     state.settings = collect::settings(cx);
     state.chat_process = crate::monitor::chat::process_state(cx);
     state.update = crate::updater::debug(cx);
+    state.hosts = cx.try_global::<crate::remote::RemoteHosts>().map(host_states).unwrap_or_default();
     state
 }
 

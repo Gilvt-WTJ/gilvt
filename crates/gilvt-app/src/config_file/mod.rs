@@ -177,6 +177,7 @@ pub fn merge_file_change(previous: Option<&Settings>, new: Settings, memory: &Se
         notify,
         monitor,
         update,
+        remote,
         colors,
     )
 }

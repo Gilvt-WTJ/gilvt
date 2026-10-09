@@ -6,14 +6,14 @@ use serde_json::json;
 fn top_level_fields() {
     let state = top_level(42, true, Some("2"), 3);
     let Response::DebugState { state } = to_response(&state) else { panic!("not a state") };
-    assert_eq!(state, json!({"version": 1, "pid": 42, "front": true, "dock_badge": "2", "dock_bounces": 3, "theme": null, "pending": [], "windows": [], "chat_process": {"running": false, "status": "idle", "provider": null, "pid": null, "turns": 0, "starts": 0}, "update": {"available": false, "mode": "", "ready": null}}));
+    assert_eq!(state, json!({"version": 1, "pid": 42, "front": true, "dock_badge": "2", "dock_bounces": 3, "theme": null, "pending": [], "windows": [], "chat_process": {"running": false, "status": "idle", "provider": null, "pid": null, "turns": 0, "starts": 0}, "update": {"available": false, "mode": "", "ready": null}, "hosts": []}));
 }
 
 #[test]
 fn no_badge_is_null() {
     let Response::DebugState { state } = to_response(&top_level(7, false, None, 0)) else { panic!("not a state") };
     assert!(state["dock_badge"].is_null());
-    assert_eq!(state.as_object().unwrap().len(), 10);
+    assert_eq!(state.as_object().unwrap().len(), 11);
     assert_eq!(state["front"], json!(false));
 }
 
@@ -86,6 +86,8 @@ fn window() -> WindowState {
                 cursor: Some(TermCursor { row: 1, col: 2, rect: [10.0, 50.0, 7.5, 16.0] }),
                 commands: vec![],
                 running_command: None,
+                host: Some("local".into()),
+                remote: None,
             }],
             rect: Some([248.0, 30.0, 140.0, 26.0]),
         }],
@@ -257,7 +259,7 @@ fn window_json_shape() {
                 "foreground": "agent:claude", "session": "claude:fcfe2a39", "border": "amber", "cwd": "/tmp/gilvt-lab",
                 "screen_tail": ["❯ 1. Cats", "  2. Dogs"], "marked_text": null, "code": null, "selection": null, "header": null,
                 "cursor": {"row": 1, "col": 2, "rect": [10.0, 50.0, 7.5, 16.0]},
-                "commands": [], "running_command": null
+                "commands": [], "running_command": null, "host": "local", "remote": null
             }],
             "rect": [248.0, 30.0, 140.0, 26.0]
         }],
@@ -890,4 +892,13 @@ fn install_banner_shape() {
             "move_button": [900.0, 40.0, 140.0, 18.0], "dismiss_button": [1046.0, 40.0, 60.0, 18.0]
         })
     );
+}
+
+#[test]
+fn pane_remote_and_hosts_shape() {
+    let r = PaneRemoteState { link: "i-1".into(), host: "dev@h:22".into(), display: "devbox".into(), hostname: Some("h".into()), enhanced: true, cwd: Some("/tmp".into()) };
+    assert_eq!(serde_json::to_value(&r).unwrap(), serde_json::json!({"link":"i-1","host":"dev@h:22","display":"devbox","hostname":"h","enhanced":true,"cwd":"/tmp"}));
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "ask", installed: None, bridge: "none", links: vec![] };
+    assert_eq!(serde_json::to_value(&h).unwrap(), serde_json::json!({"id":"dev@h:22","display":"devbox","hostname":null,"install":"ask","installed":null,"bridge":"none","links":[]}));
+    assert!(serde_json::to_value(top_level(1, false, None, 0)).unwrap()["hosts"].as_array().unwrap().is_empty());
 }

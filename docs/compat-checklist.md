@@ -3,7 +3,7 @@
 每次升级 gpui / alacritty_terminal / Claude Code / Codex 后逐项执行。启动：`cargo run -p gilvt-app --release`。
 结果记录在文末表格（✓ / ✗ + 备注）。
 
-**自动执行**：有「用例」列的节（H、I、K）可以交给 Codex 执行：在仓库内说「跑 gilvt 验收」或「验收 H 节」「验收 I10 I11」，
+**自动执行**：有「用例」列的节（H、I、K、AC）可以交给 Codex 执行：在仓库内说「跑 gilvt 验收」或「验收 H 节」「验收 I10 I11」，
 Codex 按根目录 `.agents/skills/gilvt-acceptance/SKILL.md` 在沙盒里逐个运行 `tests/gui/cases/` 下的用例，报告写到 `~/gilvt-lab/reports/`。
 Claude 的兼容入口仍在 `.claude/skills/gilvt-acceptance/SKILL.md`，并指向同一份流程。
 第一个运行的永远是沙盒自检 [S0](../tests/gui/cases/S/S0.md)，它失败时不继续。「用例」列标了「手动（原因）」的行，skill 执行其中能自动的部分，其余步骤在对话里请你做；没有「用例」列的节（A–G）仍按下面的表手动执行。
@@ -545,6 +545,31 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AB2 | 打开应用菜单 | 「设置…」之后有「检查更新…」（English 下为 Check for Updates…）；开发构建里点击没有反应、不报错 | 手动（gpui 菜单不在 DebugState 里，要看屏幕上的菜单栏） |
 | AB3 | 运行 `scripts/update-e2e.sh` | 打印 `PASS: quitting A installed B (0.0.2, build 101); signature verifies`；结束后 `launchctl list` 里没有 `com.gilvt.app-sparkle-updater` | 手动（要钥匙串里的 Developer ID 证书和 Sparkle 私钥，在沙盒外启动真实签名的 app） |
 | AB4 | `GILVT_NOTARIZE=1 scripts/package.sh` | app 与 dmg 两轮公证都是 Accepted；`Contents/Frameworks/Sparkle.framework` 里的 `Updater.app`、`Autoupdate`、两个 XPC 服务都由 Developer ID 签名，`spctl -a -vv` 为 Notarized Developer ID | 手动（要 Apple 公证凭据，约 2 分钟） |
+
+## AC. SSH 远程（R1）
+
+在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。
+
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| AC1 | 首次 `ssh devbox-test`，回答 `Y` | 出现安装询问；装好后进入远端 shell；`panes[0].remote.enhanced` 为 true，`hosts[0].bridge` 为 `up`，`remote.cwd` 为 `/home/dev` | [AC1](../tests/gui/cases/AC/AC1.md) |
+| AC2 | 退出后再次 `ssh devbox-test` | 不询问、不显示「正在安装 / 更新」；直接进入远端 shell，`enhanced` 为 true | [AC2](../tests/gui/cases/AC/AC2.md) |
+| AC3 | 远端的组件目录被改名后连接两次 | 第一次打印「远端组件不存在，以普通方式登录」；第二次不询问、显示「正在更新远端组件」后正常进入 | [AC3](../tests/gui/cases/AC/AC3.md) |
+| AC4 | 首次连接回答 `N`，退出再连 | 普通登录、`enhanced` 为 false、`hosts[0].install` 为 `never`；第二次不再询问 | [AC4](../tests/gui/cases/AC/AC4.md) |
+| AC5 | 连接一个认证失败的主机 | ssh 自己的报错，`$?` 为 255；pane 回到本地（`remote` 为 `null`） | [AC5](../tests/gui/cases/AC/AC5.md) |
+| AC6 | 远端 `cd /tmp` | `remote.cwd` 为 `/tmp`，pane 的 `cwd` 为 `null`（不是本地目录）；标签标题含远端主机名 `devbox`（来自远端 shell 设置的窗口标题） | [AC6](../tests/gui/cases/AC/AC6.md) |
+| AC7 | 远端执行 `false` | 命令块记录退出码 1 | [AC7](../tests/gui/cases/AC/AC7.md) |
+| AC8 | 远端输入行里 ⌘ 点击 `/etc/hosts` | 红色横幅「这项功能暂不支持远端」；没有打开预览（本地也有 `/etc/hosts`） | [AC8](../tests/gui/cases/AC/AC8.md) |
+| AC9 | 远端 pane 里按 `⌘P` | 红色横幅「这项功能暂不支持远端」，没有打开文件查找 | [AC9](../tests/gui/cases/AC/AC9.md) |
+| AC10 | `ssh devbox-test echo hi`、`command ssh devbox-test true`、`GILVT_SSH=0 ssh -t devbox-test true` | 都原样执行（输出 `hi`），pane 始终不标为远端，没有任何 gilvt 提示 | [AC10](../tests/gui/cases/AC/AC10.md) |
+| AC11 | 远端 `exit` | pane 回到本地：`remote` 为 `null`、`host` 为 `local`、`cwd` 是本地目录；30 秒后 `hosts[0].bridge` 为 `none` | [AC11](../tests/gui/cases/AC/AC11.md) |
+| AC12 | 两个 pane 都 `ssh devbox-jump`，关掉第一个 pane | 第二个 pane 照常可用（`echo alive` 有输出），`hosts[0].bridge` 仍为 `up` | [AC12](../tests/gui/cases/AC/AC12.md) |
+| AC13 | 真实远端经跳板机加 2FA 登录 | 2FA 提示出现在 pane 里，登录后 `enhanced` 为 true；第二个 pane 不再要求认证 | 手动（需要真实的 2FA 环境） |
+| AC14 | 在远端杀掉 bridge 进程 | `hosts[0].bridge` 先变为 `down`，之后自动恢复为 `up` | [AC14](../tests/gui/cases/AC/AC14.md) |
+| AC15 | 用两个不同版本的 gilvt 先后连接同一台主机 | 后连的版本接管 daemon，已登记的 link 不丢 | 手动（需要两个不同版本的构建；单元测试见 `crates/gilvt-remote/tests/takeover.rs`） |
+| AC16 | 用 `devbox-zsh`（远端登录 shell 为 zsh）重复 AC1、AC6、AC7 | 安装、远端 cwd、命令块都正常 | [AC16](../tests/gui/cases/AC/AC16.md) |
+| AC17 | 按住 ⌥ 把本地文件从访达拖进远端 pane | pane 里不插入路径，出现提示「拖入的是本地路径，远端看不到」 | 手动（`drive.sh drop` 不支持修饰键，访达拖放不能带 ⌥；提示文案在 `terminal_view.rs`） |
+| AC18 | 在 ssh 会话中的 pane 里按 ⌘W 关掉它 | 几秒内 `hosts[0].links` 为 `[]`（link 随 pane 结束）；60 秒内 `hosts[0].bridge` 为 `none` | [AC18](../tests/gui/cases/AC/AC18.md) |
 
 ## 已知限制（M1）
 

@@ -52,8 +52,9 @@ pub fn start(hooks: async_channel::Sender<Request>, cx: &mut App) -> Option<Path
     let debug = debug_state::enabled();
     let (query_tx, query_rx) = async_channel::bounded::<Query>(QUERY_QUEUE);
     let (monitor_tx, monitor_rx) = async_channel::bounded::<Query>(QUERY_QUEUE);
+    let (remote_tx, remote_rx) = async_channel::bounded::<Query>(QUERY_QUEUE);
     let debug_queries = if debug { DebugQueries::Answered(query_tx) } else { DebugQueries::Refused(DEBUG_STATE_DISABLED) };
-    let started = Server::start_with_monitor(&path, tx, debug_queries, monitor_tx);
+    let started = Server::start_with_monitor(&path, tx, debug_queries, monitor_tx, remote_tx);
     let server = match started {
         Ok(s) => s,
         Err(e) => {
@@ -80,6 +81,9 @@ pub fn start(hooks: async_channel::Sender<Request>, cx: &mut App) -> Option<Path
                 }
                 hook @ Request::Hook { .. } => {
                     let _ = hooks.try_send(hook);
+                }
+                req @ (Request::RemoteRecord { .. } | Request::RemoteLinked { .. } | Request::RemoteEnd { .. }) => {
+                    let _ = cx.update(|cx| crate::remote::handle(req, cx));
                 }
                 other => {
                     if let Some((pane, req, pin)) = view_request(other) {
@@ -126,6 +130,13 @@ pub fn start(hooks: async_channel::Sender<Request>, cx: &mut App) -> Option<Path
             }
             // One at a time: a full queue never holds back debug state queries or drawing.
             YieldNow(false).await;
+        }
+    })
+    .detach();
+    // `gilvt ssh` link starts: answered on the main thread.
+    cx.spawn(async move |cx| {
+        while let Ok(q) = remote_rx.recv().await {
+            let _ = cx.update(|cx| crate::remote::answer_begin(q, cx));
         }
     })
     .detach();

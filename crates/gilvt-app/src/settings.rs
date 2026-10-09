@@ -239,6 +239,8 @@ pub struct Settings {
     pub monitor: MonitorSettings,
     /// `[update]`: automatic updates (Sparkle, release builds only).
     pub update: UpdateSettings,
+    /// `[remote]`: SSH remote (spec §3.3).
+    pub remote: RemoteSettings,
     /// `[colors]`: single colors over the theme.
     pub colors: ColorsSetting,
 }
@@ -273,6 +275,34 @@ impl AgentSettings {
         match agent {
             gilvt_agent::AgentKind::Claude => &self.claude_launch,
             gilvt_agent::AgentKind::Codex => &self.codex_launch,
+        }
+    }
+}
+
+/// `[remote]` table (SSH remote, spec §3.3).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct RemoteSettings {
+    pub install: RemoteInstall,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteInstall {
+    #[default]
+    Ask,
+    Always,
+    Never,
+}
+
+impl RemoteInstall {
+    // used by DebugState (a later task)
+    #[allow(dead_code)]
+    pub fn id(self) -> &'static str {
+        match self {
+            RemoteInstall::Ask => "ask",
+            RemoteInstall::Always => "always",
+            RemoteInstall::Never => "never",
         }
     }
 }
@@ -370,6 +400,7 @@ impl Default for Settings {
             notify: NotifySettings::default(),
             monitor: MonitorSettings::default(),
             update: UpdateSettings::default(),
+            remote: RemoteSettings::default(),
             colors: ColorsSetting::default(),
         }
     }
@@ -571,6 +602,16 @@ mod tests {
         let (s, _) = load_str("[agent]\ncodex_launch = \"codex-w\"\n");
         assert_eq!(s.agent.launch(gilvt_agent::AgentKind::Claude), "claude");
         assert_eq!(s.agent.launch(gilvt_agent::AgentKind::Codex), "codex-w");
+    }
+
+    #[test]
+    fn remote_install_parses_and_defaults_to_ask() {
+        let (s, err) = load_str("[remote]\ninstall = \"never\"\n");
+        assert_eq!(s.remote.install, RemoteInstall::Never);
+        assert!(err.is_none());
+        assert_eq!(Settings::default().remote.install, RemoteInstall::Ask);
+        let (_, err) = load_str("[remote]\ninstall = \"sometimes\"\n");
+        assert!(err.is_some());
     }
 
     #[test]
