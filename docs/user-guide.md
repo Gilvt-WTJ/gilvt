@@ -519,6 +519,15 @@ theme = "My Theme"                                   # fixed
 
 `[colors]` supports `background`, `foreground`, `cursor`, `cursor_text`, `selection_background`, `selection_foreground` and `palette` (0–15). When a name is misspelled or a theme file is invalid, an error banner appears at the top with a “Did you mean …” suggestion, and gilvt uses the default theme for the time being. State colors are taken from the theme's ANSI 3 / 1 / 4 / 2 and are corrected automatically when contrast is too low; with the default theme, the Markdown preview keeps GitHub's colors.
 
+### SSH remote (preview)
+
+Run `ssh` to a Linux host in a gilvt pane and gilvt recognizes that the pane is now remote: the pane and tab show the host, the remote shell loads gilvt's shell integration (command marks, current directory), and the remote directory is tracked. Only interactive logins are affected; `ssh host command`, `scp` and `git push` run unchanged.
+
+- **Consent**: the first time you `ssh` to a host, gilvt asks whether to install a small helper (`gilvt-remote`, about 4 MB) on it: `Y` installs, `n` skips this time, `N` never installs on that host (remembered). The choice can be preset per machine with `[remote] install = "ask" | "always" | "never"` in `config.toml` (default `ask`). Without the helper, `ssh` logs in as usual.
+- **Bypass**: type `command ssh host` or set `GILVT_SSH=0` (for example `GILVT_SSH=0 ssh host`) to skip gilvt entirely.
+- **On the remote**: everything lives in `~/.gilvt-server` and runs one small daemon. To remove it by hand: `pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server`.
+- **Limitations (R1)**: Linux x86_64 / aarch64 hosts only; `⌘P`, Quick Look / preview and the built-in editor don't work in ssh panes yet (they show “Not available for remote panes yet” instead of looking at your Mac's files); no mosh; no hopping on from the remote host to another one; agents running inside ssh are not detected yet (planned for R2).
+
 ### Configuration
 
 The configuration file is `~/.config/gilvt/config.toml`; every field is optional:
@@ -545,6 +554,9 @@ dock_bounce = true
 
 [update]
 mode = "download"         # download | check | off (see "Updates")
+
+[remote]
+install = "ask"          # ask | always | never (see "SSH remote")
 
 [colors]                  # optional: override individual colors on top of the theme
 # background = "#1b1b26"

@@ -7,6 +7,13 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- SSH: `ssh` to a Linux host from a gilvt pane installs a small remote helper (after asking once per host,
+  or per `[remote] install`), loads gilvt's shell integration there, and shows the remote host and
+  directory; files you ⌘-click or search in an ssh pane are no longer looked up on the Mac. Agent
+  detection and remote file editing follow in later releases. Bypass with `command ssh` or `GILVT_SSH=0`.
+
 ## [0.1.0] - 2026-10-08
 
 First public release.

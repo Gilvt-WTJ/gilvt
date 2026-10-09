@@ -519,6 +519,15 @@ theme = "My Theme"                                   # 固定
 
 `[colors]` 支持 `background`、`foreground`、`cursor`、`cursor_text`、`selection_background`、`selection_foreground` 和 `palette`（0–15）。名字写错或主题文件无效时，顶部会出现错误横幅和「你是不是想用 …」的建议，gilvt 暂时用默认主题。状态色取主题的 ANSI 3 / 1 / 4 / 2，对比度不够时自动修正；默认主题下 Markdown 预览保持 GitHub 配色。
 
+### SSH 远程（预览）
+
+在 gilvt 的 pane 里 `ssh` 到 Linux 主机后，gilvt 知道这个 pane 已经在远端：pane 和标签显示主机名，远端 shell 加载 gilvt 的 shell 集成（命令标记、当前目录），并跟踪远端目录。只有交互式登录受影响；`ssh host command`、`scp`、`git push` 原样运行。
+
+- **询问**：第一次 `ssh` 到某台主机时，gilvt 会问要不要在它上面安装一个小程序（`gilvt-remote`，约 4 MB）：`Y` 安装，`n` 这次不用，`N` 这台主机永不安装（会记住）。也可以在 `config.toml` 里用 `[remote] install = "ask" | "always" | "never"` 预设（默认 `ask`）。不安装时 `ssh` 照常登录。
+- **绕过**：输入 `command ssh host`，或设置 `GILVT_SSH=0`（如 `GILVT_SSH=0 ssh host`），gilvt 完全不介入。
+- **远端目录**：全部在 `~/.gilvt-server`，并常驻一个小 daemon。手动卸载：`pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server`。
+- **当前限制（R1）**：只支持 Linux x86_64 / aarch64 主机；`⌘P`、预览（Quick Look）、内置编辑器在 ssh pane 里暂不可用（会提示「这项功能暂不支持远端」，不会去读你 Mac 上的同名文件）；不支持 mosh；不支持从远端再跳到别的主机；ssh 里运行的 Agent 暂不检测（R2 支持）。
+
 ### 配置
 
 配置文件是 `~/.config/gilvt/config.toml`，所有字段都可选：
@@ -545,6 +554,9 @@ dock_bounce = true
 
 [update]
 mode = "download"         # download | check | off（见「更新」）
+
+[remote]
+install = "ask"          # ask | always | never（见「SSH 远程」）
 
 [colors]                  # 可选：在主题之上单项覆盖
 # background = "#1b1b26"

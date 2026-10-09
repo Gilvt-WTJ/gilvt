@@ -349,3 +349,25 @@ trait TranscriptSource { fn subscribe(..); fn range(..); }
 - 2FA：它和密码一样走 keyboard-interactive / `/dev/tty`，这次的密码测试已经覆盖了这条交互路径。实施后在 GSSAPI / 2FA 环境里再手动确认一次。
 - fish 的 `ssh` 包装函数如何透传 `$argv`：风险低，用 `real_shells` 测试覆盖。
 - 远端缺少 `xterm-256color` 的 terminfo 时是否需要回退：真实远端和容器里都有这个 terminfo，暂不处理，列为已知限制。
+
+## 11. R1 实施偏差与裁决
+
+实施计划（`docs/plans/2026-10-08-gilvt-ssh-remote-r1-plan.md`）与本 spec 的差异：
+
+1. **ControlPath 用固定字符串** `/tmp/gilvt-<uid>/cm-<fnv64(HostId) 16 位十六进制>`，不再用 `%C`：app 启动 bridge 时必须拿到与 `gilvt ssh` 完全相同的路径，而 `%C` 依赖每次调用的参数展开。共 41 字节，低于 104 字节上限。
+2. **远端主机名在探测时一起取回**（`uname -n`，与 `$HOSTNAME` 一致），写入 `remote.json`，经 `RemoteLinked` 交给 app；bridge 失败时远端 OSC 7 也能被正确认领。
+3. **R1 的 daemon 只在内存里保存 link 状态**，不写事件日志、不做 spool（移到 R2）；握手里的 `cursor` 字段 R1 就有，固定传 0。
+4. **`gilvt-agent` 的 3 处 Linux 适配移到 R2**：R1 的 `gilvt-remote` 不依赖它。
+5. **app bundle 里存放 gzip 后的远端二进制**：`Contents/Resources/remote/<arch>/gilvt-remote.gz`，旁边 `build-id` 写 `<版本>-<sha8>`，上传时直接传 `.gz`。
+6. **link 何时结束**：交互 ssh 结束、pane 前台进程不再是 `ssh`（连续两次检查，间隔至少 500 ms）时视为结束；`gilvt ssh` 在 exec 之前失败时主动发 `RemoteEnd`；daemon 的 `LinkDown` 也会结束 link。
+
+实施中的裁决：
+
+- (a) `decide` 先看「never」再看「远端已装」：用户拒绝过的主机，即使另一台 Mac 在上面装过，仍走普通登录。
+- (b) `gilvt ssh` 在 `-o` / ssh_config 形式设置了 `SessionType`、`ForkAfterAuthentication`、`ControlMaster`、`ControlPath`、`ControlPersist`、`RequestTTY`、`RemoteCommand`、`StdinNull` 时原样透传；目标主机之后还有选项时也透传。
+- (c) 探测输出以哨兵 `GILVT-PROBE-1` 开头，用来滤掉 motd / profile 等噪声。
+- (d) 上传用的临时文件名是 `gilvt-remote.tmp.$$`。
+- (e) 启动 master 之前先删除陈旧的控制套接字；master 绑定失败时改为普通登录。
+- (f) 链接结束在第一次观察到非 ssh 前台之后约 600 ms 再检查一次；给同一个 pane 登记新 link 会结束旧 link。
+- (g) docker 里的 rustup 卷按架构分开：`gilvt-remote-rustup-<arch>`。
+- (h) 测试沙盒带一个放在 PATH 最前的 `ssh` 包装脚本（加 `-F <沙盒>/.ssh/config`）和 `Host *` 的隔离块：ssh 按 passwd 而不是 `$HOME` 解析 `~`，不这样做会读到真实的 `~/.ssh`。

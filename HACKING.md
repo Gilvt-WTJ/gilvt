@@ -166,6 +166,8 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 | `crates/gilvt-app/src/updater.rs` | 自动更新：运行时加载 Sparkle.framework，`[update] mode`、「检查更新…」、侧栏「退出时安装」提示 |
 | `packaging/entitlements.plist` | 硬化运行时的 entitlements（Apple Events，供「跳到外部终端」） |
 | `site/` | 官网 gilvt.com（中英双语）：`build.sh` 构建到 `dist-site/`，`wrangler.jsonc` 部署到 Cloudflare Worker `gilvt`，`_redirects` 管 `/download` |
+| `tests/gui/remote.sh` | 测试远端：colima/docker 里的两个 sshd 容器（`devbox-test` 直连、`devbox-zsh` 登录 shell 为 zsh、`devbox-jump` 经跳板）；`up` / `down` / `status` / `reset` / `exec`，`requires: remote` 的用例由 `run.sh` 自动起停 |
+| `scripts/remote-smoke.sh` | `gilvt-remote` 与 `gilvt ssh` 对测试远端的端到端冒烟（不启动 GUI） |
 | `tests/gui/` | GUI 验收：沙盒、驱动脚本、用例、剧本（见下文「GUI 验收测试」） |
 | `.claude/skills/gilvt-acceptance/` | 让 Claude 执行 GUI 验收并写报告的 skill |
 
@@ -705,3 +707,7 @@ tests/gui/sandbox.sh down --keep ~/gilvt-lab/reports/s0
 ```
 
 完整步骤在 `tests/gui/cases/S/S0.md`；`tests/gui/selftest.sh` 不启动 GUI，检查脚本、用例和 skill 本身。
+
+跑过 `requires: remote` 的用例（节 AC）后，除了 `sandbox.sh down`，还要清理测试远端：`tests/gui/remote.sh down`（删容器、网络、镜像），再
+`docker volume rm gilvt-remote-target gilvt-remote-cargo gilvt-remote-rustup-x86_64 gilvt-remote-rustup-aarch64`（`scripts/build-remote.sh` 的编译缓存卷）；
+colima 是这一轮启动的话 `colima stop`。
