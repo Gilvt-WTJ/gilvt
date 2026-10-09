@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>如何在 macOS 管理多个 Claude Code 会话 · gilvt</title>
+<meta name="description" content="使用独立 Git worktree、明确的任务边界、状态提醒和可靠的会话恢复，在 macOS 安全运行和管理多个 Claude Code 会话。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/zh-CN/guides/manage-multiple-claude-code-sessions/"><link rel="alternate" hreflang="en" href="https://gilvt.com/guides/manage-multiple-claude-code-sessions/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/manage-multiple-claude-code-sessions/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/manage-multiple-claude-code-sessions/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/zh-CN/guides/manage-multiple-claude-code-sessions/"><meta property="og:title" content="如何在 macOS 管理多个 Claude Code 会话"><meta property="og:description" content="用 worktree、任务边界和统一注意力队列管理并行 Agent。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"如何在 macOS 管理多个 Claude Code 会话","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/zh-CN/"},"mainEntityOfPage":"https://gilvt.com/zh-CN/guides/manage-multiple-claude-code-sessions/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/guides/manage-multiple-claude-code-sessions/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Claude Code 指南</span><h1>如何在 macOS 管理多个 Claude Code 会话</h1><p class="lead">隔离代码、分清任务所有权，再把注意力信号集中起来。这样才是有效并行，而不是让几个 Agent 同时盲目修改同一个问题。</p><p class="article-meta">发布于 2026-10-08 · 阅读约 7 分钟</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>推荐配置：</strong>每个 Claude Code 会话使用独立 Git worktree、单一明确任务和可识别标题。需要进程跨断线存活时使用 tmux；主要问题是判断哪个会话需要你时，使用理解 Agent 状态的终端。</p></div>
+
+    <h2>1. 给每个会话独立工作目录</h2>
+    <p>两个 Agent 修改同一个 checkout，可能互相覆盖文件、让对方的假设失效，并产生混杂的 Git diff。Git worktree 能提供独立目录，同时共享仓库对象。</p>
+    <pre>git worktree add ../project-auth -b agent/auth
+git worktree add ../project-tests -b agent/tests
+
+cd ../project-auth
+claude</pre>
+    <p>在另一个 worktree 启动第二个会话。让每个分支足够聚焦，可以独立 review 和合并。</p>
+
+    <h2>2. 分配结果，而不是重叠活动</h2>
+    <p>“改进后端”不是一个好的并行任务。“给接口 X 增加参数校验”和“给问题 Y 增加回归测试”才有明确所有权。启动会话前应说明：</p>
+    <ul><li>预期结果；</li><li>允许负责的文件或子系统；</li><li>不得修改的边界；</li><li>证明完成的测试命令。</li></ul>
+    <p>如果两个任务必须修改同一个核心文件，应串行处理，或让一个 Agent 负责实现，另一个只做研究与 review。</p>
+
+    <h2>3. 让会话容易识别</h2>
+    <p>六个会话都叫“zsh”时，标签标题没有帮助。会话标识应包含项目、任务和分支。gilvt 的会话行显示工作目录、分支与当前动作，也允许在不改变 Agent session 的情况下重命名。</p>
+
+    <h2>4. 集中注意力，而不是轮询标签页</h2>
+    <p>并行 Agent 最昂贵的部分，是反复确认每个会话是否还在执行。Claude Code hooks 与会话记录可以区分活动、审批、问题、错误和完成。</p>
+    <p>gilvt 把需要用户的会话排在左栏顶部。<kbd>⇧⌘J</kbd> 可以跨标签页和窗口跳到下一个等待会话；系统通知则覆盖你在编辑器或浏览器中的时间。</p>
+    <figure><img src="/images/features/agents.jpg" width="1600" height="964" loading="lazy" alt="gilvt 左栏集中显示多个需要注意的 Claude Code 会话。"><figcaption>把注意力变成队列，而不是逐个搜索标签页。</figcaption></figure>
+
+    <h2>5. 下一条指令之前先 review 当前轮次</h2>
+    <p>并行输出积累很快。应按任务和轮次 review，而不是等所有分支都变得很大。检查执行过的命令、修改文件、相关 diff 和验证结果。接受当前工作后先提交或建立 checkpoint，再给出方向明显不同的新任务。</p>
+
+    <h2>6. 明确选择持久化方式</h2>
+    <p>Claude Code 能恢复持久会话，tmux 能保留同一个运行进程，两者并不相同：</p>
+    <ul><li><strong>Claude resume</strong> 从保存的 session 重建 Agent 对话。</li><li><strong>tmux attach</strong> 在 server 仍存活时重新连接同一个 shell 和进程。</li><li><strong>gilvt restore</strong> 重建本地窗口布局，并提供受支持的 Agent 会话恢复入口。</li></ul>
+    <p>远程机器或必须跨 GUI 退出存活的进程适合 tmux；持久对话历史适合 Agent resume；两者可以组合。</p>
+
+    <h2>7. 限制并发数量</h2>
+    <p>会话更多不一定更快。先从两到三个独立任务开始。只有在 review 延迟仍然较低，而且任务不争用相同文件、测试环境或心智模型时，再增加并发。</p>
+    <div class="callout"><p><strong>在 gilvt 中：</strong>按 <kbd>⇧⌘N</kbd> 在目录或新 worktree 中创建 Claude Code 会话，再通过左栏和 Session Center 导航、review 和恢复。</p></div>
+    <section class="related"><h2>相关指南</h2><ul><li><a href="/zh-CN/guides/run-claude-code-and-codex-in-parallel/">并行运行 Claude Code 和 Codex</a></li><li><a href="/zh-CN/compare/gilvt-vs-tmux/">gilvt 与 tmux 对比</a></li><li><a href="/zh-CN/docs/">gilvt 产品手册</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/zh-CN/docs/">产品手册</a> · <a href="/zh-CN/install/">下载</a></span></div><p>gilvt 是独立项目，与 Anthropic、OpenAI 没有关联。</p></div></footer>
+</body>
+</html>

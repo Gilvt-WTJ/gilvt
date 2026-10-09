@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code Terminal Integration for macOS · gilvt</title>
+<meta name="description" content="Run Claude Code in a native macOS terminal with live session status, approval and question notifications, per-turn timelines, diffs, configuration summaries and resume.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/integrations/claude-code/"><link rel="alternate" hreflang="en" href="https://gilvt.com/integrations/claude-code/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/integrations/claude-code/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/integrations/claude-code/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/integrations/claude-code/"><meta property="og:title" content="Claude Code Terminal Integration for macOS"><meta property="og:description" content="Keep Claude Code in its native TUI while gilvt tracks status, attention and each turn's changes."><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Claude Code Terminal Integration for macOS","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/"},"mainEntityOfPage":"https://gilvt.com/integrations/claude-code/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/features/">Features</a><a href="/docs/">Docs</a><a href="/install/">Download</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/zh-CN/integrations/claude-code/" hreflang="zh-CN" lang="zh-CN">简体中文</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Integration</span><h1>Claude Code in a terminal that knows when it needs you</h1><p class="lead">Claude Code stays in its native TUI. gilvt observes its local session lifecycle and adds a sidebar, notifications, per-turn review and durable session navigation around it.</p><p class="article-meta">Updated October 8, 2026 · gilvt {{VERSION}}</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>Setup:</strong> install gilvt, open a pane and run <code>claude</code>. For sessions launched inside gilvt, status integration is injected at launch without rewriting your Claude settings or shell rc files.</p></div>
+    <h2>What gilvt detects</h2>
+    <p>gilvt combines Claude Code hooks, the local transcript and process identity. It normalizes running turns, permission requests, questions, failures, completion and subagent activity into one session model.</p>
+    <ul><li>The sidebar moves sessions waiting for approval or an answer into “Needs you”.</li><li>Pane borders and tab dots show running, attention, error and completed-unread states.</li><li>Native notifications bring you back to the correct pane.</li><li>The inspector connects commands, tool calls, edits and TODOs to a per-turn timeline.</li></ul>
+    <h2>Review and resume</h2>
+    <p>Artifacts group files by turn and open a “this turn” diff. Session Center can find older Claude sessions, review finished work offline and build the supported resume command for the original project.</p>
+    <figure><img src="/images/features/artifacts.jpg" width="1600" height="964" loading="lazy" alt="gilvt showing per-turn artifacts and file changes from a Claude Code session."><figcaption>Per-turn artifacts keep review scoped to the instruction that produced the change.</figcaption></figure>
+    <h2>Configuration remains yours</h2>
+    <p>Launching Claude from gilvt uses temporary integration settings rather than permanently editing your existing Claude configuration. The inspector's Configuration tab reads an effective, redacted summary of models, permissions, MCP servers, hooks, skills and memory files.</p>
+    <p>If you want gilvt to discover Claude sessions started in other terminal applications, <code>gilvt integrate install</code> provides an explicit, reversible global-hook option. It is not required for ordinary sessions launched in gilvt.</p>
+    <h2>Failure behavior</h2>
+    <p>A missing hook or changed transcript format does not block terminal input. gilvt falls back to inferred or reduced status and keeps the native Claude process usable. Exact process-control actions are reserved for sessions with exact identity evidence.</p>
+    <div class="callout"><p><strong>Next:</strong> follow the <a href="/guides/manage-multiple-claude-code-sessions/">multiple Claude Code sessions guide</a>, or <a href="/install/">download gilvt for macOS</a>.</p></div>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · Apache-2.0</span><span><a href="/integrations/">Integrations</a> · <a href="/docs/">User guide</a></span></div><p>Claude and Claude Code are trademarks of Anthropic. gilvt is not affiliated with Anthropic.</p></div></footer>
+</body>
+</html>

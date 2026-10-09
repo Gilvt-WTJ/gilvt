@@ -21,6 +21,7 @@ actions!(
         ResizeUp,
         ResizeDown,
         ZoomPane,
+        MovePaneToTab,
         NextTab,
         PrevTab,
         Tab1,
@@ -130,6 +131,7 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-ctrl-up", ResizeUp, None),
         KeyBinding::new("cmd-ctrl-down", ResizeDown, None),
         KeyBinding::new("cmd-shift-enter", ZoomPane, None),
+        KeyBinding::new("cmd-shift-t", MovePaneToTab, None),
         KeyBinding::new("cmd-}", NextTab, None),
         KeyBinding::new("cmd-{", PrevTab, None),
         KeyBinding::new("cmd-1", Tab1, None),
@@ -243,6 +245,7 @@ pub fn menus(language: Language) -> Vec<Menu> {
             name: "View".into(),
             items: vec![
                 MenuItem::action("Zoom Pane", ZoomPane),
+                MenuItem::action(t("移到新标签 / 移回原标签", "Move Pane to New Tab / Back"), MovePaneToTab),
                 MenuItem::separator(),
                 MenuItem::action("Bigger", IncreaseFontSize),
                 MenuItem::action("Smaller", DecreaseFontSize),
@@ -320,6 +323,22 @@ mod tests {
         assert_eq!(hits.len(), 1, "⌘⇧M is bound exactly once");
         assert_eq!(hits[0].action().name(), ToggleCommandBar.name());
         assert!(hits[0].predicate().is_none(), "global: it must work from terminals, agent TUIs, editors and the monitor tab");
+    }
+
+    #[test]
+    fn move_pane_to_tab_has_its_own_global_chord_and_menu_item() {
+        let cmd_shift_t = Modifiers { platform: true, shift: true, ..Default::default() };
+        let all = bindings();
+        let hits: Vec<&KeyBinding> = all
+            .iter()
+            .filter(|b| b.keystrokes().len() == 1 && b.keystrokes()[0].inner().key == "t" && b.keystrokes()[0].inner().modifiers == cmd_shift_t)
+            .collect();
+        assert_eq!(hits.len(), 1, "⌘⇧T is bound exactly once");
+        assert_eq!(hits[0].action().name(), MovePaneToTab.name());
+        assert!(hits[0].predicate().is_none(), "global: terminals, previews and editors all move");
+        let menus = menus(Language::Chinese);
+        let view = menus.iter().find(|m| m.name.as_ref() == "View").expect("View menu");
+        assert!(view.items.iter().any(|i| matches!(i, MenuItem::Action { name, .. } if name.as_ref() == "移到新标签 / 移回原标签")));
     }
 
     #[test]

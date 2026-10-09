@@ -3,11 +3,11 @@
 <h1 align="center">gilvt</h1>
 
 <p align="center">
-  One terminal for you and all your agents.
+  A native macOS terminal for running and monitoring parallel coding agents.
   <br />
   Run Claude Code and Codex in their own TUIs, see which session needs you, and review each turn in place.
   <br />
-  <a href="https://gilvt.com">Website</a>
+  <a href="https://gilvt.com">Website and guides</a>
   ·
   <a href="https://gilvt.com/download">Download</a>
   ·
@@ -27,9 +27,9 @@
 </p>
 
 > [!NOTE]
-> gilvt is an early release (0.1) and runs on macOS only. The interface defaults to Simplified
-> Chinese; switch to English in Settings (`⌘,`) → Language, or set `language = "en"` in
-> `~/.config/gilvt/config.toml`. The developer docs ([HACKING.md](HACKING.md)) are in Chinese for now.
+> gilvt is an early release (0.1) and runs on macOS only. The interface follows your Mac's preferred
+> language: Simplified Chinese when it is Chinese, English otherwise. Pick one in Settings (`⌘,`) →
+> Language, or set `language = "en"` / `"zh-CN"` in `~/.config/gilvt/config.toml`. The developer docs ([HACKING.md](HACKING.md)) are in Chinese for now.
 
 ## About
 
@@ -83,6 +83,14 @@ signed and notarized). Open the disk image, drag Gilvt into Applications, and op
 `claude` or `codex` in a pane: the sidebar and inspector pick up the session automatically. The app keeps
 itself up to date and installs updates when you quit. More on [gilvt.com](https://gilvt.com/install/).
 
+With Homebrew:
+
+```bash
+brew install --cask gilvt-wtj/gilvt/gilvt
+```
+
+This also puts the `gilvt` command on your `PATH`. Updates still arrive through the app itself.
+
 ### Build from source
 
 Requirements: macOS, Xcode Command Line Tools, and Rust (the pinned toolchain in `rust-toolchain.toml`
@@ -102,6 +110,8 @@ certificate as described in [HACKING.md](HACKING.md) (稳定签名). Builds from
 ## Documentation
 
 - [User guide](docs/user-guide.md) (a formatted edition is in `docs/user-guide.html`; open it in a browser)
+- [Coding-agent guides](https://gilvt.com/guides/) and
+  [Claude Code / Codex integrations](https://gilvt.com/integrations/)
 - [Developing gilvt](HACKING.md): build, layout and implementation notes (Chinese)
 - [Acceptance checklist](docs/compat-checklist.md) and [GUI tests](tests/gui/README.md)
 - [Design documents](docs/design/)

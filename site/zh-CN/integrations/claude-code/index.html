@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>macOS 上的 Claude Code 终端集成 · gilvt</title>
+<meta name="description" content="在原生 macOS 终端运行 Claude Code，获得实时 session 状态、审批与问题通知、逐轮时间线、diff、配置摘要和会话恢复。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/zh-CN/integrations/claude-code/"><link rel="alternate" hreflang="en" href="https://gilvt.com/integrations/claude-code/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/integrations/claude-code/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/integrations/claude-code/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/zh-CN/integrations/claude-code/"><meta property="og:title" content="macOS 上的 Claude Code 终端集成"><meta property="og:description" content="保留 Claude Code 原生 TUI，同时由 gilvt 跟踪状态、注意力与每轮改动。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"macOS 上的 Claude Code 终端集成","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/zh-CN/"},"mainEntityOfPage":"https://gilvt.com/zh-CN/integrations/claude-code/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/integrations/claude-code/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">集成</span><h1>让终端知道 Claude Code 什么时候需要你</h1><p class="lead">Claude Code 保留原生 TUI。gilvt 观察本机 session 生命周期，在周围增加左栏、通知、逐轮 review 和持久会话导航。</p><p class="article-meta">更新于 2026-10-08 · gilvt {{VERSION}}</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>设置：</strong>安装 gilvt，打开 pane 并运行 <code>claude</code>。对于在 gilvt 内启动的会话，状态集成会在启动时注入，不会重写你的 Claude 设置或 shell rc 文件。</p></div>
+    <h2>gilvt 能识别什么</h2>
+    <p>gilvt 组合 Claude Code hooks、本机会话记录和进程身份，把执行轮次、权限请求、问题、失败、完成和子 Agent 活动统一成一个会话模型。</p>
+    <ul><li>左栏把等待审批或回答的会话移入「需要你」。</li><li>pane 描边和标签圆点显示执行、注意、错误和完成未读状态。</li><li>系统通知把你带回正确 pane。</li><li>检查器把命令、工具调用、编辑和 TODO 连接成逐轮时间线。</li></ul>
+    <h2>Review 与恢复</h2>
+    <p>产物标签按轮次组织文件，并打开「本轮」diff。Session Center 可以查找旧 Claude 会话、离线 review 已完成工作，并为原项目生成受支持的恢复命令。</p>
+    <figure><img src="/images/features/artifacts.jpg" width="1600" height="964" loading="lazy" alt="gilvt 展示 Claude Code 会话的逐轮产物和文件修改。"><figcaption>逐轮产物把 review 限定在产生修改的那条指令。</figcaption></figure>
+    <h2>配置仍然属于你</h2>
+    <p>从 gilvt 启动 Claude 使用临时集成设置，而不是永久编辑现有 Claude 配置。检查器的「配置」标签读取模型、权限、MCP、hooks、skills 和记忆文件的有效脱敏摘要。</p>
+    <p>如果希望 gilvt 发现其他终端应用里启动的 Claude，会话可以显式、可逆地运行 <code>gilvt integrate install</code> 安装全局 hooks；普通 gilvt 内会话不需要这一步。</p>
+    <h2>失败时的行为</h2>
+    <p>hook 缺失或记录格式变化不会阻塞终端输入。gilvt 会退回推断或精简状态；只有具备精确身份依据的会话才允许精确进程控制。</p>
+    <div class="callout"><p><strong>下一步：</strong>阅读<a href="/zh-CN/guides/manage-multiple-claude-code-sessions/">多 Claude Code 会话指南</a>，或<a href="/zh-CN/install/">下载 macOS 版 gilvt</a>。</p></div>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · Apache-2.0</span><span><a href="/zh-CN/integrations/">集成</a> · <a href="/zh-CN/docs/">产品手册</a></span></div><p>Claude 和 Claude Code 是 Anthropic 的商标；gilvt 与 Anthropic 没有关联。</p></div></footer>
+</body>
+</html>

@@ -19,7 +19,7 @@ notify = "8"
 block2.workspace = true
 objc2.workspace = true
 # NSBundle (am I in Gilvt.app?), the userInfo of native notifications, and moving sessions to the Trash.
-objc2-foundation = { workspace = true, features = ["std", "NSBundle", "NSDictionary", "NSError", "NSFileManager", "NSString", "NSURL"] }
+objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSBundle", "NSDictionary", "NSError", "NSFileManager", "NSLocale", "NSString", "NSURL"] }
 objc2-user-notifications = { workspace = true, features = [
     "std",
     "bitflags",

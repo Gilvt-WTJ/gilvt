@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code 与 Codex 终端集成 · gilvt</title>
+<meta name="description" content="了解 gilvt 如何识别 Claude Code 和 Codex 会话、跟踪状态、显示审批与问题、review 每一轮并恢复持久 Agent session。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/zh-CN/integrations/"><link rel="alternate" hreflang="en" href="https://gilvt.com/integrations/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/integrations/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/integrations/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="website"><meta property="og:url" content="https://gilvt.com/zh-CN/integrations/"><meta property="og:title" content="Claude Code 与 Codex 终端集成"><meta property="og:description" content="保留 Agent 原生 TUI，同时增加状态、review 和会话管理。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/integrations/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap page-head"><span class="badge">集成</span><h1>Agent 保留自己的原生 TUI</h1><p class="lead">gilvt 通过 Claude Code 与 Codex 支持的本机信号观察它们，再在周围增加状态、导航、review 和会话管理。</p></div>
+  <section><div class="wrap"><div class="pillars">
+    <div class="pillar"><h3>自动本地识别</h3><p>在 pane 里启动 Agent，gilvt 会把进程、hooks 和持久 session 记录关联起来。</p></div>
+    <div class="pillar"><h3>没有私有聊天层</h3><p>prompt、审批和问题仍留在 Claude Code 或 Codex 中，gilvt 从不替你回答。</p></div>
+    <div class="pillar"><h3>安全降级</h3><p>某个信号不可用或格式变化时，pane 仍是可用终端，集成能力只会降低。</p></div>
+  </div></div></section>
+  <section class="band"><div class="wrap"><div class="grid">
+    <a class="card" href="/zh-CN/integrations/claude-code/"><h3>Claude Code 集成</h3><p>session hooks、审批与问题状态、时间线、产物、配置摘要和恢复。</p><span>Claude Code 细节 →</span></a>
+    <a class="card" href="/zh-CN/integrations/codex/"><h3>Codex 集成</h3><p>Codex hooks 与 rollout、状态统一、子 Agent、逐轮 review 和恢复。</p><span>Codex 细节 →</span></a>
+  </div></div></section>
+  <section class="cta"><div class="wrap"><h2>在一个工作空间里尝试两个 Agent</h2><div class="actions"><a class="btn primary" href="/download">下载 macOS 版</a><a class="btn" href="/zh-CN/guides/run-claude-code-and-codex-in-parallel/">并行工作流指南</a></div></div></section>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · Apache-2.0</span><span><a href="/zh-CN/docs/">产品手册</a> · <a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a></span></div><p>gilvt 是独立项目，与 Anthropic、OpenAI 没有关联。</p></div></footer>
+</body>
+</html>

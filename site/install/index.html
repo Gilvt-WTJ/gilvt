@@ -6,12 +6,21 @@
 <title>Download · gilvt</title>
 <meta name="description" content="Download gilvt {{VERSION}} for macOS 11 or later: a universal app, signed and notarized by Apple, that keeps itself up to date.">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="alternate" hreflang="zh-CN" href="/zh-CN/install/">
+<link rel="canonical" href="https://gilvt.com/install/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/install/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/install/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/install/">
 <link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://gilvt.com/install/">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
 <meta property="og:title" content="Download gilvt">
 <meta property="og:description" content="gilvt {{VERSION}} for macOS: one terminal for you and all your agents.">
 <meta property="og:image" content="https://gilvt.com/images/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Download gilvt for macOS">
+<meta name="twitter:description" content="Download the signed and notarized native macOS terminal for Claude Code and Codex.">
 </head>
 <body>
 <header class="wrap top">
@@ -47,7 +56,9 @@
         <li>Drag <strong>Gilvt</strong> into <strong>Applications</strong> and open it from there. If you open it straight from the disk image, gilvt shows a banner and moves itself for you.</li>
         <li>Run <code>claude</code> or <code>codex</code> in a pane. The sidebar and inspector pick the session up automatically; there is nothing to configure.</li>
       </ol>
-      <p class="note">The interface defaults to Simplified Chinese; switch to English in Settings (<kbd>⌘,</kbd>) → Language. The first time a session needs you, allow notifications so you hear about it in other apps.</p>
+      <p>Or with Homebrew, which also puts the <code>gilvt</code> command on your <code>PATH</code>:</p>
+      <pre>brew install --cask gilvt-wtj/gilvt/gilvt</pre>
+      <p class="note">The interface follows your Mac's language (Simplified Chinese on a Chinese Mac, English otherwise); change it in Settings (<kbd>⌘,</kbd>) → Language. The first time a session needs you, allow notifications so you hear about it in other apps.</p>
     </div>
   </section>
 

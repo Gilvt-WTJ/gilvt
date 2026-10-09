@@ -474,6 +474,8 @@ M3d.1 保持 `⌘⇧R` 默认落在兼容的「全部会话」页；`⌘1..4` �
 固定的预览 pane、编辑器 pane 分屏后太窄时，可以把它单独移到一个新标签里看：按住 pane 的标题栏拖到标签栏上松开，或在固定预览里按 `T`；
 Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。新标签插在原标签右边、拿到键盘；预览在新标签里按 `Esc`、或 `⌘W` 关掉新标签，都回到原标签。
 只有自己一个 pane 的标签拖了不变。断言来自 `windows[].tab_bar`、`panes[].header`、`tabs[].panes`。
+任何 pane（包括终端）都可以用 `⌘⇧T`（View 菜单「移到新标签 / 移回原标签」）移到新标签；在移出来、只剩它一个 pane 的标签里再按 `⌘⇧T`，
+它回到原标签：原标签没变过时回到原来的位置和大小，否则放在原来的邻居旁边，邻居也不在了就放在原标签当前 pane 的右边。断言另用 `layout.tabs[].tree`。
 
 | # | 操作 | 期望 | 用例 |
 |---|------|------|------|
@@ -481,6 +483,9 @@ Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。
 | Z2 | 在固定预览里按 `T`，再按 `Esc`；切回新标签按 `⌘W` | `T` 同 Z1；`Esc` 回到原标签的终端；`⌘W` 关掉新标签后回到原标签 | [Z2](../tests/gui/cases/Z/Z2.md) |
 | Z3 | `gilvt view` 打开 Quick Look，按 `T` | 浮层关闭，预览成为新标签（当前、有焦点），原标签不分屏 | [Z3](../tests/gui/cases/Z/Z3.md) |
 | Z4 | Quick Look 里 `⌥E` 把编辑器分屏打开，输入一个字，把编辑器标题栏拖到标签栏 | 编辑器移到新标签，未保存的 ● 还在（`editors[0].tab == 1`、`dirty == true`） | [Z4](../tests/gui/cases/Z/Z4.md) |
+| Z5 | `⌘D` 分屏，在右边的终端里 `echo` 一行，按 `⌘⇧T` | 出现第二个标签并成为当前标签，里面只有这个终端且有焦点，刚才的输出还在、能接着输入；原标签只剩左边的终端 | [Z5](../tests/gui/cases/Z/Z5.md) |
+| Z6 | 分屏成 `1 \| (2 / 3)`，在 pane 2 按 `⌘⇧T`，再在新标签里按 `⌘⇧T` | 新标签消失，回到原标签；pane 2 回到右上（与 3 上下排列），有焦点 | [Z6](../tests/gui/cases/Z/Z6.md) |
+| Z7 | 只有一个 pane 的普通标签里按 `⌘⇧T` | 什么都不变：不开新标签，焦点不动 | [Z7](../tests/gui/cases/Z/Z7.md) |
 
 ## O. 主题
 
@@ -503,12 +508,16 @@ Quick Look 里按 `T` 直接在新标签打开（⏎ 仍是固定成分屏）。
 
 ## S. 界面语言
 
-`language = "zh-CN" | "en"` 控制 gilvt 自身界面语言；默认简体中文，终端内容不参与翻译。设置窗口「文A 语言」页的选择立即应用到所有窗口并写回 `config.toml`，手改配置也会热重载。
+`language = "zh-CN" | "en"` 控制 gilvt 自身界面语言；不写时跟随 macOS 首选语言（`zh` 开头用简体中文，其他用英文），终端内容不参与翻译。设置窗口「文A 语言」页的选择立即应用到所有窗口并写回 `config.toml`，手改配置也会热重载。
+沙盒配置固定 `language = "zh-CN"`；S3–S4 删掉它、用 `GILVT_TEST_SYSTEM_LANGUAGE` 假装系统语言。来源看 `settings.language_source`（`config` / `system`）。
 
 | # | 操作 | 期望 | 用例 |
 |---|------|------|------|
 | S1 | 用 `language = "en"` 启动并打开设置窗口 | DebugState 为 `en`；设置页导航、外观页和监控官页显示英文；侧栏与检查器的主要界面文案显示英文 | [S1](../tests/gui/cases/S/S1.md) |
 | S2 | 在「语言」页点击 English，再点「简体中文」 | 每次选择都立即重绘所有窗口并写回 `language`；切回中文后原有界面文案恢复 | [S2](../tests/gui/cases/S/S2.md) |
+| S3 | `config.toml` 不写 `language`，系统首选语言为英文（`en-US`）启动 | 界面英文，`settings.language == "en"`、`language_source == "system"` | [S3](../tests/gui/cases/S/S3.md) |
+| S4 | `config.toml` 不写 `language`，系统首选语言为中文（`zh-Hans-CN`）启动 | 界面简体中文，`language_source == "system"` | [S4](../tests/gui/cases/S/S4.md) |
+| S5 | `config.toml` 写 `language = "zh-CN"`，系统首选语言为英文 | 以配置为准：界面简体中文，`language_source == "config"` | [S5](../tests/gui/cases/S/S5.md) |
 
 ## AA. 从临时位置运行（移到「应用程序」）
 

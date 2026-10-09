@@ -1449,6 +1449,8 @@ pub struct SettingsState {
     pub page: &'static str,
     /// The active application language: "zh-CN" or "en".
     pub language: &'static str,
+    /// Where `language` comes from: "config" (config.toml sets `language`) or "system" (macOS's preferred language).
+    pub language_source: &'static str,
     /// Language choices, including their click rectangles while the language page is shown.
     pub languages: Vec<SettingsLanguage>,
     /// config.toml does not parse: every control is disabled.

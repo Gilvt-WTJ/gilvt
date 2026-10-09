@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>什么是 AI Agent 终端？· gilvt</title>
+<meta name="description" content="Agent 终端在完整终端能力之上理解 Claude Code、Codex 等编程 Agent 的状态，让你并行运行多个会话，同时知道谁正在工作、等待你或已经完成。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/zh-CN/agent-terminal/"><link rel="alternate" hreflang="en" href="https://gilvt.com/agent-terminal/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/agent-terminal/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/agent-terminal/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/zh-CN/agent-terminal/"><meta property="og:title" content="什么是 AI Agent 终端？"><meta property="og:description" content="为并行 Claude Code 和 Codex 会话设计的终端应该解决什么问题。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"什么是 AI Agent 终端？","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/zh-CN/"},"mainEntityOfPage":"https://gilvt.com/zh-CN/agent-terminal/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/agent-terminal/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Agent 终端</span><h1>什么是 AI Agent 终端？</h1><p class="lead">Agent 终端首先是一个真正的终端，同时理解编程 Agent 的生命周期：哪个会话正在执行、被阻塞、询问问题、等待审批或已经完成。</p><p class="article-meta">发布于 2026-10-08 · 阅读约 6 分钟</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>简短回答：</strong>普通终端显示文本；Agent 终端在此之上理解 Claude Code、Codex 等会话的结构化状态，同时让 Agent 保留原生的命令行界面。</p></div>
+
+    <h2>为什么普通终端难以管理编程 Agent</h2>
+    <p>传统终端适合一个人控制一个前台命令。编程 Agent 改变了这种关系：开发者会启动多个会话，转去处理其他任务，只有 Agent 需要审批、提问或完成一轮时才回来。</p>
+    <p>在普通标签页和分屏里，每个会话都只是一块文字。你必须逐个打开才能回答：</p>
+    <ul><li>Agent 还在执行，还是十分钟前已经停了？</li><li>哪个会话正在等待审批或回答？</li><li>上一轮修改了哪些文件？</li><li>几天前的会话能否安全恢复？</li></ul>
+    <p>此时瓶颈已经不是终端渲染，而是如何管理多个异步工作者对人的注意力需求。</p>
+
+    <h2>Agent 终端增加了什么</h2>
+    <table><thead><tr><th>层面</th><th>普通终端</th><th>Agent 终端</th></tr></thead><tbody><tr><td>进程</td><td>显示 shell 输出</td><td>把进程关联到 Agent 会话</td></tr><tr><td>状态</td><td>需要阅读当前屏幕</td><td>跟踪执行、等待、错误和完成</td></tr><tr><td>注意力</td><td>手动检查标签页</td><td>把需要你的会话排在前面</td></tr><tr><td>Review</td><td>另开 Git 和编辑器</td><td>连接轮次、命令、文件与 diff</td></tr><tr><td>历史</td><td>回滚和 shell history</td><td>查找并恢复持久 Agent 会话</td></tr></tbody></table>
+
+    <h2>gilvt 如何观察 Agent</h2>
+    <p>gilvt 不会用自有聊天界面替换 Claude Code 或 Codex。Agent 继续运行在自己的 TUI 中。gilvt 把 shell integration、Agent hooks、会话记录和进程信息合并成统一状态。</p>
+    <p>这些状态驱动左栏、pane 描边、系统通知、逐轮时间线和产物 review。某项集成不可用时，终端仍然正常工作，会话只会退回能力较少的模式。</p>
+    <figure><picture><source media="(prefers-color-scheme: dark)" srcset="/images/gilvt-dark.png"><img src="/images/gilvt-light.png" width="3200" height="1928" loading="lazy" alt="gilvt 同时显示六个编程 Agent 会话及执行、等待、错误和完成状态。"></picture><figcaption>Agent 保留原生 TUI，gilvt 在周围汇总它们的状态。</figcaption></figure>
+
+    <h2>Agent 终端不等于自动化编排器</h2>
+    <p>编排器通常拥有 prompt、审批和任务执行图。Agent 终端可以采取更克制的方式：只观察、组织和导航，不代替用户回答。</p>
+    <p>gilvt 采用后一种模型。它不会替你输入或批准命令，你保留原来的 CLI 行为与配置，只增加一个管理多会话的工作空间。</p>
+
+    <h2>它与 tmux 的关系</h2>
+    <p>tmux 解决的是另一个问题：让终端进程由后台 server 持有，从而 detach 和重新连接。Agent 终端关注原生 UI 和 Agent 语义。远程工作时，可以用 tmux 保持服务器进程，用 gilvt 提供本地 macOS 界面。</p>
+    <p>更完整的进程和会话生命周期差异见 <a href="/zh-CN/compare/gilvt-vs-tmux/">gilvt 与 tmux 对比</a>。</p>
+
+    <div class="callout"><p><strong>试用：</strong><a href="/zh-CN/install/">下载 macOS 版 gilvt</a>，打开一个 pane，运行 <code>claude</code> 或 <code>codex</code>，会话会自动出现在左栏。</p></div>
+    <section class="related"><h2>相关指南</h2><ul><li><a href="/zh-CN/guides/manage-multiple-claude-code-sessions/">管理多个 Claude Code 会话</a></li><li><a href="/zh-CN/guides/run-claude-code-and-codex-in-parallel/">并行运行 Claude Code 和 Codex</a></li><li><a href="/zh-CN/features/">查看 gilvt 全部功能</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/zh-CN/docs/">产品手册</a> · <a href="/zh-CN/install/">下载</a></span></div><p>gilvt 是独立项目，与 Anthropic、OpenAI 没有关联。</p></div></footer>
+</body>
+</html>

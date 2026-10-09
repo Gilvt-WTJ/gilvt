@@ -9,10 +9,22 @@ breaking changes; they are called out under **Changed**.
 
 ### Added
 
+- Homebrew: `brew install --cask gilvt-wtj/gilvt/gilvt` installs gilvt and links the `gilvt` command.
+- `⌘⇧T` (View → Move Pane to New Tab / Back) moves the focused pane, terminals included, out of its split
+  into a tab of its own; pressing it again in that tab puts the pane back where it was.
 - SSH: `ssh` to a Linux host from a gilvt pane installs a small remote helper (after asking once per host,
   or per `[remote] install`), loads gilvt's shell integration there, and shows the remote host and
   directory; files you ⌘-click or search in an ssh pane are no longer looked up on the Mac. Agent
   detection and remote file editing follow in later releases. Bypass with `command ssh` or `GILVT_SSH=0`.
+
+### Changed
+
+- The interface language now follows macOS when `config.toml` has no `language` key: Simplified Chinese
+  when the Mac's first preferred language is Chinese, English otherwise. It used to always default to
+  Simplified Chinese. Setting `language` (or picking one in Settings → Language) still overrides it.
+- Website: added canonical and bilingual search metadata, an automatically generated sitemap,
+  structured application data, focused coding-agent guides, Claude Code / Codex integration pages,
+  and a build-time SEO and local-link check.
 
 ## [0.1.0] - 2026-10-08
 

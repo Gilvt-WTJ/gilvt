@@ -209,7 +209,12 @@ impl ColorsSetting {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
-    /// The application chrome language. Terminal contents are never translated.
+    /// What config.toml says (`language = …`); None: follow macOS.
+    #[serde(rename = "language")]
+    pub language_setting: Option<Language>,
+    /// The application chrome language in effect: `language_setting`, else `Language::system()`. Terminal
+    /// contents are never translated.
+    #[serde(skip)]
     pub language: Language,
     pub font_family: String,
     pub font_size: f32,
@@ -379,7 +384,8 @@ impl AgentSettings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            language: Language::default(),
+            language_setting: None,
+            language: Language::system(),
             font_family: "Menlo".into(),
             font_size: 13.0,
             line_height: 1.25,
@@ -440,6 +446,7 @@ impl Settings {
 
     /// Clamps values; what cannot be clamped falls back to its default, with a line in `errors`.
     fn sanitized(mut self, errors: &mut Vec<String>) -> Self {
+        self.language = self.language_setting.unwrap_or_else(Language::system);
         self.font_size = self.font_size.clamp(Self::MIN_FONT_SIZE, Self::MAX_FONT_SIZE);
         self.line_height = self.line_height.clamp(1.0, 2.0);
         self.scrollback = self.scrollback.min(1_000_000);
@@ -473,12 +480,23 @@ mod tests {
     }
 
     #[test]
+    fn without_a_language_key_the_language_follows_the_system() {
+        let (s, err) = load_str("font_size = 15\n");
+        assert!(err.is_none());
+        assert_eq!(s.language_setting, None);
+        assert_eq!(s.language, Language::system());
+        let (s, _) = load_str("language = \"zh-CN\"\n");
+        assert_eq!(s.language_setting, Some(Language::Chinese));
+    }
+
+    #[test]
     fn partial_file_overrides_fields() {
         let (s, err) = load_str(
             "language = \"en\"\nfont_size = 15\ntheme = \"dark\"\nshell = \"/bin/bash\"\n",
         );
         assert!(err.is_none());
         assert_eq!(s.language, Language::English);
+        assert_eq!(s.language_setting, Some(Language::English));
         assert_eq!(s.font_size, 15.0);
         assert_eq!(s.theme.selection(), gilvt_theme::Selection::Fixed(gilvt_theme::GILVT_DARK.into()));
         assert_eq!(s.shell.as_deref(), Some("/bin/bash"));

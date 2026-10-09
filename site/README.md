@@ -8,6 +8,14 @@ The website, English at the root and Chinese under `zh-CN/` (keep both in step):
 | `/features/` | `features/index.html`, images in `images/features/` (frames of the demo GIF and crops of the README screenshots) |
 | `/docs/` | generated from `docs/user-guide.html` with the bar in `partials/docs-bar.*.html` on top; edit the guide, not a copy |
 | `/install/` | `install/index.html` (download page; `/download` itself is the dmg) |
+| `/agent-terminal/` | search guide explaining the Agent-aware terminal model |
+| `/guides/...` | task-oriented Claude Code / Codex workflow guides |
+| `/compare/...` | factual product and architecture comparisons |
+
+Every public content page has an English source at the root and a Simplified Chinese counterpart under
+`zh-CN/`. Keep canonical / hreflang pairs in sync when adding or moving a page; `build.sh` generates
+`sitemap.xml` from those tags. Run `sh site/check.sh` before deploying to validate metadata, JSON-LD,
+the sitemap and local links.
 
 `style.css` is shared; `_redirects` sends `/download` to `https://release.gilvt.com/Gilvt.dmg`. `{{VERSION}}`
 in any page becomes the version in `Cargo.toml`, so redeploy after each release. `sh site/build.sh`

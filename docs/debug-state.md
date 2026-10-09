@@ -511,6 +511,7 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 | `key` | 布尔 | 是否是 key window |
 | `page` | 字符串 | 当前页：`appearance`（外观）、`language`（语言）或 `monitor`（监控官） |
 | `language` | 字符串 | 当前界面语言：`zh-CN` 或 `en` |
+| `language_source` | 字符串 | `language` 从哪来：`config`（`config.toml` 写了 `language`）或 `system`（没写，跟随 macOS 首选语言；`GILVT_TEST_SYSTEM_LANGUAGE` 可以假装） |
 | `languages` | 数组 | 语言项：`{ id, label, selected, rect }`；`id` 是 `zh-CN` / `en`，只在语言页显示时 `rect` 非空 |
 | `readonly` | 布尔 | `config.toml` 有语法错误：所有控件只读 |
 | `error` | 字符串或 `null` | 语法错误信息（以文件路径开头）；`readonly` 为真时才有 |

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What Is an AI Agent Terminal? · gilvt</title>
+<meta name="description" content="An AI agent terminal combines a real terminal with live state for Claude Code, Codex and other coding agents, so you can run sessions in parallel without losing track of who needs you.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://gilvt.com/agent-terminal/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/agent-terminal/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/agent-terminal/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/agent-terminal/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://gilvt.com/agent-terminal/">
+<meta property="og:title" content="What Is an AI Agent Terminal?">
+<meta property="og:description" content="A practical definition of terminals built for parallel Claude Code and Codex sessions.">
+<meta property="og:image" content="https://gilvt.com/images/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"TechArticle","headline":"What Is an AI Agent Terminal?","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/"},"mainEntityOfPage":"https://gilvt.com/agent-terminal/"}
+</script>
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a>
+  <nav><a href="/features/">Features</a><a href="/docs/">Docs</a><a href="/install/">Download</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/zh-CN/agent-terminal/" hreflang="zh-CN" lang="zh-CN">简体中文</a></nav>
+</header>
+<main>
+  <div class="wrap article-head">
+    <span class="kicker">Agent terminal</span>
+    <h1>What is an AI agent terminal?</h1>
+    <p class="lead">An agent terminal is a real terminal that also understands the lifecycle of coding agents: which session is running, blocked, asking a question, waiting for approval, or finished.</p>
+    <p class="article-meta">Published October 8, 2026 · 6 minute read</p>
+  </div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>Short answer:</strong> a normal terminal displays text. An agent terminal adds structured awareness across Claude Code, Codex and other long-running sessions, while keeping each agent in its native command-line interface.</p></div>
+
+    <h2>Why a normal terminal becomes difficult with coding agents</h2>
+    <p>A terminal window works well when one person drives one foreground command. Coding agents change that pattern. A developer may start several sessions, move to another task, and return only when an agent needs approval or finishes a turn.</p>
+    <p>With ordinary tabs and splits, every session looks like another rectangle of text. You have to open each tab to answer basic questions:</p>
+    <ul>
+      <li>Is this agent still working, or did it stop ten minutes ago?</li>
+      <li>Which session is waiting for an approval or an answer?</li>
+      <li>What files changed during the last turn?</li>
+      <li>Can this older session be resumed safely?</li>
+    </ul>
+    <p>The problem is no longer terminal rendering. It is attention management across asynchronous workers.</p>
+
+    <h2>What an agent terminal adds</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Normal terminal</th><th>Agent terminal</th></tr></thead>
+      <tbody>
+        <tr><td>Processes</td><td>Shows shell output</td><td>Associates a process with an Agent session</td></tr>
+        <tr><td>Status</td><td>Requires reading the current screen</td><td>Tracks running, waiting, error and completed states</td></tr>
+        <tr><td>Attention</td><td>Manual tab checking</td><td>Ranks sessions that need the user</td></tr>
+        <tr><td>Review</td><td>Open separate Git and editor tools</td><td>Connects turns, files, commands and diffs</td></tr>
+        <tr><td>History</td><td>Scrollback and shell history</td><td>Finds and resumes durable Agent sessions</td></tr>
+      </tbody>
+    </table>
+
+    <h2>How gilvt observes agents</h2>
+    <p>gilvt does not replace Claude Code or Codex with a proprietary chat interface. The agents continue to run in their own TUIs. gilvt combines shell integration, Agent hooks, session records and process information into a normalized status model.</p>
+    <p>That model powers a sidebar, pane borders, notifications, per-turn timelines and artifact review. If an integration is unavailable, the terminal continues to work and the session falls back to a reduced mode.</p>
+    <figure>
+      <picture><source media="(prefers-color-scheme: dark)" srcset="/images/gilvt-dark.png"><img src="/images/gilvt-light.png" width="3200" height="1928" loading="lazy" alt="gilvt showing six coding-agent sessions with running, waiting, error and completed states."></picture>
+      <figcaption>Six sessions remain in their native TUIs while gilvt summarizes their state around them.</figcaption>
+    </figure>
+
+    <h2>An agent terminal is not an autonomous orchestrator</h2>
+    <p>There are two distinct product models. An orchestrator often owns prompts, approvals and the execution graph. An agent terminal can take a less prescriptive role: it observes, organizes and navigates without answering on the user's behalf.</p>
+    <p>gilvt follows the second model. It does not type into agents or approve commands. The user keeps the original CLI behavior and configuration, while gaining a workspace for running many sessions.</p>
+
+    <h2>How it relates to tmux</h2>
+    <p>tmux solves a different problem: it keeps terminal processes alive in a server so clients can detach and reconnect. An agent terminal focuses on native UI and Agent semantics. They work well together, especially when tmux keeps remote work alive and gilvt provides the local macOS interface.</p>
+    <p>Read the full <a href="/compare/gilvt-vs-tmux/">gilvt versus tmux comparison</a> for the process and session-lifecycle differences.</p>
+
+    <div class="callout"><p><strong>Try it:</strong> <a href="/install/">download gilvt for macOS</a>, open a pane, and run <code>claude</code> or <code>codex</code>. The session appears in the sidebar automatically.</p></div>
+
+    <section class="related">
+      <h2>Related guides</h2>
+      <ul><li><a href="/guides/manage-multiple-claude-code-sessions/">Manage multiple Claude Code sessions</a></li><li><a href="/guides/run-claude-code-and-codex-in-parallel/">Run Claude Code and Codex in parallel</a></li><li><a href="/features/">Explore all gilvt features</a></li></ul>
+    </section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/docs/">User guide</a> · <a href="/install/">Download</a></span></div><p>gilvt is an independent project, not affiliated with Anthropic or OpenAI.</p></div></footer>
+</body>
+</html>

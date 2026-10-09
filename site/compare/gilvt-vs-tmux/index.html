@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gilvt vs tmux for Coding Agents</title>
+<meta name="description" content="gilvt and tmux both provide tabs and splits, but solve different problems. Compare native Agent awareness with tmux process persistence, remote sessions and detach/attach.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/compare/gilvt-vs-tmux/"><link rel="alternate" hreflang="en" href="https://gilvt.com/compare/gilvt-vs-tmux/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/compare/gilvt-vs-tmux/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/compare/gilvt-vs-tmux/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/compare/gilvt-vs-tmux/"><meta property="og:title" content="gilvt vs tmux for Coding Agents"><meta property="og:description" content="Native Agent workspace versus persistent terminal server, and why they work well together."><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"gilvt vs tmux for Coding Agents","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/"},"mainEntityOfPage":"https://gilvt.com/compare/gilvt-vs-tmux/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/features/">Features</a><a href="/docs/">Docs</a><a href="/install/">Download</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/zh-CN/compare/gilvt-vs-tmux/" hreflang="zh-CN" lang="zh-CN">简体中文</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Comparison</span><h1>gilvt vs tmux for coding agents</h1><p class="lead">gilvt is a native macOS terminal and Agent workspace. tmux is a terminal server that keeps processes alive independently of the terminal window. The overlap is visible; the underlying job is different.</p><p class="article-meta">Published October 8, 2026 · 7 minute read</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>Choose tmux</strong> for detach/attach, remote persistence and shared terminal sessions. <strong>Choose gilvt</strong> for native macOS UI, Claude Code and Codex status, notifications and per-turn review. Use both when you need remote persistence and local Agent awareness.</p></div>
+
+    <h2>The process ownership is the essential difference</h2>
+    <p>gilvt directly owns a PTY for each pane and renders it with its terminal emulator. Tabs and splits are native application layout. When the app exits, those PTY clients are gone; gilvt can rebuild the workspace and resume supported Agent sessions, but it does not preserve arbitrary process memory.</p>
+    <pre>Gilvt.app → PTY → shell / claude / codex</pre>
+    <p>tmux inserts a server between the outer terminal and the real shells. The server owns the PTYs, so closing a terminal window only disconnects the client.</p>
+    <pre>gilvt / Terminal.app → tmux client ⇄ tmux server → PTYs → processes</pre>
+
+    <h2>Capability comparison</h2>
+    <table>
+      <thead><tr><th>Capability</th><th>gilvt</th><th>tmux</th></tr></thead>
+      <tbody>
+        <tr><td>Native macOS application</td><td>Yes</td><td>No; runs inside a terminal</td></tr>
+        <tr><td>Terminal rendering</td><td>Own GPU-rendered emulator</td><td>Renders through the outer terminal</td></tr>
+        <tr><td>Detach and reconnect to the same process</td><td>No</td><td>Core feature</td></tr>
+        <tr><td>Remote SSH persistence</td><td>Depends on the SSH connection</td><td>Excellent</td></tr>
+        <tr><td>Multiple clients on one session</td><td>No</td><td>Yes</td></tr>
+        <tr><td>Claude Code / Codex state</td><td>Built in</td><td>Requires scripts or plugins</td></tr>
+        <tr><td>Per-turn commands, files and diff</td><td>Built in</td><td>Not a core concept</td></tr>
+        <tr><td>Quick Look, Markdown and editor</td><td>Native views</td><td>External tools</td></tr>
+        <tr><td>Automation ecosystem</td><td>Early</td><td>Mature CLI, hooks and plugins</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Restore is not the same as persistence</h2>
+    <p>gilvt saves the application workspace: windows, tabs, splits, directories and durable Agent identifiers. On relaunch it reconstructs that layout and offers Agent sessions for resume. A Python REPL's memory or a running development server is not checkpointed.</p>
+    <p>As long as the tmux server survives, attaching returns to the exact same shell, editor and process. After a machine reboot, ordinary tmux processes are also gone; plugins can rebuild layouts but cannot restore arbitrary in-memory state.</p>
+
+    <h2>Why gilvt understands more about agents</h2>
+    <p>tmux primarily models sessions, windows and panes. gilvt also models Agent sessions, turns, approvals, questions, tool calls, artifacts and resumable history. That enables an attention queue and review workflow rather than only a pane grid.</p>
+    <p>This semantic layer is useful when several agents run locally and the bottleneck is deciding where to look next.</p>
+
+    <h2>When to use tmux inside gilvt</h2>
+    <p>The combination is especially useful for remote development:</p>
+    <pre>gilvt on macOS → SSH → tmux on server → long-running Agent or service</pre>
+    <p>tmux keeps the remote processes alive across network interruptions. gilvt remains the local terminal and workspace. Some fine-grained Agent metadata may be harder to associate with inner tmux panes, so the exact integration depends on where hooks and session identifiers run.</p>
+
+    <h2>Which should you choose?</h2>
+    <ul>
+      <li>Use <strong>tmux</strong> when process survival, SSH detach/attach or multi-client sharing is the primary requirement.</li>
+      <li>Use <strong>gilvt</strong> when you run several local Claude Code and Codex sessions and want native status, navigation, review and notifications.</li>
+      <li>Use <strong>both</strong> when remote persistence and a native local Agent workspace are equally important.</li>
+    </ul>
+    <div class="callout"><p>gilvt does not position itself as a tmux replacement. It replaces the outer terminal-plus-dashboard workflow, while tmux remains a strong process-persistence layer.</p></div>
+    <section class="related"><h2>Related guides</h2><ul><li><a href="/agent-terminal/">What is an agent terminal?</a></li><li><a href="/guides/manage-multiple-claude-code-sessions/">Manage multiple Claude Code sessions</a></li><li><a href="/install/">Download gilvt for macOS</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/docs/">User guide</a> · <a href="/install/">Download</a></span></div><p>tmux is an independent project. This comparison describes product architecture, not affiliation or endorsement.</p></div></footer>
+</body>
+</html>

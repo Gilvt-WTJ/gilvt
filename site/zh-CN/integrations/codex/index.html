@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>macOS 上的 Codex CLI 终端集成 · gilvt</title>
+<meta name="description" content="在原生 macOS 终端运行 Codex CLI，获得实时 Agent 状态、审批通知、子 Agent 时间线、逐轮 diff、配置摘要和 session 恢复。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="canonical" href="https://gilvt.com/zh-CN/integrations/codex/"><link rel="alternate" hreflang="en" href="https://gilvt.com/integrations/codex/"><link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/integrations/codex/"><link rel="alternate" hreflang="x-default" href="https://gilvt.com/integrations/codex/"><link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/zh-CN/integrations/codex/"><meta property="og:title" content="macOS 上的 Codex CLI 终端集成"><meta property="og:description" content="保留 Codex 原生 TUI，同时由 gilvt 跟踪注意力、子 Agent 和每轮改动。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"macOS 上的 Codex CLI 终端集成","datePublished":"2026-10-08","dateModified":"2026-10-08","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/zh-CN/"},"mainEntityOfPage":"https://gilvt.com/zh-CN/integrations/codex/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/integrations/codex/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">集成</span><h1>带实时状态与逐轮 review 的 Codex CLI</h1><p class="lead">Codex 继续运行在原生 TUI 中。gilvt 组合本地 hooks、rollout 记录和进程身份，显示会话正在执行、等待、失败或完成。</p><p class="article-meta">更新于 2026-10-08 · gilvt {{VERSION}}</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>设置：</strong>安装 gilvt，打开 pane 并运行 <code>codex</code>。受支持的 hooks 会传给启动进程，不会永久替换你的 Codex 配置。</p></div>
+    <h2>统一的 Codex 活动状态</h2>
+    <p>gilvt 读取受支持的 Codex hook 事件和本地 rollout 数据，再与持有进程的 pane 关联。左栏能够区分执行、审批或用户输入等待、错误、完成轮次和子 Agent 活动。</p>
+    <ul><li><kbd>⇧⌘J</kbd> 跳到下一个需要注意的会话。</li><li>时间线显示命令、编辑、TODO、失败和子 Agent 生命周期。</li><li>产物汇总修改文件并打开本轮 diff。</li><li>监控官跨窗口汇总 Codex、Claude Code 和普通终端。</li></ul>
+    <h2>不暴露秘密的配置摘要</h2>
+    <p>「配置」检查器读取有效 Codex 模型、权限、MCP 名称、hooks、skills 和 <code>AGENTS.md</code> 来源。命令、URL、token 和环境变量值会被主动省略。</p>
+    <h2>恢复与其他命令名</h2>
+    <p>Session Center 索引持久 Codex session，并在原项目中恢复受支持的记录。团队如果通过其他命令包装 Codex，可以在 gilvt 的 <code>[agent]</code> 配置中加入命令名；精确能力仍取决于 wrapper 是否保留相关进程和 session 信号。</p>
+    <figure><img src="/images/features/sessions.jpg" width="1600" height="964" loading="lazy" alt="gilvt Session Center 列出可以恢复的 Claude Code 与 Codex 会话。"><figcaption>Session Center 集中查找和恢复持久 Agent 会话。</figcaption></figure>
+    <h2>兼容性降级</h2>
+    <p>Agent CLI 格式会持续变化。gilvt 为支持的格式保留 fixture 和 fake-agent 剧本。hook 不可用时，pane 仍然正常工作，会话会标记为推断或精简，而不会获得不安全的精确控制。</p>
+    <div class="callout"><p><strong>下一步：</strong>了解如何<a href="/zh-CN/guides/run-claude-code-and-codex-in-parallel/">并行运行 Codex 与 Claude Code</a>，或<a href="/zh-CN/install/">下载 macOS 版 gilvt</a>。</p></div>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · Apache-2.0</span><span><a href="/zh-CN/integrations/">集成</a> · <a href="/zh-CN/docs/">产品手册</a></span></div><p>Codex 是 OpenAI 的商标；gilvt 与 OpenAI 没有关联。</p></div></footer>
+</body>
+</html>
