@@ -9,10 +9,30 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 target="${CARGO_TARGET_DIR:-$root/target}"
 real="${SMOKE_REAL:-}"
+[ -z "$real" ] || [ -n "${SMOKE_HOST:-}" ] || { echo "smoke: SMOKE_REAL=1 needs SMOKE_HOST=user@host" >&2; exit 2; }
 host="${SMOKE_HOST:-devbox-test}"
 arch="${SMOKE_ARCH:-$([ -n "$real" ] && echo x86_64 || echo aarch64)}"
 gilvt="${GILVT_BIN:-$target/debug/gilvt}"
-work="$(mktemp -d)"; cm="/tmp/gsm-$$"; srv=""
+srv="" real_home="$HOME" remote_armed=""   # remote_armed: the remote may be reset/cleaned (set only once it is proven ours to touch)
+work="$(mktemp -d)"; cm="/tmp/gsm-$$"
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  [ -z "$srv" ] || kill "$srv" 2>/dev/null || true
+  for s in "$cm"/*; do if [ -S "$s" ]; then ssh -S "$s" -O exit "$host" >/dev/null 2>&1 || true; fi; done
+  if [ -n "$remote_armed" ]; then
+    if [ -n "$real" ]; then
+      # Only processes running out of ~/.gilvt-server; '[.]' keeps pkill from matching its own command line.
+      ssh -o BatchMode=yes "$host" "pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server" >/dev/null 2>&1 || true
+      if ssh -o BatchMode=yes "$host" 'ls -d ~/.gilvt-server >/dev/null 2>&1 || pgrep -f "[.]gilvt-server/" >/dev/null'; then
+        echo "smoke: REAL HOST CLEANUP INCOMPLETE on $host" >&2; rc=1
+      else echo "smoke: real host cleaned ($host: no ~/.gilvt-server, no gilvt-remote)"; fi
+    else HOME="$real_home" "$root/tests/gui/remote.sh" reset >/dev/null 2>&1 || true; fi
+  fi
+  rm -rf "$work" "$cm"
+  exit $rc
+}
+trap cleanup EXIT
 bin="$work/bin"; mkdir -p "$bin"; install -d -m 700 "$cm"
 fail() { echo "smoke: $*" >&2; exit 1; }
 [ -x "$gilvt" ] || fail "no $gilvt (cargo build -p gilvt-cli)"
@@ -29,30 +49,20 @@ if [ -z "$real" ]; then
   sed "s|~/.ssh|$home/.ssh|g" "$rstate/ssh_config" >"$home/.ssh/config"; chmod 644 "$home/.ssh/config"
   install -m 644 "$rstate/known_hosts" "$home/.ssh/known_hosts"
   printf '#!/bin/sh\nexec /usr/bin/ssh -F "%s/.ssh/config" "$@"\n' "$home" >"$bin/ssh"; chmod +x "$bin/ssh"
+  remote_armed=1
   "$root/tests/gui/remote.sh" reset
-  real_home="$HOME"; export HOME="$home" SSH_AUTH_SOCK=
+  export HOME="$home" SSH_AUTH_SOCK=
 fi
 export PATH="$bin:$PATH"
 
-cleanup() {
-  local rc=$?
-  [ -n "$srv" ] && kill "$srv" 2>/dev/null || true
-  for s in "$cm"/*; do [ -S "$s" ] && ssh -S "$s" -O exit "$host" >/dev/null 2>&1 || true; done
-  if [ -n "$real" ]; then
-    # '[g]' keeps pkill from matching its own command line.
-    ssh -o BatchMode=yes "$host" "pkill -f '[g]ilvt-remote'; rm -rf ~/.gilvt-server" >/dev/null 2>&1 || true
-    if ssh -o BatchMode=yes "$host" 'ls -d ~/.gilvt-server >/dev/null 2>&1 || pgrep -f "[g]ilvt-remote" >/dev/null'; then
-      echo "smoke: REAL HOST CLEANUP INCOMPLETE on $host" >&2; rc=1
-    else echo "smoke: real host cleaned ($host: no ~/.gilvt-server, no gilvt-remote)"; fi
-  else HOME="${real_home:-$HOME}" "$root/tests/gui/remote.sh" reset >/dev/null 2>&1 || true; fi
-  rm -rf "$work" "$cm"
-  exit $rc
-}
-trap cleanup EXIT
-
 rssh() { ssh -o BatchMode=yes "$host" "$@"; }
 if [ -n "$real" ]; then
-  if rssh 'test -e ~/.gilvt-server'; then trap - EXIT; rm -rf "$work" "$cm"; fail "$host already has ~/.gilvt-server: not touching it"; fi
+  # Pre-check: 0 = found, 1 = absent, anything else (255 unreachable, ...) = unknown. Only "absent" proceeds.
+  rc=0; rssh 'test -e ~/.gilvt-server' || rc=$?
+  [ "$rc" -eq 1 ] || fail "$host: ~/.gilvt-server pre-check gave exit $rc (0 = already exists, else unreachable): not touching it"
+  rc=0; rssh 'pgrep -f "[.]gilvt-server/|[g]ilvt-remote" >/dev/null' || rc=$?
+  [ "$rc" -eq 1 ] || fail "$host: a gilvt-remote process already runs there (pgrep exit $rc): not touching it"
+  remote_armed=1
   t0=$(python3 -c 'import time;print(time.time())'); rssh true; t1=$(python3 -c 'import time;print(time.time())')
   echo "smoke: baseline ssh round trip (new connection): $(python3 -c "print(round($t1-$t0,2))")s"
 fi
@@ -100,13 +110,13 @@ echo "== login 1 (installs) =="
 a=$(now); out1="$(login)"; b=$(now)
 echo "$out1"
 echo "$out1" | grep -q "LINK=t-1 TP=gilvt" || fail "login 1 did not go through gilvt-remote"
-grep -q '"type":"remote_linked"' "$work/app.log" && grep -q '"bridge":{' "$work/app.log" || { cat "$work/app.log" >&2; fail "no remote_linked with a bridge"; }
+grep -q '"type":"remote_linked"' "$work/app.log" && grep -q '"bridge":{' "$work/app.log" || { cat "$work/app.log" >&2 || true; fail "no remote_linked with a bridge"; }
 rssh 'test -L ~/.gilvt-server/bin/gilvt-remote' || fail "stable symlink ~/.gilvt-server/bin/gilvt-remote missing"
 echo "smoke: login 1 wall $(python3 -c "print(round($b-$a,2))")s (includes the remote command)"
 echo "smoke: app timeline (s since login start):"; awk -v a="$a" '{printf "  %+.2f %s\n", $1-a, $2}' "$work/app.ts"
 
 echo "== bridge through the master =="
-ctl="$(ls "$cm"/* | head -1)"; [ -S "$ctl" ] || fail "no master socket in $cm"
+ctl="$(ls "$cm"/* 2>/dev/null | head -1 || true)"; [ -S "$ctl" ] || fail "no master socket in $cm"
 python3 - "$ctl" "$host" "$build_id" <<'EOF' || fail "bridge did not answer with a welcome frame"
 import json, struct, subprocess, sys
 ctl, host, bid = sys.argv[1:4]
