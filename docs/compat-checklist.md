@@ -548,7 +548,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC3 | 远端的组件目录被改名后连接两次 | 第一次打印「远端组件不存在，以普通方式登录」；第二次不询问、显示「正在更新远端组件」后正常进入 | [AC3](../tests/gui/cases/AC/AC3.md) |
 | AC4 | 首次连接回答 `N`，退出再连 | 普通登录、`enhanced` 为 false、`hosts[0].install` 为 `never`；第二次不再询问 | [AC4](../tests/gui/cases/AC/AC4.md) |
 | AC5 | 连接一个认证失败的主机 | ssh 自己的报错，`$?` 为 255；pane 回到本地（`remote` 为 `null`） | [AC5](../tests/gui/cases/AC/AC5.md) |
-| AC6 | 远端 `cd /tmp` | `remote.cwd` 为 `/tmp`，pane 的 `cwd` 为 `null`（不是本地目录）；标签标题含 `devbox-test` | [AC6](../tests/gui/cases/AC/AC6.md) |
+| AC6 | 远端 `cd /tmp` | `remote.cwd` 为 `/tmp`，pane 的 `cwd` 为 `null`（不是本地目录）；标签标题含远端主机名 `devbox`（来自远端 shell 设置的窗口标题） | [AC6](../tests/gui/cases/AC/AC6.md) |
 | AC7 | 远端执行 `false` | 命令块记录退出码 1 | [AC7](../tests/gui/cases/AC/AC7.md) |
 | AC8 | 远端输入行里 ⌘ 点击 `/etc/hosts` | 红色横幅「这项功能暂不支持远端」；没有打开预览（本地也有 `/etc/hosts`） | [AC8](../tests/gui/cases/AC/AC8.md) |
 | AC9 | 远端 pane 里按 `⌘P` | 红色横幅「这项功能暂不支持远端」，没有打开文件查找 | [AC9](../tests/gui/cases/AC/AC9.md) |

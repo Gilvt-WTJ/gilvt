@@ -7,12 +7,12 @@
 #   reset   wipe ~/.gilvt-server for dev and devz on devbox and stop gilvt-remote there
 #   exec    run a command on devbox (default user dev)
 # Exit: 0 ok, 1 command failed, 2 docker unavailable / not up / usage.
-# Touches only $state (${TMPDIR}/gilvt-gui-remote), the image gilvt-gui-remote, the network
+# Touches only $state (${GILVT_GUI_REMOTE_STATE:-${TMPDIR}/gilvt-gui-remote}), the image gilvt-gui-remote, the network
 # gilvt-gui-remote-net and the containers gilvt-gui-remote-{jump,devbox}; ports 127.0.0.1:2201 / 2202.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 tmp="${TMPDIR:-/tmp}"
-state="${tmp%/}/gilvt-gui-remote"
+state="${GILVT_GUI_REMOTE_STATE:-${tmp%/}/gilvt-gui-remote}"   # parallel workers have their own TMPDIR: the parent exports its state dir
 net=gilvt-gui-remote-net image=gilvt-gui-remote jump=gilvt-gui-remote-jump box=gilvt-gui-remote-devbox
 usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 need_docker() { docker info >/dev/null 2>&1 || { echo "remote.sh: docker is not running (colima start)" >&2; exit 2; }; }

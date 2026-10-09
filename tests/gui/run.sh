@@ -182,10 +182,15 @@ python3 "$evidence" init "$out" "$run_id" "$commit" "$dirty" "$started_at" "$sta
 # Bring the remote up before the parallel schedule is built (skip_reason reads remote_up). A minimal EXIT trap
 # takes it down again if this run started it; cleanup_clip below replaces the trap and does the same.
 trap stop_remote EXIT
-if [ -z "$list" ] && printf '%s\n' "${kinds[@]}" | grep -q '^remote '; then
+if [ -n "${GILVT_GUI_PARALLEL_WORKER:-}" ]; then
+  remote_up=1   # the parent run brought the remote up (and owns it); a worker never status/up/downs it
+elif [ -z "$list" ] && printf '%s\n' "${kinds[@]}" | grep -q '^remote '; then
   was_up=""; "$remote_sh" status >/dev/null 2>&1 && was_up=1
   if "$remote_sh" up >/dev/null 2>&1; then
     remote_up=1; [ -n "$was_up" ] || started_remote=1
+    # workers get their own TMPDIR: hand them the state dir (remote.sh, sandbox.sh honour it)
+    export GILVT_GUI_REMOTE_STATE="${GILVT_GUI_REMOTE_STATE:-$("$remote_sh" status 2>/dev/null | sed -n 's/^up //p')}"
+    [ -n "$GILVT_GUI_REMOTE_STATE" ] || unset GILVT_GUI_REMOTE_STATE
   elif [ -z "$was_up" ]; then
     "$remote_sh" down >/dev/null 2>&1 || true   # a partial up: remove what it left
   fi

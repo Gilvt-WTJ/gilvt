@@ -436,7 +436,19 @@ install_remote_home() {
   printf '#!/bin/sh\nexec /usr/bin/ssh -F "%s/.ssh/config" "$@"\n' "$home" >"$bin/ssh"
   chmod +x "$bin/ssh"
   install -m 644 "$rstate/known_hosts" "$home/.ssh/known_hosts"
-  printf '#!/bin/sh\nexec %s "$@"\n' "$here/remote.sh" >"$bin/remote-test"
+  # The sandbox's HOME has no ~/.docker (colima context) and its PATH may lack docker: pin both at install time.
+  local ddir dhost
+  ddir="$(dirname "$(command -v docker 2>/dev/null || echo /usr/bin/docker)")"
+  dhost="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+  [ -n "$dhost" ] || dhost="${DOCKER_HOST:-}"
+  case "$ddir$dhost$rstate$here" in *"'"*) echo "sandbox: remote-test: a path contains a quote" >&2; exit 2 ;; esac
+  {
+    printf '#!/bin/sh\n'
+    printf "export PATH='%s':\"\$PATH\"\n" "$ddir"
+    [ -z "$dhost" ] || printf "export DOCKER_HOST='%s'\n" "$dhost"
+    printf "export GILVT_GUI_REMOTE_STATE='%s'\n" "$rstate"
+    printf 'exec %s "$@"\n' "$here/remote.sh"
+  } >"$bin/remote-test"
   chmod +x "$bin/remote-test"
   # ssh's control sockets live here: the path must stay short (sun_path), so not under $tmp.
   REMOTE_CONTROL_DIR="/tmp/gilvt-gui-cm-$(basename "$dir" | tr -cd '0-9')"

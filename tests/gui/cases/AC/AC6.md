@@ -17,7 +17,7 @@ type   'cd /tmp\n'
 wait   windows[0].tabs[0].panes[0].remote.cwd == "/tmp" timeout=10s
 assert windows[0].tabs[0].panes[0].cwd == null
 assert windows[0].tabs[0].panes[0].host == "dev@127.0.0.1:2202"
-assert windows[0].tabs[0].title contains "devbox-test"
+assert windows[0].tabs[0].title contains "devbox"
 type   'exit\n'
 wait   windows[0].tabs[0].panes[0].remote == null timeout=15s
 ```
