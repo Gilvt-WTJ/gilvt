@@ -63,10 +63,14 @@ pub fn norm_arch(m: &str) -> Option<&'static str> {
 pub enum Decision { UseInstalled, Ask { upgrade: bool }, Install { upgrade: bool }, Plain(String) }
 
 pub fn decide(policy: &str, probe: &Probe, build_id: Option<&str>) -> Decision {
-    if probe.os != "Linux" { return Decision::Plain(format!("远端不是 Linux（{}），暂不支持", probe.os)); }
-    if norm_arch(&probe.arch).is_none() { return Decision::Plain(format!("远端架构 {} 暂不支持", probe.arch)); }
-    let Some(build_id) = build_id else { return Decision::Plain("这个 gilvt 构建没有包含远端组件".into()) };
-    if policy == "never" { return Decision::Plain("这台主机设置为不安装远端组件".into()); }
+    if probe.os != "Linux" {
+        return Decision::Plain(if gilvt_i18n::english() { format!("the remote host is not Linux ({}), not supported yet", probe.os) } else { format!("远端不是 Linux（{}），暂不支持", probe.os) });
+    }
+    if norm_arch(&probe.arch).is_none() {
+        return Decision::Plain(if gilvt_i18n::english() { format!("the remote architecture {} is not supported yet", probe.arch) } else { format!("远端架构 {} 暂不支持", probe.arch) });
+    }
+    let Some(build_id) = build_id else { return Decision::Plain(no_helper_reason().into()) };
+    if policy == "never" { return Decision::Plain(never_reason().into()); }
     if probe.installed.iter().any(|d| d == build_id) { return Decision::UseInstalled; }
     let upgrade = !probe.installed.is_empty();
     if policy == "always" || upgrade { Decision::Install { upgrade } } else { Decision::Ask { upgrade } }
@@ -87,11 +91,22 @@ pub fn upload_command(build_id: &str) -> String {
     ))
 }
 
+/// Why gilvt ssh logs in the plain way when the host is set to never install the helper.
+pub fn never_reason() -> &'static str {
+    gilvt_i18n::text("这台主机设置为不安装远端组件", "this host is set to never install the remote helper")
+}
+
+/// Why gilvt ssh logs in the plain way when this build carries no remote helper.
+pub fn no_helper_reason() -> &'static str {
+    gilvt_i18n::text("这个 gilvt 构建没有包含远端组件", "this gilvt build does not include the remote helper")
+}
+
 /// The remote command of the interactive ssh. The user's command (if any) is passed as `$1` so it needs
 /// no quoting inside the script.
 pub fn login_command(build_id: &str, link: &str, exec: Option<&str>) -> String {
+    let missing = gilvt_i18n::text("远端组件不存在，以普通方式登录", "the remote helper is missing; logging in the plain way");
     let script = format!(
-        r#"B="$HOME/.gilvt-server/{build_id}/gilvt-remote"; if [ -x "$B" ]; then if [ $# -gt 0 ]; then exec "$B" login --link {link} --exec "$1"; else exec "$B" login --link {link}; fi; fi; echo "gilvt: 远端组件不存在，以普通方式登录" >&2; if [ $# -gt 0 ]; then exec "${{SHELL:-/bin/sh}}" -c "$1"; else exec "${{SHELL:-/bin/sh}}" -l; fi"#
+        r#"B="$HOME/.gilvt-server/{build_id}/gilvt-remote"; if [ -x "$B" ]; then if [ $# -gt 0 ]; then exec "$B" login --link {link} --exec "$1"; else exec "$B" login --link {link}; fi; fi; echo "gilvt: {missing}" >&2; if [ $# -gt 0 ]; then exec "${{SHELL:-/bin/sh}}" -c "$1"; else exec "${{SHELL:-/bin/sh}}" -l; fi"#
     );
     let mut c = sh(&script);
     if let Some(cmd) = exec {
@@ -145,6 +160,26 @@ mod tests {
 
     fn probe(os: &str, arch: &str, installed: &[&str]) -> Probe {
         Probe { os: os.into(), arch: arch.into(), hostname: "h".into(), installed: installed.iter().map(|s| s.to_string()).collect() }
+    }
+
+    #[test]
+    fn plain_reasons_and_the_missing_helper_line_read_in_english() {
+        gilvt_i18n::with_language(gilvt_i18n::Language::English, || {
+            let id = Some("0.1.0-aaaaaaaa");
+            let reasons = [
+                decide("never", &probe("Linux", "x86_64", &[]), id),
+                decide("ask", &probe("Darwin", "arm64", &[]), id),
+                decide("ask", &probe("Linux", "riscv64", &[]), id),
+                decide("ask", &probe("Linux", "x86_64", &[]), None),
+            ];
+            assert_eq!(reasons[1], Decision::Plain("the remote host is not Linux (Darwin), not supported yet".into()));
+            for r in reasons {
+                let Decision::Plain(text) = r else { panic!("{r:?}") };
+                assert!(!gilvt_i18n::has_chinese(&text), "{text}");
+            }
+            let l = login_command("0.1.0-aaaaaaaa", "l1", None);
+            assert!(l.contains("the remote helper is missing; logging in the plain way") && !gilvt_i18n::has_chinese(&l), "{l}");
+        });
     }
 
     #[test]

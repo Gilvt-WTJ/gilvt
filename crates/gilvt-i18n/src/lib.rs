@@ -54,6 +54,16 @@ impl Language {
     }
 }
 
+/// Set in every pane's environment to the interface language's id (`en` / `zh-CN`), so gilvt's own command
+/// line tools (`gilvt ssh`) speak the same language as the window.
+pub const ENV_LANGUAGE: &str = "GILVT_LANGUAGE";
+
+/// The language [`ENV_LANGUAGE`] names, if it is set to a known id.
+pub fn language_from_env() -> Option<Language> {
+    let id = std::env::var(ENV_LANGUAGE).ok()?;
+    Language::ALL.into_iter().find(|l| l.id() == id)
+}
+
 static CURRENT: AtomicU8 = AtomicU8::new(0);
 
 thread_local! {
@@ -155,6 +165,12 @@ mod tests {
         });
         assert_eq!(inner, Language::Chinese, "other threads are not affected");
         assert_eq!(current(), Language::Chinese);
+    }
+
+    #[test]
+    fn the_pane_variable_names_a_language_by_id() {
+        assert_eq!(ENV_LANGUAGE, "GILVT_LANGUAGE");
+        assert!(Language::ALL.iter().all(|l| Language::ALL.into_iter().find(|m| m.id() == l.id()) == Some(*l)));
     }
 
     #[test]

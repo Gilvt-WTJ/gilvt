@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 gilvt-agent.workspace = true
+gilvt-i18n.workspace = true
 gilvt-ipc.workspace = true
 gilvt-monitor.workspace = true
 gilvt-viewer.workspace = true

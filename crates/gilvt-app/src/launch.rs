@@ -98,6 +98,7 @@ pub fn session_options(settings: &Settings, env: &ShellEnv, pane: PaneId, cwd: O
     }
 
     opts.env.insert(ENV_PANE.into(), pane.to_string());
+    opts.env.insert(gilvt_i18n::ENV_LANGUAGE.into(), settings.language.id().into());
     // Always set: the wrappers' built-in defaults would ignore a list the user emptied.
     opts.env.insert(ENV_CLAUDE_COMMANDS.into(), settings.agent.claude_commands.join(" "));
     opts.env.insert(ENV_CODEX_COMMANDS.into(), settings.agent.codex_commands.join(" "));
@@ -155,6 +156,7 @@ mod tests {
         assert_eq!(&o.args[..2], &["-flp", "me"]);
         assert!(o.args[4].contains("exec -a -zsh /bin/zsh"), "{:?}", o.args);
         assert_eq!(o.env.get("GILVT_PANE_ID").map(String::as_str), Some("7"));
+        assert_eq!(o.env.get("GILVT_LANGUAGE").map(String::as_str), Some(Settings::default().language.id()));
         assert_eq!(o.env.get("GILVT_SOCKET").map(String::as_str), Some("/tmp/gilvt-501/42.sock"));
         assert_eq!(o.env.get("GILVT_BIN_DIR").map(String::as_str), Some("/Apps/gilvt/bin"));
         assert_eq!(o.env.get("PATH").map(String::as_str), Some("/Apps/gilvt/bin:/usr/bin:/bin"));
