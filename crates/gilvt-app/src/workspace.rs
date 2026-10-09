@@ -65,6 +65,17 @@ enum PaneView {
     Monitor(crate::monitor::MonitorPane),
 }
 
+/// A terminal pane that goes away (⌘W, a closed tab or window) ends its ssh link: the foreground check
+/// that normally notices the end never runs for a pane that no longer exists, and a leaked link would
+/// keep `hosts[].links` wrong and the host's bridge alive. Deferred: callers hold entity borrows.
+fn end_remote_link(view: &PaneView, cx: &mut App) {
+    if let PaneView::Terminal(t) = view {
+        if let Some(link) = t.read(cx).remote().map(|r| r.link.clone()) {
+            cx.defer(move |cx| crate::remote::link_ended(&link, cx));
+        }
+    }
+}
+
 impl PaneView {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         match self {
@@ -224,6 +235,8 @@ impl Workspace {
         window.on_window_should_close(cx, move |window, cx| {
             weak.update(cx, |ws, cx| ws.should_close_window(window, cx)).unwrap_or(true)
         });
+        // A closed window drops its panes without close_pane: end their ssh links too.
+        cx.on_release(|ws: &mut Self, cx| ws.panes.values().for_each(|v| end_remote_link(v, cx))).detach();
         Self {
             tabs: Vec::new(),
             active: 0,
@@ -525,7 +538,9 @@ impl Workspace {
     fn close_pane(&mut self, id: PaneId, window: &mut Window, cx: &mut Context<Self>) {
         self.live_pair_closing(id, window, cx);
         let Some(ti) = self.tabs.iter().position(|t| t.tree.contains(id)) else { return };
-        self.panes.remove(&id);
+        if let Some(v) = self.panes.remove(&id) {
+            end_remote_link(&v, cx);
+        }
         self.subscriptions.remove(&id);
         Agents::pane_closed(id, cx);
         let tab = &mut self.tabs[ti];
@@ -571,7 +586,9 @@ impl Workspace {
             self.live_debounce.remove(&id);
             self.live_pairs.remove_editor(id);
             self.live_pairs.remove_preview(id);
-            self.panes.remove(&id);
+            if let Some(v) = self.panes.remove(&id) {
+                end_remote_link(&v, cx);
+            }
             self.subscriptions.remove(&id);
             Agents::pane_closed(id, cx);
         }

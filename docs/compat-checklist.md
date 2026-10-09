@@ -560,6 +560,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC15 | 用两个不同版本的 gilvt 先后连接同一台主机 | 后连的版本接管 daemon，已登记的 link 不丢 | 手动（需要两个不同版本的构建；单元测试见 `crates/gilvt-remote/tests/takeover.rs`） |
 | AC16 | 用 `devbox-zsh`（远端登录 shell 为 zsh）重复 AC1、AC6、AC7 | 安装、远端 cwd、命令块都正常 | [AC16](../tests/gui/cases/AC/AC16.md) |
 | AC17 | 按住 ⌥ 把本地文件从访达拖进远端 pane | pane 里不插入路径，出现提示「拖入的是本地路径，远端看不到」 | 手动（`drive.sh drop` 不支持修饰键，访达拖放不能带 ⌥；提示文案在 `terminal_view.rs`） |
+| AC18 | 在 ssh 会话中的 pane 里按 ⌘W 关掉它 | 几秒内 `hosts[0].links` 为 `[]`（link 随 pane 结束）；60 秒内 `hosts[0].bridge` 为 `none` | [AC18](../tests/gui/cases/AC/AC18.md) |
 
 ## 已知限制（M1）
 
