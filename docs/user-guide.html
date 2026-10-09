@@ -225,6 +225,7 @@ html { scroll-behavior: smooth; }
     <li><a href="#new-agent">New Agent</a></li>
     <li><a href="#notify">Notifications and the Dock</a></li>
     <li><a href="#theme">Themes</a></li>
+    <li><a href="#ssh">SSH remote (preview)</a></li>
     <li><a href="#config">Configuration</a></li>
     <li><a href="#keys">Keyboard shortcuts</a></li>
     <li><a href="#limits">Known limitations and troubleshooting</a></li>
@@ -776,6 +777,17 @@ exclude_paths = []        # sessions / terminals under these directories are nev
   <p><code>[colors]</code> supports <code>background</code>, <code>foreground</code>, <code>cursor</code>, <code>cursor_text</code>, <code>selection_background</code>, <code>selection_foreground</code> and <code>palette</code> (0–15). When a name is misspelled or a theme file is invalid, an error banner appears at the top with a “did you mean …” suggestion, and gilvt uses the default theme for the time being. Status colors come from the theme’s ANSI 3 / 1 / 4 / 2 and are corrected automatically when contrast is insufficient; with the default theme, the Markdown preview keeps GitHub colors.</p>
 </section>
 
+<section id="ssh">
+  <h2>SSH remote (preview)</h2>
+  <p>Run <code>ssh</code> to a Linux host in a gilvt pane and gilvt recognizes that the pane is now remote: the pane and tab show the host, the remote shell loads gilvt’s shell integration (command marks, current directory), and the remote directory is tracked. Only interactive logins are affected; <code>ssh host command</code>, <code>scp</code> and <code>git push</code> run unchanged.</p>
+  <ul>
+    <li><strong>Consent</strong>: the first time you <code>ssh</code> to a host, gilvt asks whether to install a small helper (<code>gilvt-remote</code>, about 4 MB) on it: <code>Y</code> installs, <code>n</code> skips this time, <code>N</code> never installs on that host (remembered). The choice can be preset per machine with <code>[remote] install = "ask" | "always" | "never"</code> in <code>config.toml</code> (default <code>ask</code>). Without the helper, <code>ssh</code> logs in as usual.</li>
+    <li><strong>Bypass</strong>: type <code>command ssh host</code> or set <code>GILVT_SSH=0</code> (for example <code>GILVT_SSH=0 ssh host</code>) to skip gilvt entirely.</li>
+    <li><strong>On the remote</strong>: everything lives in <code>~/.gilvt-server</code> and runs one small daemon. To remove it by hand: <code>pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server</code>.</li>
+    <li><strong>Limitations (R1)</strong>: Linux x86_64 / aarch64 hosts only; <kbd>⌘P</kbd>, Quick Look / preview and the built-in editor don’t work in ssh panes yet (they show “Not available for remote panes yet” instead of looking at your Mac’s files); no mosh; no hopping on from the remote host to another one; agents running inside ssh are not detected yet (planned for R2).</li>
+  </ul>
+</section>
+
 <section id="config">
   <h2>Configuration</h2>
   <p>The configuration file is <code>~/.config/gilvt/config.toml</code>; every field is optional:</p>
@@ -800,6 +812,9 @@ dock_bounce = true
 
 [update]
 mode = "download"         # download | check | off (see "Updates")
+
+[remote]
+install = "ask"          # ask | always | never (see "SSH remote")
 
 [colors]                  # optional: override individual colors on top of the theme
 # background = "#1b1b26"</code></pre>

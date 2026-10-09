@@ -225,6 +225,7 @@ html { scroll-behavior: smooth; }
     <li><a href="#new-agent">新建 Agent</a></li>
     <li><a href="#notify">通知与 Dock</a></li>
     <li><a href="#theme">主题</a></li>
+    <li><a href="#ssh">SSH 远程（预览）</a></li>
     <li><a href="#config">配置</a></li>
     <li><a href="#keys">快捷键总表</a></li>
     <li><a href="#limits">已知限制与排障</a></li>
@@ -776,6 +777,17 @@ exclude_paths = []        # 这些目录下的会话 / 终端不总结，支持 
   <p><code>[colors]</code> 支持 <code>background</code>、<code>foreground</code>、<code>cursor</code>、<code>cursor_text</code>、<code>selection_background</code>、<code>selection_foreground</code> 和 <code>palette</code>（0–15）。名字写错或主题文件无效时，顶部会出现错误横幅和「你是不是想用 …」的建议，gilvt 暂时用默认主题。状态色取主题的 ANSI 3 / 1 / 4 / 2，对比度不够时自动修正；默认主题下 Markdown 预览保持 GitHub 配色。</p>
 </section>
 
+<section id="ssh">
+  <h2>SSH 远程（预览）</h2>
+  <p>在 gilvt 的 pane 里 <code>ssh</code> 到 Linux 主机后，gilvt 知道这个 pane 已经在远端：pane 和标签显示主机名，远端 shell 加载 gilvt 的 shell 集成（命令标记、当前目录），并跟踪远端目录。只有交互式登录受影响；<code>ssh host command</code>、<code>scp</code>、<code>git push</code> 原样运行。</p>
+  <ul>
+    <li><strong>询问</strong>：第一次 <code>ssh</code> 到某台主机时，gilvt 会问要不要在它上面安装一个小程序（<code>gilvt-remote</code>，约 4 MB）：<code>Y</code> 安装，<code>n</code> 这次不用，<code>N</code> 这台主机永不安装（会记住）。也可以在 <code>config.toml</code> 里用 <code>[remote] install = "ask" | "always" | "never"</code> 预设（默认 <code>ask</code>）。不安装时 <code>ssh</code> 照常登录。</li>
+    <li><strong>绕过</strong>：输入 <code>command ssh host</code>，或设置 <code>GILVT_SSH=0</code>（如 <code>GILVT_SSH=0 ssh host</code>），gilvt 完全不介入。</li>
+    <li><strong>远端目录</strong>：全部在 <code>~/.gilvt-server</code>，并常驻一个小 daemon。手动卸载：<code>pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server</code>。</li>
+    <li><strong>当前限制（R1）</strong>：只支持 Linux x86_64 / aarch64 主机；<kbd>⌘P</kbd>、预览（Quick Look）、内置编辑器在 ssh pane 里暂不可用（会提示「这项功能暂不支持远端」，不会去读你 Mac 上的同名文件）；不支持 mosh；不支持从远端再跳到别的主机；ssh 里运行的 Agent 暂不检测（R2 支持）。</li>
+  </ul>
+</section>
+
 <section id="config">
   <h2>配置</h2>
   <p>配置文件是 <code>~/.config/gilvt/config.toml</code>，所有字段都可选：</p>
@@ -800,6 +812,9 @@ dock_bounce = true
 
 [update]
 mode = "download"         # download | check | off（见「更新」）
+
+[remote]
+install = "ask"          # ask | always | never（见「SSH 远程」）
 
 [colors]                  # 可选：在主题之上单项覆盖
 # background = "#1b1b26"</code></pre>

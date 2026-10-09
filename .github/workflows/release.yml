@@ -35,8 +35,14 @@ jobs:
       - name: Linux targets for gilvt-remote
         run: |
           rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
-          brew install zig
-          cargo install cargo-zigbuild --locked
+          ZIG_VERSION=0.13.0
+          ZIG_SHA256=46fae219656545dfaf4dce12fb4e8685cec5b51d721beee9389ab4194d43394c   # zig-macos-aarch64 (macos-14 is arm64)
+          curl -fsSL -o "$RUNNER_TEMP/zig.tar.xz" "https://ziglang.org/download/$ZIG_VERSION/zig-macos-aarch64-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  $RUNNER_TEMP/zig.tar.xz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP/zig" --strip-components=1
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version 0.23.4 --locked
 
       - name: Import signing certificate
         env:
