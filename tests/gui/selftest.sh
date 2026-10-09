@@ -524,7 +524,7 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
   fi
 
   # --remote: install_remote_home against a stub remote.sh (status up) and a fake state directory.
-  rs="$T/remote-state"; rh="$T/remote-gui"
+  rs="$T/gilvt-gui-remote"; rh="$T/remote-gui"
   mkdir -p "$rs" "$rh" "$T/rhome" "$T/rbin"
   printf 'k\n' >"$rs/id_ed25519"; printf 'h k\n' >"$rs/known_hosts"
   printf 'Host devbox-test\n  IdentityFile ~/.ssh/id_ed25519\n  UserKnownHostsFile ~/.ssh/known_hosts\nHost *\n  IdentityAgent none\n' >"$rs/ssh_config"
@@ -537,7 +537,7 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
   check "remote: key mode" "600" stat -f %Lp "$T/rhome/.ssh/id_ed25519"
   check "remote: ssh dir mode" "700" stat -f %Lp "$T/rhome/.ssh"
   if [ -f "$T/rhome/.ssh/known_hosts" ] && [ -x "$T/rbin/remote-test" ] && [ -x "$T/rbin/ssh" ] &&
-    grep -q "^exec $rh/remote.sh \"\$@\"\$" "$T/rbin/remote-test" &&
+    grep -q "^exec /bin/bash $rh/remote.sh \"\$@\"\$" "$T/rbin/remote-test" &&
     grep -q "^export GILVT_GUI_REMOTE_STATE='$rs'\$" "$T/rbin/remote-test" &&
     grep -q "^export PATH='[^']*':\"\$PATH\"\$" "$T/rbin/remote-test" &&
     grep -q "^exec /usr/bin/ssh -F \"$T/rhome/.ssh/config\" \"\$@\"\$" "$T/rbin/ssh"; then ok; else bad "remote: known_hosts / remote-test / ssh wrapper"; fi
@@ -551,6 +551,18 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
   check_rc "remote: refuses without a running remote" 2 in_sub_q install_remote_home "$d" "$T/rhome" "$T/rbin" "$T/App.app"
   here="$sbx_here"; unset GILVT_GUI_REMOTE_STATE
   if bash -n "$here/remote.sh"; then ok; else bad "remote.sh syntax"; fi
+  # The state dir feeds rm -rf: remote.sh refuses anything but an absolute .../gilvt-gui-remote without "..".
+  state_refused() { GILVT_GUI_REMOTE_STATE="$1" "$here/remote.sh" status 2>&1 | grep -q 'refusing state dir'; }
+  for sv in / "$HOME" "relative/gilvt-gui-remote" "$T/x/../gilvt-gui-remote" "$T/gilvt-gui-remote-x"; do
+    if state_refused "$sv"; then ok; else bad "remote.sh accepted state dir $sv"; fi
+  done
+  for sv in "$T/gilvt-gui-remote" "$T//gilvt-gui-remote" "$T/gilvt-gui-remote/"; do
+    if state_refused "$sv"; then bad "remote.sh refused state dir $sv"; else ok; fi
+  done
+  if env -u GILVT_GUI_REMOTE_STATE TMPDIR="$T/" "$here/remote.sh" status 2>&1 | grep -q 'refusing state dir'; then bad "remote.sh refused the default state dir"; else ok; fi
+  for sv in / "$HOME" "$T/x/../gilvt-gui-remote"; do
+    if ( GILVT_GUI_REMOTE_STATE="$sv"; install_remote_home "$d" "$T/rhome2" "$T/rbin" "$T/App.app" ) 2>&1 | grep -q 'refusing remote state dir'; then ok; else bad "sandbox.sh accepted remote state dir $sv"; fi
+  done
 
   # With a built workspace: the fake passes check_fake, and the headless Codex trust warm-up (gilvt
   # CLI + fake codex only; PATH has no real codex) writes fake hashes into the sandbox HOME.

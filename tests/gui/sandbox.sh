@@ -426,6 +426,9 @@ verify_pane_paths() {
 install_remote_home() {
   local dir="$1" home="$2" bin="$3" app="${4:-}" rstate
   rstate="${GILVT_GUI_REMOTE_STATE:-${TMPDIR:-/tmp}/gilvt-gui-remote}"
+  case "$rstate" in /*) ;; *) echo "sandbox: refusing remote state dir $rstate" >&2; exit 2 ;; esac
+  case "/$rstate/" in */../*) echo "sandbox: refusing remote state dir $rstate" >&2; exit 2 ;; esac
+  rs_="${rstate%/}"; [ "${rs_##*/}" = gilvt-gui-remote ] || { echo "sandbox: refusing remote state dir $rstate" >&2; exit 2; }
   "$here/remote.sh" status >/dev/null 2>&1 || { echo "sandbox: --remote needs tests/gui/remote.sh up" >&2; exit 2; }
   install -d -m 700 "$home/.ssh"
   install -m 600 "$rstate/id_ed25519" "$home/.ssh/id_ed25519"
@@ -447,7 +450,7 @@ install_remote_home() {
     printf "export PATH='%s':\"\$PATH\"\n" "$ddir"
     [ -z "$dhost" ] || printf "export DOCKER_HOST='%s'\n" "$dhost"
     printf "export GILVT_GUI_REMOTE_STATE='%s'\n" "$rstate"
-    printf 'exec %s "$@"\n' "$here/remote.sh"
+    printf 'exec /bin/bash %s "$@"\n' "$here/remote.sh"
   } >"$bin/remote-test"
   chmod +x "$bin/remote-test"
   # ssh's control sockets live here: the path must stay short (sun_path), so not under $tmp.

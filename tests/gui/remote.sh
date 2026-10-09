@@ -13,6 +13,10 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 tmp="${TMPDIR:-/tmp}"
 state="${GILVT_GUI_REMOTE_STATE:-${tmp%/}/gilvt-gui-remote}"   # parallel workers have their own TMPDIR: the parent exports its state dir
+# The state dir is rm -rf'd by up/down: only an absolute path ending in gilvt-gui-remote, without "..", is accepted.
+case "$state" in /*) ;; *) echo "remote.sh: refusing state dir $state" >&2; exit 2 ;; esac
+case "/$state/" in */../*) echo "remote.sh: refusing state dir $state" >&2; exit 2 ;; esac
+_s="${state%/}"; [ "${_s##*/}" = gilvt-gui-remote ] || { echo "remote.sh: refusing state dir $state" >&2; exit 2; }
 net=gilvt-gui-remote-net image=gilvt-gui-remote jump=gilvt-gui-remote-jump box=gilvt-gui-remote-devbox
 usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 need_docker() { docker info >/dev/null 2>&1 || { echo "remote.sh: docker is not running (colima start)" >&2; exit 2; }; }
