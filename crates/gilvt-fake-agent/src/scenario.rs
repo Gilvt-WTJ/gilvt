@@ -16,7 +16,7 @@ pub const ENV_SCENARIOS_DIR: &str = "GILVT_FAKE_SCENARIOS_DIR";
 pub const SCENARIO_PREFIX: &str = "@scenario:";
 
 /// The built-in scenarios (`crates/gilvt-fake-agent/scenarios/*.toml`), by name.
-pub const BUILTIN: [(&str, &str); 26] = [
+pub const BUILTIN: [(&str, &str); 27] = [
     ("default", include_str!("../scenarios/default.toml")),
     ("ask-question", include_str!("../scenarios/ask-question.toml")),
     ("approve-bash", include_str!("../scenarios/approve-bash.toml")),
@@ -34,6 +34,8 @@ pub const BUILTIN: [(&str, &str); 26] = [
     ("three-turns", include_str!("../scenarios/three-turns.toml")),
     // GUI acceptance cases R (✦ summaries): long enough for the monitor's tick to see it running.
     ("monitor-slow", include_str!("../scenarios/monitor-slow.toml")),
+    // GUI acceptance case S8 (English interface): monitor-slow with an English prompt.
+    ("monitor-slow-en", include_str!("../scenarios/monitor-slow-en.toml")),
     ("lite-mixed", include_str!("../scenarios/lite-mixed.toml")),
     ("todo-states", include_str!("../scenarios/todo-states.toml")),
     ("hist-claude", include_str!("../scenarios/hist-claude.toml")),

@@ -1,0 +1,16 @@
+description = "One turn with an English prompt whose tool call takes 4 s: the 监控官's 1 s tick sees it running, then it is done. The English interface case S8 needs a card whose user content has no Chinese."
+
+[[step]]
+prompt = "List the files slowly"
+
+[[step]]
+tool = "Bash"
+input = { command = "sleep 4; ls", description = "List files slowly" }
+result = "README.md\nsrc"
+ms = 4000
+
+[[step]]
+reply = "Two entries: README.md and src."
+
+[[step]]
+idle = true

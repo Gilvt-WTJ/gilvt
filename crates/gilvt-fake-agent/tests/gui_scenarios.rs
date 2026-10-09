@@ -170,6 +170,22 @@ fn monitor_slow_is_three_turns_with_a_slow_first_tool() {
 }
 
 #[test]
+fn monitor_slow_en_is_one_english_turn_with_a_slow_tool() {
+    let scenario = builtin("monitor-slow-en");
+    let r = run(&scenario, vec![], Opts::default());
+    let tl = r.timeline();
+    let turns: Vec<(&str, &TurnOutcome)> = tl.turns().iter().map(|t| (t.prompt.as_str(), &t.outcome)).collect();
+    assert_eq!(turns, [("List the files slowly", &TurnOutcome::Done)]);
+    assert!(tl.turns()[0].prompt.is_ascii(), "S8 asserts no Chinese outside user content, and the prompt names the session");
+    ends_idle(&r);
+    let first_tool = scenario.steps.iter().find_map(|s| match s {
+        gilvt_fake_agent::scenario::Step::Tool(t) => Some(t.ms),
+        _ => None,
+    });
+    assert!(first_tool.is_some_and(|ms| ms >= 3000), "running for several 1 s ticks: {first_tool:?}");
+}
+
+#[test]
 fn lite_mixed_has_no_hooks_and_every_row_kind() {
     let k = vec![Scripted::Key(Key::Char('n')), Scripted::During(Key::Esc)];
     let r = run(&builtin("lite-mixed"), k, Opts::default());
