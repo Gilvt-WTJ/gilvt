@@ -65,8 +65,8 @@ pub enum SnapshotError {
 impl fmt::Display for SnapshotError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SnapshotError::NotARepo => write!(f, "不是 git 仓库"),
-            SnapshotError::Missing => write!(f, "快照已清理"),
+            SnapshotError::NotARepo => f.write_str(gilvt_i18n::text("不是 git 仓库", "Not a git repository")),
+            SnapshotError::Missing => f.write_str(gilvt_i18n::text("快照已清理", "Snapshot was cleaned up")),
             SnapshotError::Git(m) => write!(f, "git: {m}"),
             SnapshotError::Io(e) => write!(f, "{e}"),
         }
@@ -348,6 +348,16 @@ pub fn prune(state_dir: &Path, older_than: Duration) -> io::Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn messages_follow_the_language() {
+        use super::SnapshotError;
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let english = with_language(Language::English, || [SnapshotError::NotARepo, SnapshotError::Missing].map(|e| e.to_string()));
+        assert_eq!(english, ["Not a git repository", "Snapshot was cleaned up"]);
+        assert!(english.iter().all(|s| !has_chinese(s)));
+        assert_eq!(SnapshotError::Missing.to_string(), "快照已清理");
+    }
+
     #[test]
     fn only_gits_own_verdict_means_not_a_repo() {
         use super::*;

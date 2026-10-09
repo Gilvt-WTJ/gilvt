@@ -8,6 +8,8 @@ use gilvt_monitor::chat::{ChatEvent, TurnEnd};
 use gilvt_monitor::provider::ProviderError;
 use gilvt_monitor::tools;
 
+use crate::i18n::{english, text};
+
 pub const IDLE_LIMIT: Duration = Duration::from_secs(30 * 60);
 pub const TURN_SILENCE: Duration = Duration::from_secs(5 * 60);
 pub const INTERRUPT_GRACE: Duration = Duration::from_secs(5);
@@ -15,6 +17,15 @@ pub const PRELUDE_TURNS: usize = 6;
 pub const PRELUDE_BYTES: usize = 1024;
 /// The quick questions: (button, message sent).
 pub const QUICK: [(&str, &str); 3] = [("✦ 生成站会简报", "生成站会简报"), ("哪些需要我？", "哪些需要我？"), ("有什么出错了？", "有什么出错了？")];
+
+/// The quick questions as (label, what they send) in the interface language.
+pub fn quick() -> [(&'static str, &'static str); 3] {
+    if crate::i18n::english() {
+        [("✦ Generate Standup Brief", "Generate a standup brief"), ("What needs me?", "What needs me?"), ("What failed?", "What failed?")]
+    } else {
+        QUICK
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -102,11 +113,20 @@ impl Status {
     pub fn pill(self) -> Option<&'static str> {
         match self {
             Status::Idle => None,
-            Status::Starting => Some("启动中"),
-            Status::Answering => Some("回答中"),
-            Status::Stopping => Some("停止中"),
-            Status::Error => Some("出错"),
+            Status::Starting => Some(text("启动中", "Starting")),
+            Status::Answering => Some(text("回答中", "Answering")),
+            Status::Stopping => Some(text("停止中", "Stopping")),
+            Status::Error => Some(text("出错", "Error")),
         }
+    }
+}
+
+/// The red card's title when a chat cannot start: 「无法启动 Claude 对话」.
+pub fn cannot_start_title(provider: &str) -> String {
+    if english() {
+        format!("Could not start the {provider} chat")
+    } else {
+        format!("无法启动 {provider} 对话")
     }
 }
 
@@ -127,11 +147,40 @@ pub struct Conversation {
     pub turns: u64,
 }
 
+/// A tool's error as the ✗ row shows it in English. The tools answer the model in Chinese (it reads them), so
+/// the common ones are said again in English and any other Chinese one becomes a generic line.
+fn tool_error_in_english(text: &str) -> String {
+    let text = text.trim();
+    if let Some(rest) = text.strip_prefix(tools::NOT_FOUND) {
+        let key = rest.trim_start_matches(['：', ':', ' ']);
+        return if key.is_empty() || crate::i18n::has_chinese(key) { "no such session".into() } else { format!("no such session: {key}") };
+    }
+    if text.starts_with(super::tools::DISABLED) {
+        return "Monitor is off".into();
+    }
+    if text.starts_with(super::tools::BAD_TOKEN) {
+        return "invalid token".into();
+    }
+    if crate::i18n::has_chinese(text) {
+        return "the tool reported an error".into();
+    }
+    text.to_string()
+}
+
 fn first_line(s: &str, max_chars: usize) -> String {
     gilvt_monitor::output::clip_chars(s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""), max_chars)
 }
 
 pub fn exit_text(code: Option<i32>, stderr_tail: &str) -> String {
+    if english() {
+        return match (code, stderr_tail.trim()) {
+            (Some(c), "") => format!("The Monitor process exited (exit code {c})"),
+            (Some(c), tail) => {
+                format!("The Monitor process exited (exit code {c}: {})", gilvt_monitor::output::clip_chars(tail, 200))
+            }
+            (None, _) => "The Monitor process exited (ended by a signal)".to_string(),
+        };
+    }
     match (code, stderr_tail.trim()) {
         (Some(c), "") => format!("监控官进程已退出（退出码 {c}）"),
         (Some(c), tail) => format!("监控官进程已退出（退出码 {c}：{}）", gilvt_monitor::output::clip_chars(tail, 200)),
@@ -186,7 +235,7 @@ impl Conversation {
         m.open = false;
         for t in m.tools.iter_mut().filter(|t| !t.done) {
             t.done = true;
-            t.label = format!("✗ {}：没有完成", t.name);
+            t.label = if english() { format!("✗ {}: did not finish", t.name) } else { format!("✗ {}：没有完成", t.name) };
         }
         if m.text.is_empty() && m.tools.is_empty() {
             self.messages.remove(i);
@@ -226,7 +275,9 @@ impl Conversation {
                     row.ok = *ok;
                     row.label = match (*ok, tools::done_label(text)) {
                         (true, Some(l)) => format!("✓ {l}"),
+                        (true, None) if english() => format!("✓ Called {}", row.name),
                         (true, None) => format!("✓ 已调用 {}", row.name),
+                        (false, _) if english() => format!("✗ {}: {}", row.name, first_line(&tool_error_in_english(text), 80)),
                         (false, _) => format!("✗ {}：{}", row.name, first_line(text, 80)),
                     };
                 }
@@ -237,7 +288,7 @@ impl Conversation {
                 self.status = Status::Idle;
                 match end {
                     TurnEnd::Done => {}
-                    TurnEnd::Interrupted => self.messages.push(Message::new(Role::Notice, "（这一轮已中断）")),
+                    TurnEnd::Interrupted => self.messages.push(Message::new(Role::Notice, text("（这一轮已中断）", "(This turn was interrupted)"))),
                     TurnEnd::Failed(e) => self.push_error(e.message()),
                 }
             }
@@ -318,7 +369,7 @@ pub fn error_card(provider: &str, program: &str, e: &ProviderError) -> ErrorCard
         ProviderError::Unsupported(m) => m.clone(),
         other => crate::settings_window::form::advice(program, other),
     };
-    ErrorCard { title: format!("无法启动 {provider} 对话"), text }
+    ErrorCard { title: cannot_start_title(provider), text }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

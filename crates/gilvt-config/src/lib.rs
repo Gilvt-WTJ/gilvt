@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use gilvt_agent::AgentKind;
+use gilvt_i18n::{english, text};
 
 mod resources;
 pub use resources::{Resource, Resources};
@@ -22,10 +23,10 @@ pub enum SourceLayer {
 impl SourceLayer {
     pub fn label(self) -> &'static str {
         match self {
-            SourceLayer::Runtime => "本次会话",
-            SourceLayer::User => "用户",
-            SourceLayer::Project => "项目",
-            SourceLayer::Local => "项目·本地",
+            SourceLayer::Runtime => text("本次会话", "This session"),
+            SourceLayer::User => text("用户", "User"),
+            SourceLayer::Project => text("项目", "Project"),
+            SourceLayer::Local => text("项目·本地", "Project · Local"),
         }
     }
 }
@@ -207,13 +208,23 @@ fn load_codex(request: Request<'_>) -> Summary {
                     .get("enabled")
                     .and_then(toml::Value::as_bool)
                     .unwrap_or(true);
-                let mut item = NamedItem::new(name.clone(), (!enabled).then(|| "已禁用".into()), layer);
-                item.lines.push(format!("类型：{}", if entry.get("url").is_some() { "http" } else { "stdio" }));
-                item.lines.push(format!("状态：{}", if enabled { "已启用" } else { "已禁用" }));
-                for (key, label) in [("enabled_tools", "启用的工具"), ("disabled_tools", "禁用的工具")] {
+                let disabled = text("已禁用", "Disabled");
+                let mut item = NamedItem::new(name.clone(), (!enabled).then(|| disabled.into()), layer);
+                item.lines.push(type_line(if entry.get("url").is_some() { "http" } else { "stdio" }));
+                let state = if enabled { text("已启用", "Enabled") } else { disabled };
+                item.lines.push(if english() { format!("Status: {state}") } else { format!("状态：{state}") });
+                let labels = [
+                    ("enabled_tools", text("启用的工具", "Enabled tools")),
+                    ("disabled_tools", text("禁用的工具", "Disabled tools")),
+                ];
+                for (key, label) in labels {
                     let tools: Vec<&str> = entry.get(key).and_then(toml::Value::as_array).map(|a| a.iter().filter_map(toml::Value::as_str).collect()).unwrap_or_default();
                     if !tools.is_empty() {
-                        item.lines.push(format!("{label}：{}", tools.join("、")));
+                        item.lines.push(if english() {
+                            format!("{label}: {}", tools.join(", "))
+                        } else {
+                            format!("{label}：{}", tools.join("、"))
+                        });
                     }
                 }
                 out.mcp.push(item);
@@ -223,7 +234,11 @@ fn load_codex(request: Request<'_>) -> Summary {
             let mut item = NamedItem::new("notify", None, layer);
             // Codex notify is a bare argv: the program may itself be a private path, so only its size is shown.
             if let Some(argv) = value.get("notify").and_then(toml::Value::as_array) {
-                item.lines.push(format!("外部命令已配置（{} 个词）", argv.len()));
+                item.lines.push(if english() {
+                    format!("External command configured ({} words)", argv.len())
+                } else {
+                    format!("外部命令已配置（{} 个词）", argv.len())
+                });
             }
             out.hooks.push(item);
         }
@@ -285,7 +300,7 @@ fn read_json(path: &Path, layer: SourceLayer, out: &mut Summary) -> Option<serde
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
-            out.warnings.push(format!("{}：{e}", display_path(path)));
+            out.warnings.push(path_warning(path, &e));
             return None;
         }
     };
@@ -296,12 +311,12 @@ fn read_json(path: &Path, layer: SourceLayer, out: &mut Summary) -> Option<serde
     match serde_json::from_str(&text) {
         Ok(value) => Some(value),
         Err(e) => {
-            out.warnings.push(format!(
-                "{}：JSON 解析失败（第 {} 行，第 {} 列）",
-                display_path(path),
-                e.line(),
-                e.column()
-            ));
+            let detail = if english() {
+                format!("Could not parse the JSON (line {}, column {})", e.line(), e.column())
+            } else {
+                format!("JSON 解析失败（第 {} 行，第 {} 列）", e.line(), e.column())
+            };
+            out.warnings.push(path_warning(path, &detail));
             None
         }
     }
@@ -312,7 +327,7 @@ fn read_toml(path: &Path, layer: SourceLayer, out: &mut Summary) -> Option<toml:
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
-            out.warnings.push(format!("{}：{e}", display_path(path)));
+            out.warnings.push(path_warning(path, &e));
             return None;
         }
     };
@@ -324,14 +339,32 @@ fn read_toml(path: &Path, layer: SourceLayer, out: &mut Summary) -> Option<toml:
         Ok(value) => Some(value),
         Err(e) => {
             let location = e.span().map(|span| line_col(&text, span.start));
-            let detail = location.map_or_else(
-                || "TOML 解析失败".to_string(),
-                |(line, col)| format!("TOML 解析失败（第 {line} 行，第 {col} 列）"),
-            );
-            out.warnings
-                .push(format!("{}：{detail}", display_path(path)));
+            let detail = match location {
+                None => gilvt_i18n::text("TOML 解析失败", "Could not parse the TOML").to_string(),
+                Some((line, col)) if english() => format!("Could not parse the TOML (line {line}, column {col})"),
+                Some((line, col)) => format!("TOML 解析失败（第 {line} 行，第 {col} 列）"),
+            };
+            out.warnings.push(path_warning(path, &detail));
             None
         }
+    }
+}
+
+/// `<path>：<detail>` (`<path>: <detail>` in English).
+fn path_warning(path: &Path, detail: &dyn std::fmt::Display) -> String {
+    if english() {
+        format!("{}: {detail}", display_path(path))
+    } else {
+        format!("{}：{detail}", display_path(path))
+    }
+}
+
+/// `类型：<kind>` (`Type: <kind>` in English).
+fn type_line(kind: &str) -> String {
+    if english() {
+        format!("Type: {kind}")
+    } else {
+        format!("类型：{kind}")
     }
 }
 
@@ -372,7 +405,7 @@ fn collect_json_names(
             .map(str::to_string)
             .unwrap_or_else(|| if entry.get("url").is_some() { "http".into() } else { "stdio".into() });
         let mut item = NamedItem::new(name.clone(), None, layer);
-        item.lines.push(format!("类型：{kind}"));
+        item.lines.push(type_line(&kind));
         out.push(item);
     }
 }
@@ -383,7 +416,13 @@ fn collect_claude_hooks(value: &serde_json::Value, layer: SourceLayer, out: &mut
     };
     for (event, groups) in hooks {
         let groups = groups.as_array();
-        let mut item = NamedItem::new(event.clone(), Some(format!("{} 组", groups.map_or(1, Vec::len))), layer);
+        let count = groups.map_or(1, Vec::len);
+        let detail = match count {
+            1 if english() => "1 group".to_string(),
+            n if english() => format!("{n} groups"),
+            n => format!("{n} 组"),
+        };
+        let mut item = NamedItem::new(event.clone(), Some(detail), layer);
         for group in groups.into_iter().flatten() {
             let matcher = group.get("matcher").and_then(serde_json::Value::as_str).filter(|m| !m.is_empty()).unwrap_or("*");
             for hook in group.get("hooks").and_then(serde_json::Value::as_array).into_iter().flatten() {
@@ -405,6 +444,8 @@ fn program_line(command: &str) -> Option<String> {
     let name = Path::new(program).file_name().map_or_else(|| program.to_string(), |n| n.to_string_lossy().into_owned());
     match words.count() {
         0 => Some(name),
+        1 if english() => Some(format!("{name} (+1 arg)")),
+        n if english() => Some(format!("{name} (+{n} args)")),
         n => Some(format!("{name} (+{n} 参数)")),
     }
 }
@@ -417,7 +458,12 @@ fn add_memory(path: &Path, source: SourceLayer, out: &mut Vec<NamedItem>) {
     let lines = fs::read_to_string(path)
         .map(|s| s.lines().count())
         .unwrap_or(0);
-    let mut item = NamedItem::new(display_path(path), Some(format!("{lines} 行")), source);
+    let detail = match lines {
+        1 if english() => "1 line".to_string(),
+        n if english() => format!("{n} lines"),
+        n => format!("{n} 行"),
+    };
+    let mut item = NamedItem::new(display_path(path), Some(detail), source);
     item.path = Some(path.to_path_buf());
     out.push(item);
 }
@@ -471,6 +517,67 @@ mod tests {
 
     fn names(items: &[NamedItem]) -> BTreeSet<&str> {
         items.iter().map(|item| item.name.as_str()).collect()
+    }
+
+    #[test]
+    fn summary_text_follows_the_language() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let repo = home.join("repo");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        write(
+            &home.join(".codex/config.toml"),
+            "notify = [\"a\", \"b\"]\n[mcp_servers.off]\nenabled = false\ndisabled_tools = [\"x\", \"y\"]\n",
+        );
+        write(&repo.join(".codex/config.toml"), "model = [\n");
+        write(&repo.join("AGENTS.md"), "rules\n");
+        write(
+            &repo.join(".claude/settings.json"),
+            r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done now"}]},{}]}}"#,
+        );
+        write(&repo.join(".claude/settings.local.json"), "{");
+        write(&repo.join(".mcp.json"), r#"{"mcpServers":{"gitlab":{"command":"x"}}}"#);
+        let load_both = || {
+            [AgentKind::Codex, AgentKind::Claude].map(|agent| {
+                load(Request {
+                    agent,
+                    cwd: &repo,
+                    home: Some(&home),
+                    agent_home: None,
+                    runtime_model: None,
+                    runtime_permission: None,
+                })
+            })
+        };
+        let shown = |summaries: &[Summary; 2]| -> Vec<String> {
+            let mut out = Vec::new();
+            for s in summaries {
+                for item in s.mcp.iter().chain(&s.hooks).chain(&s.memory) {
+                    out.push(item.source.label().to_string());
+                    out.extend(item.detail.clone());
+                    out.extend(item.lines.iter().cloned());
+                }
+                out.extend(s.warnings.iter().cloned());
+            }
+            out
+        };
+
+        let english = with_language(Language::English, || shown(&load_both()));
+        assert!(english.iter().all(|s| !has_chinese(s)), "{english:#?}");
+        for expected in ["Disabled", "Status: Disabled", "Disabled tools: x, y", "External command configured (2 words)", "Type: stdio", "2 groups", "* · say (+2 args)", "1 line"] {
+            assert!(english.iter().any(|s| s == expected), "{expected}: {english:#?}");
+        }
+        assert!(english.iter().any(|s| s.ends_with("Could not parse the TOML (line 2, column 1)")), "{english:#?}");
+        assert!(english.iter().any(|s| s.contains(": Could not parse the JSON (line 1, column 1)")), "{english:#?}");
+
+        let chinese = shown(&load_both());
+        for expected in ["已禁用", "状态：已禁用", "禁用的工具：x、y", "外部命令已配置（2 个词）", "类型：stdio", "2 组", "* · say (+2 参数)", "1 行"] {
+            assert!(chinese.iter().any(|s| s == expected), "{expected}: {chinese:#?}");
+        }
+        assert!(chinese.iter().any(|s| s.ends_with("：TOML 解析失败（第 2 行，第 1 列）")), "{chinese:#?}");
+        assert_eq!(with_language(Language::English, || SourceLayer::Local.label()), "Project · Local");
+        assert_eq!(SourceLayer::Local.label(), "项目·本地");
     }
 
     #[test]

@@ -121,6 +121,9 @@ fn run(cmd: Command) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    if let Some(language) = gilvt_i18n::language_from_env() {
+        gilvt_i18n::set_current(language);
+    }
     let argv: Vec<String> = std::env::args().skip(1).collect();
     // Before any other parsing: hooks must stay silent whatever their arguments.
     if argv.first().is_some_and(|a| a == "hook") {

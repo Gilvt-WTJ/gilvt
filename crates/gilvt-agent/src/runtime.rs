@@ -45,7 +45,7 @@ impl TerminalOwner {
             TerminalOwner::Warp => "Warp",
             TerminalOwner::Tmux => "tmux",
             TerminalOwner::Other(name) => name,
-            TerminalOwner::Unknown => "未知终端",
+            TerminalOwner::Unknown => gilvt_i18n::text("未知终端", "unknown terminal"),
         }
     }
 }
@@ -481,6 +481,17 @@ pub enum SignalError {
 
 impl std::fmt::Display for SignalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if gilvt_i18n::english() {
+            return match self {
+                SignalError::NotExact => write!(f, "The session is not bound exactly; refusing to control the process"),
+                SignalError::Gone => write!(f, "The agent process has already ended"),
+                SignalError::IdentityChanged => write!(f, "The PID was reused or is no longer the original agent"),
+                SignalError::UnsafeProcessGroup => {
+                    write!(f, "The agent has no process group of its own; refusing to send a signal")
+                }
+                SignalError::Io(e) => write!(f, "Could not send the signal: {e}"),
+            };
+        }
         match self {
             SignalError::NotExact => write!(f, "会话不是精确绑定，拒绝控制进程"),
             SignalError::Gone => write!(f, "Agent 进程已经结束"),
@@ -566,6 +577,26 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signal_errors_and_unknown_terminal_in_english() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let errors = [
+            SignalError::NotExact,
+            SignalError::Gone,
+            SignalError::IdentityChanged,
+            SignalError::UnsafeProcessGroup,
+            SignalError::Io("EPERM".into()),
+        ];
+        with_language(Language::English, || {
+            for e in &errors {
+                assert!(!has_chinese(&e.to_string()), "{e}");
+            }
+            assert_eq!(TerminalOwner::Unknown.label(), "unknown terminal");
+        });
+        assert_eq!(SignalError::Gone.to_string(), "Agent 进程已经结束");
+        assert_eq!(TerminalOwner::Unknown.label(), "未知终端");
+    }
 
     #[test]
     fn store_round_trips_private_leases() {

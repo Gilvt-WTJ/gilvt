@@ -1,6 +1,8 @@
 //! Which sessions would lose work if a pane, tab, window or the app closed now (P0 spec §5). Pure: the UI
 //! passes the scope's panes and the registry's sessions and shows the answer.
 
+use gilvt_i18n::{english, text};
+
 use crate::status::{PaneId, Session, SessionKey, Status};
 
 /// One session the user should be told about before closing.
@@ -20,13 +22,14 @@ pub fn blocks_close(status: &Status) -> bool {
 /// The status as the user reads it (「思考中」, 「执行 Bash(ls)」…).
 pub fn status_label(status: &Status) -> String {
     match status {
-        Status::Thinking => "思考中".into(),
+        Status::Thinking => text("思考中", "Thinking").into(),
+        Status::Tool { label } if english() => format!("Running {label}"),
         Status::Tool { label } => format!("执行 {label}"),
-        Status::NeedsApproval { .. } => "等待授权".into(),
-        Status::Asking { .. } => "在问你".into(),
-        Status::Idle => "空闲".into(),
-        Status::Error { .. } => "出错".into(),
-        Status::Ended => "已结束".into(),
+        Status::NeedsApproval { .. } => text("等待授权", "Waiting for approval").into(),
+        Status::Asking { .. } => text("在问你", "Asking you").into(),
+        Status::Idle => text("空闲", "Idle").into(),
+        Status::Error { .. } => text("出错", "Error").into(),
+        Status::Ended => text("已结束", "Ended").into(),
     }
 }
 
@@ -90,5 +93,25 @@ mod tests {
     fn status_labels() {
         assert_eq!(status_label(&Status::Tool { label: "Bash(ls)".into() }), "执行 Bash(ls)");
         assert_eq!(status_label(&Status::NeedsApproval { action: "x".into() }), "等待授权");
+    }
+
+    #[test]
+    fn status_labels_in_english() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let all = [
+            Status::Thinking,
+            Status::Tool { label: "Bash(ls)".into() },
+            Status::NeedsApproval { action: "x".into() },
+            Status::Asking { question: "?".into() },
+            Status::Idle,
+            Status::Error { message: "x".into() },
+            Status::Ended,
+        ];
+        let english: Vec<String> = with_language(Language::English, || all.iter().map(status_label).collect());
+        assert_eq!(english[0], "Thinking");
+        assert_eq!(english[1], "Running Bash(ls)");
+        assert!(english.iter().all(|s| !has_chinese(s)), "{english:?}");
+        let chinese: Vec<String> = all.iter().map(status_label).collect();
+        assert_eq!(chinese, ["思考中", "执行 Bash(ls)", "等待授权", "在问你", "空闲", "出错", "已结束"]);
     }
 }

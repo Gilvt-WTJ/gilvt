@@ -54,7 +54,7 @@ impl Workspace {
         // `new_live` already builds the whole buffer once (so `refreshes` is 1 after opening); no second build is
         // scheduled. A large buffer only gets its banner, which `PreviewView` keeps across that first build.
         if too_large {
-            view.update(cx, |v, cx| v.set_banner_text(live_preview::TOO_LARGE_BANNER.to_string(), cx));
+            view.update(cx, |v, cx| v.set_banner_text(live_preview::too_large_banner().to_string(), cx));
         }
         self.focus_active(window, cx);
     }
@@ -116,7 +116,7 @@ impl Workspace {
         let Some(provider) = ev.read(cx).live else { return };
         let too_large = ev.read(cx).live_too_large();
         if too_large && !force {
-            pv.update(cx, |v, cx| v.set_banner_text(live_preview::TOO_LARGE_BANNER.to_string(), cx));
+            pv.update(cx, |v, cx| v.set_banner_text(live_preview::too_large_banner().to_string(), cx));
             return;
         }
         let input = ev.read(cx).live_input(provider, editor);

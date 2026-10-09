@@ -173,7 +173,7 @@ impl PreviewView {
             match links::find_heading(&md.doc.blocks, &anchor) {
                 Some(b) if self.show_source => self.pending_line = Some(md.doc.blocks[b].lines.start),
                 Some(b) => md.scroll_to_row(rows::row_of_block(&md.doc.rows, b)),
-                None => self.show_banner(format!("找不到 #{anchor}"), cx),
+                None => self.show_banner(not_found(&format!("#{anchor}")), cx),
             }
         } else if let Some(line) = restore {
             md.scroll_to_row(md.row_of_line(line));
@@ -294,7 +294,7 @@ impl PreviewView {
             Target::External(url) => open_link(&url),
             Target::Anchor(anchor) => match self.md.as_ref().and_then(|md| links::find_heading(&md.doc.blocks, &anchor).map(|b| (md, b))) {
                 Some((md, b)) => md.scroll_to_row(rows::row_of_block(&md.doc.rows, b)),
-                None => self.show_banner(format!("找不到 #{anchor}"), cx),
+                None => self.show_banner(not_found(&format!("#{anchor}")), cx),
             },
             Target::File { .. } if !crate::preview_view::link_navigation_applies(self.source()) => {}
             Target::File { path, anchor, line } => {
@@ -306,7 +306,7 @@ impl PreviewView {
                 self.pending_anchor = anchor;
                 self.load(cx);
             }
-            Target::Missing(what) => self.show_banner(format!("找不到 {what}"), cx),
+            Target::Missing(what) => self.show_banner(not_found(&what), cx),
         }
     }
 
@@ -439,4 +439,19 @@ fn rail(md: &MdState, colors: &Colors, view: WeakEntity<PreviewView>) -> impl In
     .on_mouse_down(MouseButton::Left, move |e, _, cx| {
         let _ = view.update(cx, |v, cx| v.rail_click(e.position, cx));
     })
+}
+
+/// The banner for a link whose target (`#anchor`, a file) is not there.
+fn not_found(what: &str) -> String {
+    if crate::i18n::english() { format!("Could not find {what}") } else { format!("找不到 {what}") }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn not_found_follows_the_language() {
+        assert_eq!(super::not_found("#a"), "找不到 #a");
+        let english = crate::i18n::with_language(crate::i18n::Language::English, || super::not_found("#a"));
+        assert_eq!(english, "Could not find #a");
+    }
 }

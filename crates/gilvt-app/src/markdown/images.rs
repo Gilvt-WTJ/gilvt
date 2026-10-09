@@ -20,12 +20,14 @@ pub fn resolve(src: &str, base_dir: Option<&Path>) -> Image {
     if ["http://", "https://", "//"].iter().any(|p| src.starts_with(p)) {
         return Image::Remote(src.to_string());
     }
+    let t = crate::i18n::text;
     let unavailable = |reason| Image::Unavailable { path: src.to_string(), reason };
     let decoded = percent_decode(src);
     let local = Path::new(&decoded);
-    let path = if local.is_absolute() { local.to_path_buf() } else if let Some(dir) = base_dir { dir.join(local) } else { return unavailable("找不到图片") };
+    let not_found = t("找不到图片", "Image not found");
+    let path = if local.is_absolute() { local.to_path_buf() } else if let Some(dir) = base_dir { dir.join(local) } else { return unavailable(not_found) };
     if !path.is_file() {
-        return unavailable("找不到图片");
+        return unavailable(not_found);
     }
     let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     let size = if ext == "svg" {
@@ -33,11 +35,11 @@ pub fn resolve(src: &str, base_dir: Option<&Path>) -> Image {
     } else if RASTER.contains(&ext.as_str()) {
         imagesize::size(&path).ok().map(|s| (s.width as f32, s.height as f32))
     } else {
-        return unavailable("不支持的图片格式");
+        return unavailable(t("不支持的图片格式", "Unsupported image format"));
     };
     match size.filter(|&(w, h)| w > 0.0 && h > 0.0) {
         Some((width, height)) => Image::Local { path, width, height },
-        None => unavailable("无法读取图片"),
+        None => unavailable(t("无法读取图片", "Could not read image")),
     }
 }
 
@@ -88,5 +90,21 @@ mod tests {
         assert_eq!(reason("x.webp").1, "不支持的图片格式");
         assert_eq!(reason("bad.png").1, "无法读取图片");
         assert!(matches!(resolve("a.png", None), Image::Unavailable { .. }), "inline content has no directory");
+    }
+
+    #[test]
+    fn unavailable_reasons_read_in_english() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("x.webp"), "RIFF").unwrap();
+        std::fs::write(dir.path().join("bad.png"), "not a png").unwrap();
+        let reason = |src| match resolve(src, Some(dir.path())) {
+            Image::Unavailable { reason, .. } => reason,
+            other => panic!("{other:?}"),
+        };
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            assert_eq!(reason("nope.png"), "Image not found");
+            assert_eq!(reason("x.webp"), "Unsupported image format");
+            assert_eq!(reason("bad.png"), "Could not read image");
+        });
     }
 }

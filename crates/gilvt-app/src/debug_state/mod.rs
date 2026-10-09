@@ -9,6 +9,7 @@ mod collect;
 pub mod map;
 pub mod rects;
 pub mod timeline;
+mod untranslated;
 
 use std::ffi::OsStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1625,7 +1626,10 @@ pub fn answer(state: &DebugState, tail_lines: u16) -> Response {
 
 fn to_response(state: &DebugState) -> Response {
     match serde_json::to_value(state) {
-        Ok(state) => Response::DebugState { state },
+        Ok(mut state) => {
+            untranslated::add(&mut state);
+            Response::DebugState { state }
+        }
         Err(e) => Response::Error { message: format!("debug state: {e}") },
     }
 }

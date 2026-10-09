@@ -60,7 +60,11 @@ pub fn item_line(s: &SessionSummary) -> String {
         AgentKind::Claude => 'C',
         AgentKind::Codex => 'X',
     };
-    format!("「{letter} · {} · {}」", s.name, s.status)
+    if crate::i18n::english() {
+        format!("\"{letter} · {} · {}\"", s.name, s.status)
+    } else {
+        format!("「{letter} · {} · {}」", s.name, s.status)
+    }
 }
 
 /// The unsaved editor panes (pane, file name) that are in `scope`, in `dirty`'s order.
@@ -639,6 +643,10 @@ mod tests {
     fn a_line_has_letter_name_and_status() {
         assert_eq!(item_line(&summary(AgentKind::Claude, "a", "修复登录", 1)), "「C · 修复登录 · 思考中」");
         assert_eq!(item_line(&summary(AgentKind::Codex, "b", "写迁移", 1)), "「X · 写迁移 · 思考中」");
+        let english = crate::i18n::with_language(crate::i18n::Language::English, || {
+            item_line(&SessionSummary { status: "Thinking".into(), ..summary(AgentKind::Claude, "a", "Fix login", 1) })
+        });
+        assert_eq!(english, "\"C · Fix login · Thinking\"");
     }
 
     #[test]

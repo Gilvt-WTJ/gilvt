@@ -209,7 +209,7 @@ mode = "download"         # download：后台下载、退出时安装 | check：
 # palette = { 1 = "#ff5f5f" }
 ```
 
-`language` 控制 gilvt 自身界面的语言，不影响终端内程序的输出。不写时跟随 macOS 首选语言列表的第一项（`NSLocale.preferredLanguages`）：`zh` 开头（简体、繁体都算）用简体中文，其他一律英文；`GILVT_TEST_SYSTEM_LANGUAGE=<tag>` 可以假装系统语言（GUI 用例用它），单元测试里 `Language::system()` 固定为中文。`Settings::language_setting` 是文件里写的值，`Settings::language` 是生效的语言。在 `⌘,` 设置窗口的「语言」页选择一项后立即应用到所有窗口，并写回 `config.toml`（选的和跟随系统得到的一样时也写，从此固定）。手动修改该键也会热重载。GUI 沙盒的 `config.toml` 固定写 `language = "zh-CN"`，用例的中文断言不受本机语言影响。
+`language` 控制 gilvt 自身界面的语言，不影响终端内程序的输出。不写时跟随 macOS 首选语言列表的第一项（`NSLocale.preferredLanguages`）：`zh` 开头（简体、繁体都算）用简体中文，其他一律英文；`GILVT_TEST_SYSTEM_LANGUAGE=<tag>` 可以假装系统语言（GUI 用例用它），单元测试里 `i18n::system_language()` 固定为中文。语言状态在 `gilvt-i18n` crate（`current()`、`english()`、`text("中文", "English")`），所有往界面上送文字的 crate 都用它，文字在显示时按当前语言取；单元测试用 `with_language(Language::English, || …)` 只在本线程切换语言。英文界面的 DebugState 有 `untranslated`，列出漏翻的界面文字。每个 pane 的环境里有 `GILVT_LANGUAGE`（`en` / `zh-CN`，创建 pane 时的界面语言），`gilvt` 命令行启动时读它，所以 `gilvt ssh` 在终端里打印的提示与窗口同一种语言。`Settings::language_setting` 是文件里写的值，`Settings::language` 是生效的语言。在 `⌘,` 设置窗口的「语言」页选择一项后立即应用到所有窗口，并写回 `config.toml`（选的和跟随系统得到的一样时也写，从此固定）。手动修改该键也会热重载。GUI 沙盒的 `config.toml` 固定写 `language = "zh-CN"`，用例的中文断言不受本机语言影响。
 
 ## 主题
 

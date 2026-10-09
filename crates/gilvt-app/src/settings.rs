@@ -76,7 +76,11 @@ impl MonitorSettings {
 
     fn sanitize(&mut self, errors: &mut Vec<String>) {
         if parse_interval(&self.summary_interval).is_none() {
-            errors.push(format!("monitor.summary_interval = {:?} 无法解析（例：90s、2m、1h），改用 \"2m\"", self.summary_interval));
+            errors.push(if crate::i18n::english() {
+                format!("monitor.summary_interval = {:?} could not be parsed (e.g. 90s, 2m, 1h); using \"2m\"", self.summary_interval)
+            } else {
+                format!("monitor.summary_interval = {:?} 无法解析（例：90s、2m、1h），改用 \"2m\"", self.summary_interval)
+            });
             self.summary_interval = "2m".into();
         }
     }
@@ -169,7 +173,11 @@ impl ColorsSetting {
         for (key, value) in singles {
             if let Some(v) = value.as_deref() {
                 if parse_hex(v).is_none() {
-                    errors.push(format!("colors.{key} = {v:?} 不是颜色，已忽略"));
+                    errors.push(if crate::i18n::english() {
+                        format!("colors.{key} = {v:?} is not a color; ignored")
+                    } else {
+                        format!("colors.{key} = {v:?} 不是颜色，已忽略")
+                    });
                     *value = None;
                 }
             }
@@ -177,7 +185,11 @@ impl ColorsSetting {
         self.palette.retain(|k, v| {
             let ok = k.parse::<usize>().is_ok_and(|n| n <= 15) && parse_hex(v).is_some();
             if !ok {
-                errors.push(format!("colors.palette.{k} = {v:?} 无效（序号 0–15，值为颜色），已忽略"));
+                errors.push(if crate::i18n::english() {
+                    format!("colors.palette.{k} = {v:?} is invalid (the index is 0–15, the value a color); ignored")
+                } else {
+                    format!("colors.palette.{k} = {v:?} 无效（序号 0–15，值为颜色），已忽略")
+                });
             }
             ok
         });
@@ -212,7 +224,7 @@ pub struct Settings {
     /// What config.toml says (`language = …`); None: follow macOS.
     #[serde(rename = "language")]
     pub language_setting: Option<Language>,
-    /// The application chrome language in effect: `language_setting`, else `Language::system()`. Terminal
+    /// The application chrome language in effect: `language_setting`, else `i18n::system_language()`. Terminal
     /// contents are never translated.
     #[serde(skip)]
     pub language: Language,
@@ -374,7 +386,11 @@ impl AgentSettings {
             ("codex_launch", &mut self.codex_launch, defaults.codex_launch),
         ] {
             if !command_name_ok(value) {
-                errors.push(format!("agent.{key} = {value:?} 不是合法的命令名，改用默认值 {default:?}"));
+                errors.push(if crate::i18n::english() {
+                    format!("agent.{key} = {value:?} is not a valid command name; using the default {default:?}")
+                } else {
+                    format!("agent.{key} = {value:?} 不是合法的命令名，改用默认值 {default:?}")
+                });
                 *value = default;
             }
         }
@@ -385,7 +401,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             language_setting: None,
-            language: Language::system(),
+            language: crate::i18n::system_language(),
             font_family: "Menlo".into(),
             font_size: 13.0,
             line_height: 1.25,
@@ -429,7 +445,8 @@ impl Settings {
         let s = toml::from_str::<Settings>(text).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut errors = Vec::new();
         let s = s.sanitized(&mut errors);
-        let warning = (!errors.is_empty()).then(|| format!("{}: {}", path.display(), errors.join("；")));
+        let separator = s.language.text("；", "; ");
+        let warning = (!errors.is_empty()).then(|| format!("{}: {}", path.display(), errors.join(separator)));
         Ok((s, warning))
     }
 
@@ -446,16 +463,19 @@ impl Settings {
 
     /// Clamps values; what cannot be clamped falls back to its default, with a line in `errors`.
     fn sanitized(mut self, errors: &mut Vec<String>) -> Self {
-        self.language = self.language_setting.unwrap_or_else(Language::system);
+        self.language = self.language_setting.unwrap_or_else(crate::i18n::system_language);
         self.font_size = self.font_size.clamp(Self::MIN_FONT_SIZE, Self::MAX_FONT_SIZE);
         self.line_height = self.line_height.clamp(1.0, 2.0);
         self.scrollback = self.scrollback.min(1_000_000);
         if self.font_family.trim().is_empty() {
             self.font_family = Settings::default().font_family;
         }
-        self.agent.sanitize(errors);
-        self.monitor.sanitize(errors);
-        self.colors.sanitize(errors);
+        // In the language this file asks for: the warning is shown once it is in effect.
+        crate::i18n::with_language(self.language, || {
+            self.agent.sanitize(errors);
+            self.monitor.sanitize(errors);
+            self.colors.sanitize(errors);
+        });
         self
     }
 }
@@ -484,7 +504,7 @@ mod tests {
         let (s, err) = load_str("font_size = 15\n");
         assert!(err.is_none());
         assert_eq!(s.language_setting, None);
-        assert_eq!(s.language, Language::system());
+        assert_eq!(s.language, crate::i18n::system_language());
         let (s, _) = load_str("language = \"zh-CN\"\n");
         assert_eq!(s.language_setting, Some(Language::Chinese));
     }
@@ -575,6 +595,20 @@ mod tests {
         assert!(s.agent.claude_commands.is_empty(), "an empty list wraps nothing");
         let (_, err) = load_str("[agent]\nclaude = [\"x\"]\n");
         assert!(err.unwrap().contains("claude"), "unknown [agent] keys are errors");
+    }
+
+    #[test]
+    fn warnings_are_in_the_language_the_file_asks_for() {
+        let bad = "[agent]\ncodex_launch = \"bad name\"\n[monitor]\nsummary_interval = \"5x\"\n[colors]\nbackground = \"black\"\npalette = { \"16\" = \"#fff\" }\n";
+        let (_, err) = load_str(&format!("language = \"en\"\n{bad}"));
+        let err = err.unwrap();
+        assert!(!crate::i18n::has_chinese(&err), "{err}");
+        assert!(err.contains("is not a valid command name; using the default \"codex\"; monitor.summary_interval"), "{err}");
+        assert!(err.contains("colors.background = \"black\" is not a color; ignored"), "{err}");
+        let (_, err) = load_str(&format!("language = \"zh-CN\"\n{bad}"));
+        let err = err.unwrap();
+        assert!(err.contains("不是合法的命令名，改用默认值 \"codex\"；monitor.summary_interval"), "{err}");
+        assert!(err.contains("colors.background = \"black\" 不是颜色，已忽略"), "{err}");
     }
 
     #[test]

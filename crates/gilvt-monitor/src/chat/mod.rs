@@ -35,6 +35,20 @@ pub const CHAT_INSTRUCTIONS: &str = "你是 gilvt 终端里的「监控官」。
 ### 整体\n\
 一段话概括其他会话的进展。";
 
+/// [`CHAT_INSTRUCTIONS`] for the interface language: in English the 监控官 answers in English and the standup
+/// brief's headings are English (they are shown as written).
+pub fn chat_instructions() -> String {
+    if !gilvt_i18n::english() {
+        return CHAT_INSTRUCTIONS.to_string();
+    }
+    CHAT_INSTRUCTIONS
+        .replace("用中文，简洁", "用英文（English）回答，简洁")
+        .replace("用户要「站会简报」时", "用户要「站会简报」（standup brief）时")
+        .replace("### 要你处理", "### Needs you")
+        .replace("：要用户做的事（每项一行；没有就写「- 暂时没有」）", ": what the user should do (one per line; if none, write \"- Nothing right now\")")
+        .replace("### 整体", "### Overall")
+}
+
 /// How the chat CLI reaches gilvt: `<gilvt> mcp` with the app's socket and the chat's token.
 #[derive(Clone, PartialEq, Eq)]
 pub struct McpLaunch {
@@ -522,7 +536,11 @@ impl Pump {
                         self.killed = true;
                         self.terminate();
                     } else if self.bad == MAX_BAD_LINES {
-                        self.emit(ChatEvent::Failed(ProviderError::Protocol(format!("连续 {MAX_BAD_LINES} 行输出无法解析"))));
+                        self.emit(ChatEvent::Failed(ProviderError::Protocol(if gilvt_i18n::english() {
+                            format!("{MAX_BAD_LINES} lines of output in a row could not be parsed")
+                        } else {
+                            format!("连续 {MAX_BAD_LINES} 行输出无法解析")
+                        })));
                         if let Some(log) = &self.log {
                             append(log, &format!("{MAX_BAD_LINES} bad lines in a row: ending the process\n"));
                         }
@@ -591,15 +609,20 @@ pub fn probe(cfg: &ChatConfig, timeout: Duration) -> Result<Duration, ProviderEr
             Some(ChatEvent::ToolStarted { id, tool, .. }) if tool == "list_sessions" => calls.push(id),
             Some(ChatEvent::ToolDone { id, ok: true, .. }) if calls.contains(&id) => listed = true,
             Some(ChatEvent::ToolDone { id, ok: false, text }) if calls.contains(&id) => {
-                refused = Some(text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("工具调用失败").to_string());
+                refused = Some(text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(gilvt_i18n::text("工具调用失败", "The tool call failed")).to_string());
             }
             Some(ChatEvent::TurnEnded(TurnEnd::Done)) if listed => break Ok(started.elapsed()),
             Some(ChatEvent::TurnEnded(TurnEnd::Done)) if refused.is_some() => {
-                break Err(ProviderError::Unsupported(format!("gilvt 拒绝了 list_sessions：{}", refused.take().unwrap_or_default())));
+                let why = refused.take().unwrap_or_default();
+                break Err(ProviderError::Unsupported(if gilvt_i18n::english() {
+                    format!("gilvt refused list_sessions: {why}")
+                } else {
+                    format!("gilvt 拒绝了 list_sessions：{why}")
+                }));
             }
-            Some(ChatEvent::TurnEnded(TurnEnd::Done)) => break Err(ProviderError::Protocol("对话没有调用 list_sessions".into())),
+            Some(ChatEvent::TurnEnded(TurnEnd::Done)) => break Err(ProviderError::Protocol(gilvt_i18n::text("对话没有调用 list_sessions", "the chat did not call list_sessions").into())),
             Some(ChatEvent::TurnEnded(TurnEnd::Failed(e)) | ChatEvent::Failed(e)) => break Err(e),
-            Some(ChatEvent::TurnEnded(TurnEnd::Interrupted)) => break Err(ProviderError::Protocol("这一轮被中断了".into())),
+            Some(ChatEvent::TurnEnded(TurnEnd::Interrupted)) => break Err(ProviderError::Protocol(gilvt_i18n::text("这一轮被中断了", "the turn was interrupted").into())),
             Some(ChatEvent::Exited { code, stderr_tail }) => break Err(ProviderError::Exited { code, stderr_tail }),
             Some(_) => {}
             None => break Err(ProviderError::Timeout),
@@ -612,6 +635,18 @@ pub fn probe(cfg: &ChatConfig, timeout: Duration) -> Result<Duration, ProviderEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_instructions_follow_the_interface_language() {
+        assert_eq!(gilvt_i18n::with_language(gilvt_i18n::Language::Chinese, chat_instructions), CHAT_INSTRUCTIONS);
+        let en = gilvt_i18n::with_language(gilvt_i18n::Language::English, chat_instructions);
+        for needle in ["用英文（English）回答", "standup brief", "### Needs you", "### Overall", "- Nothing right now"] {
+            assert!(en.contains(needle), "{needle}");
+        }
+        for gone in ["用中文", "### 要你处理", "### 整体", "暂时没有"] {
+            assert!(!en.contains(gone), "{gone}");
+        }
+    }
 
     #[test]
     fn instructions_cover_the_spec() {

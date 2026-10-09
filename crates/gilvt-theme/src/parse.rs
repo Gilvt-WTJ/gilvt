@@ -1,6 +1,8 @@
 //! Ghostty theme files: `key = value` lines, `#` comments, `palette = N=#rrggbb`. Keys gilvt does not
 //! use (opacity, fonts, …) are ignored so a file copied from Ghostty works as is.
 
+use gilvt_i18n::{english, text as tr};
+
 use crate::color::{parse_hex, Rgb};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,7 +28,16 @@ pub fn parse(text: &str) -> Result<ThemeSpec, String> {
         }
         let Some((key, value)) = line.split_once('=') else { continue };
         let (key, value) = (key.trim(), value.trim());
-        let color = |v: &str| parse_hex(v).ok_or_else(|| format!("第 {} 行：{key} 的值 {v:?} 不是颜色", i + 1));
+        let line_no = i + 1;
+        let color = |v: &str| {
+            parse_hex(v).ok_or_else(|| {
+                if english() {
+                    format!("Line {line_no}: the value {v:?} of {key} is not a color")
+                } else {
+                    format!("第 {line_no} 行：{key} 的值 {v:?} 不是颜色")
+                }
+            })
+        };
         match key {
             "background" => background = Some(color(value)?),
             "foreground" => foreground = Some(color(value)?),
@@ -35,10 +46,26 @@ pub fn parse(text: &str) -> Result<ThemeSpec, String> {
             "selection-background" => sel_bg = Some(color(value)?),
             "selection-foreground" => sel_fg = Some(color(value)?),
             "palette" => {
-                let (n, v) = value.split_once('=').ok_or_else(|| format!("第 {} 行：palette 应写成 N=#rrggbb", i + 1))?;
-                let n: usize = n.trim().parse().map_err(|_| format!("第 {} 行：palette 序号 {:?} 不是数字", i + 1, n.trim()))?;
+                let (n, v) = value.split_once('=').ok_or_else(|| {
+                    if english() {
+                        format!("Line {line_no}: write palette as N=#rrggbb")
+                    } else {
+                        format!("第 {line_no} 行：palette 应写成 N=#rrggbb")
+                    }
+                })?;
+                let n: usize = n.trim().parse().map_err(|_| {
+                    if english() {
+                        format!("Line {line_no}: the palette index {:?} is not a number", n.trim())
+                    } else {
+                        format!("第 {line_no} 行：palette 序号 {:?} 不是数字", n.trim())
+                    }
+                })?;
                 if n > 15 {
-                    return Err(format!("第 {} 行：palette 序号 {n} 超出 0–15", i + 1));
+                    return Err(if english() {
+                        format!("Line {line_no}: the palette index {n} is outside 0–15")
+                    } else {
+                        format!("第 {line_no} 行：palette 序号 {n} 超出 0–15")
+                    });
                 }
                 palette[n] = Some(color(v.trim())?);
             }
@@ -46,8 +73,8 @@ pub fn parse(text: &str) -> Result<ThemeSpec, String> {
         }
     }
     Ok(ThemeSpec {
-        background: background.ok_or("缺少 background")?,
-        foreground: foreground.ok_or("缺少 foreground")?,
+        background: background.ok_or_else(|| tr("缺少 background", "background is missing"))?,
+        foreground: foreground.ok_or_else(|| tr("缺少 foreground", "foreground is missing"))?,
         cursor,
         cursor_text,
         selection_background: sel_bg,
@@ -102,6 +129,24 @@ cursor-color = #f5e0dc\ncursor-text = #1e1e2e\nselection-background = #585b70\ns
         assert_eq!(s.palette[0], Some(rgb(0x45475a)));
         assert_eq!(s.palette[1], Some(rgb(0xf38ba8)));
         assert_eq!(s.palette[2], None);
+    }
+
+    #[test]
+    fn errors_in_english() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let bad = [
+            "background = black\nforeground = #fff\n",
+            "background = #000\nforeground = #fff\npalette = x\n",
+            "background = #000\nforeground = #fff\npalette = x=#ffffff\n",
+            "background = #000\nforeground = #fff\npalette = 16=#ffffff\n",
+            "foreground = #fff\n",
+            "background = #000\n",
+        ];
+        let english: Vec<String> = with_language(Language::English, || bad.iter().map(|t| parse(t).unwrap_err()).collect());
+        assert!(english.iter().all(|e| !has_chinese(e)), "{english:?}");
+        assert_eq!(english[0], "Line 1: the value \"black\" of background is not a color");
+        assert_eq!(english[4], "background is missing");
+        assert_eq!(parse(bad[3]).unwrap_err(), "第 3 行：palette 序号 16 超出 0–15");
     }
 
     #[test]

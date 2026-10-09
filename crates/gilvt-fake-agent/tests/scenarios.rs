@@ -237,7 +237,7 @@ fn resuming_appends_to_the_same_transcript() {
 fn every_builtin_is_covered() {
     let mut covered = vec!["default", "ask-question", "approve-bash", "edit-files", "todo", "api-error", "lite", "codex-basic", "codex-approve"];
     // tests/gui_scenarios.rs: the GUI acceptance cases' scenarios.
-    covered.extend(["timeline", "timeline-live", "timeline-codex", "long-tool", "three-turns", "lite-mixed", "todo-states", "hist-claude", "hist-codex", "think-long", "long-title", "monitor-slow"]);
+    covered.extend(["timeline", "timeline-live", "timeline-codex", "long-tool", "three-turns", "lite-mixed", "todo-states", "hist-claude", "hist-codex", "think-long", "long-title", "monitor-slow", "monitor-slow-en"]);
     // tests/gui_scenarios.rs: the artifacts tab's scenarios (the tools write real files).
     covered.extend(["artifacts-basic", "artifacts-turns", "artifacts-followups", "artifacts-many", "artifacts-running"]);
     for (name, _) in BUILTIN {

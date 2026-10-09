@@ -122,7 +122,13 @@ impl Protocol for Claude {
                     .and_then(|m| m.get("status").and_then(Value::as_str))
                     .unwrap_or("missing")
                     .to_string();
-                let note = (status != "connected").then(|| format!("gilvt 工具没有连上（{status}）"));
+                let note = (status != "connected").then(|| {
+                    if gilvt_i18n::english() {
+                        format!("gilvt's tools did not connect ({status})")
+                    } else {
+                        format!("gilvt 工具没有连上（{status}）")
+                    }
+                });
                 d.events.push(ChatEvent::Ready { model: s("/model").map(str::to_string), note });
             }
             Some("stream_event") => match s("/event/type") {
@@ -173,7 +179,7 @@ impl Protocol for Claude {
                 } else if interrupting {
                     TurnEnd::Interrupted
                 } else if is_error {
-                    TurnEnd::Failed(classify(s("/result").unwrap_or("这一轮出错了"), None))
+                    TurnEnd::Failed(classify(s("/result").unwrap_or(gilvt_i18n::text("这一轮出错了", "This turn failed")), None))
                 } else {
                     TurnEnd::Done
                 };

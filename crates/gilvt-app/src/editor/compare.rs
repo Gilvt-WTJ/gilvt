@@ -39,7 +39,7 @@ pub fn open_error_message(e: &EditorError) -> String {
 
 pub fn fold_label(len: usize) -> String {
     if crate::i18n::current() == crate::i18n::Language::English {
-        format!("⋯ {len} unchanged lines (click to expand)")
+        format!("⋯ {} (click to expand)", crate::i18n::count(len, "unchanged line", "unchanged lines"))
     } else {
         format!("⋯ {len} 行未改动（点击展开）")
     }

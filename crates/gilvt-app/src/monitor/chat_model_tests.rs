@@ -190,3 +190,62 @@ fn error_cards_say_what_to_do() {
     c.error_card(card);
     assert_eq!((c.status, c.messages[0].role), (Status::Error, Role::Error));
 }
+
+#[test]
+fn status_tool_rows_and_errors_in_english() {
+    use crate::i18n::{has_chinese, with_language, Language};
+    let names = |k: &str| (k == "pane:3").then(|| "zsh".to_string());
+    let shown = with_language(Language::English, || {
+        let mut c = Conversation::default();
+        c.push_user(&out("What needs me?"));
+        c.apply(&ChatEvent::TurnStarted, &names);
+        let mut shown: Vec<String> = vec![c.status.pill().unwrap().to_string()];
+        c.apply(&ChatEvent::ToolStarted { id: "t1".into(), tool: "mcp__gilvt__read_screen".into(), args: json!({"key": "pane:3"}) }, &names);
+        c.apply(&ChatEvent::ToolStarted { id: "t2".into(), tool: "list_sessions".into(), args: json!({}) }, &names);
+        c.apply(&ChatEvent::ToolStarted { id: "t3".into(), tool: "get_session".into(), args: json!({"key": "pane:3"}) }, &names);
+        c.apply(&ChatEvent::ToolStarted { id: "t4".into(), tool: "get_commands".into(), args: json!({"key": "pane:3"}) }, &names);
+        shown.extend(c.messages.last().unwrap().tools.iter().map(|t| t.label.clone()));
+        c.apply(&ChatEvent::ToolDone { id: "t1".into(), ok: true, text: "{\"gilvt_label\":\"Read the screen of zsh (last 2 lines)\"}".into() }, &names);
+        c.apply(&ChatEvent::ToolDone { id: "t2".into(), ok: true, text: "plain".into() }, &names);
+        c.apply(&ChatEvent::ToolDone { id: "t3".into(), ok: false, text: "boom".into() }, &names);
+        c.apply(&ChatEvent::TurnEnded(TurnEnd::Interrupted), &names);
+        shown.extend(c.messages.iter().flat_map(|m| m.tools.iter().map(|t| t.label.clone())));
+        shown.push(c.messages.last().unwrap().text.clone());
+        shown.push(exit_text(Some(1), ""));
+        shown.push(exit_text(None, ""));
+        shown.push(error_card("Claude", "claude", &ProviderError::NotFound { program: "claude".into() }).title);
+        shown.extend([Status::Starting, Status::Stopping, Status::Error].iter().filter_map(|s| s.pill()).map(str::to_string));
+        shown
+    });
+    assert_eq!(shown[0], "Answering");
+    assert_eq!(shown[1], "… Reading the screen of zsh (last 60 lines)…");
+    assert_eq!(shown[2], "… Listing sessions…");
+    assert_eq!(
+        shown[5..9],
+        ["✓ Read the screen of zsh (last 2 lines)", "✓ Called list_sessions", "✗ get_session: boom", "✗ get_commands: did not finish"]
+    );
+    assert_eq!(shown[9], "(This turn was interrupted)");
+    assert_eq!(shown[10], "The Monitor process exited (exit code 1)");
+    assert_eq!(shown[12], "Could not start the Claude chat");
+    for s in &shown {
+        assert!(!has_chinese(s), "{s}");
+    }
+    assert_eq!(exit_text(Some(1), ""), "监控官进程已退出（退出码 1）");
+    assert_eq!(Status::Answering.pill(), Some("回答中"));
+}
+
+#[test]
+fn tool_errors_read_in_english() {
+    assert_eq!(tool_error_in_english(&format!("{}：agent:claude:a1", tools::NOT_FOUND)), "no such session: agent:claude:a1");
+    assert_eq!(tool_error_in_english(super::super::tools::DISABLED), "Monitor is off");
+    assert_eq!(tool_error_in_english("turns 不能为空"), "the tool reported an error");
+    assert_eq!(tool_error_in_english("socket closed"), "socket closed");
+}
+
+#[test]
+fn quick_questions_send_what_they_say_in_english() {
+    assert_eq!(crate::i18n::with_language(crate::i18n::Language::Chinese, quick), QUICK);
+    let en = crate::i18n::with_language(crate::i18n::Language::English, quick);
+    assert_eq!(en.map(|(label, _)| label), ["✦ Generate Standup Brief", "What needs me?", "What failed?"]);
+    assert!(en.iter().all(|(label, text)| !crate::i18n::has_chinese(label) && !crate::i18n::has_chinese(text)));
+}

@@ -28,6 +28,25 @@ pub const TERMINAL_INSTRUCTIONS: &str = "你是 gilvt 终端里的监控官，�
 近期：<最近在做什么、结果如何，一到两句，失败时说出失败的地方>\n\
 不超过 120 个字，用中文。";
 
+/// [`AGENT_INSTRUCTIONS`] for the interface language: in English the summary is written in English (the
+/// 「目标」 / 「近期」 labels stay, [`crate::output::parse`] reads them).
+pub fn agent_instructions() -> String {
+    summary_language(AGENT_INSTRUCTIONS)
+}
+
+/// [`TERMINAL_INSTRUCTIONS`] for the interface language.
+pub fn terminal_instructions() -> String {
+    summary_language(TERMINAL_INSTRUCTIONS)
+}
+
+fn summary_language(instructions: &str) -> String {
+    if gilvt_i18n::english() {
+        instructions.replace("用中文。", "内容用英文（English）写，「目标：」「近期：」标签保持原样。")
+    } else {
+        instructions.to_string()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Covers {
     /// Turns a..=b.
@@ -37,7 +56,16 @@ pub enum Covers {
 }
 
 impl Covers {
+    /// For the card (not the model): follows the interface language.
     pub fn label(&self) -> String {
+        if gilvt_i18n::english() {
+            return match *self {
+                Covers::Turns(a, b) if a == b => format!("Covers turn {a}"),
+                Covers::Turns(a, b) => format!("Covers turns {a}–{b}"),
+                Covers::Commands(1) => "Covers the last command".into(),
+                Covers::Commands(n) => format!("Covers the last {n} commands"),
+            };
+        }
         match *self {
             Covers::Turns(a, b) if a == b => format!("覆盖第 {a} 轮"),
             Covers::Turns(a, b) => format!("覆盖第 {a}–{b} 轮"),
@@ -207,7 +235,7 @@ pub fn agent_request(d: &AgentDigest, prev: Option<&Previous>) -> (OneShot, Cove
     for t in shown {
         push_turn(&mut l, t, &mut seq);
     }
-    (OneShot { instructions: AGENT_INSTRUCTIONS.into(), prompt: l.finish(agent_note) }, covers)
+    (OneShot { instructions: agent_instructions(), prompt: l.finish(agent_note) }, covers)
 }
 
 /// One turn's lines: heading, prompt, one droppable line per tool call (`seq` numbers them oldest first, so the
@@ -283,7 +311,7 @@ pub fn commands_text_within(d: &TerminalDigest, max: usize, cap: usize) -> Strin
 
 pub fn terminal_request(d: &TerminalDigest) -> (OneShot, Covers) {
     let shown = d.commands.len().min(TERMINAL_COMMANDS);
-    (OneShot { instructions: TERMINAL_INSTRUCTIONS.into(), prompt: commands_text(d, TERMINAL_COMMANDS) }, Covers::Commands(shown))
+    (OneShot { instructions: terminal_instructions(), prompt: commands_text(d, TERMINAL_COMMANDS) }, Covers::Commands(shown))
 }
 
 #[cfg(test)]
@@ -309,6 +337,16 @@ mod tests {
 
     fn digest<'a>(turns: &'a [Arc<Turn>]) -> AgentDigest<'a> {
         AgentDigest { name: "web-login", agent: "Codex", cwd: Some(Path::new("/w/web")), status: "● Bash(pnpm test)", todo: Some((2, 5)), turns }
+    }
+
+    #[test]
+    fn summary_instructions_ask_for_english_content_but_keep_the_labels() {
+        use gilvt_i18n::{with_language, Language};
+        assert_eq!(with_language(Language::Chinese, agent_instructions), AGENT_INSTRUCTIONS);
+        assert_eq!(with_language(Language::Chinese, terminal_instructions), TERMINAL_INSTRUCTIONS);
+        for en in [with_language(Language::English, agent_instructions), with_language(Language::English, terminal_instructions)] {
+            assert!(en.contains("内容用英文（English）写") && en.contains("近期：") && !en.contains("用中文"), "{en}");
+        }
     }
 
     #[test]

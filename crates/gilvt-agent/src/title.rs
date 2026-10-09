@@ -10,8 +10,13 @@ use crate::summary::truncate_chars;
 pub const AGENT_TITLE_MAX: usize = 120;
 /// Longest prompt-derived title, in chars (including the `…` added when cut).
 pub const PROMPT_TITLE_MAX: usize = 60;
-/// Shown when a session has no prompt at all.
+/// Shown when a session has no prompt at all (Chinese; [`no_prompt`] follows the interface language).
 pub const NO_PROMPT: &str = "（无提示词）";
+
+/// [`NO_PROMPT`] in the interface language.
+pub fn no_prompt() -> &'static str {
+    gilvt_i18n::text(NO_PROMPT, "(no prompt)")
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TitleSource {
@@ -59,7 +64,7 @@ pub fn choose(
         .into_iter()
         .map(tidy_prompt)
         .find(|text| !text.is_empty())
-        .unwrap_or_else(|| NO_PROMPT.to_string());
+        .unwrap_or_else(|| no_prompt().to_string());
     Title {
         text: prompt,
         source: TitleSource::Prompt,

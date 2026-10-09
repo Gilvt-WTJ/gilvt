@@ -108,7 +108,7 @@ pub fn start(ssh: &str, control: &Path, opts: &[String], dest: &str) -> io::Resu
         // SAFETY: the group is our own child's; it is reaped right after.
         unsafe { libc::kill(-pid, libc::SIGKILL) };
         let _ = child.wait();
-        eprintln!("\r\ngilvt: ssh 被挂起，已取消这次连接");
+        eprintln!("\r\ngilvt: {}", gilvt_i18n::text("ssh 被挂起，已取消这次连接", "ssh was suspended; this connection is cancelled"));
     }
     Ok(waited.code())
 }

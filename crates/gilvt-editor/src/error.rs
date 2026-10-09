@@ -29,6 +29,29 @@ pub enum EditorError {
 
 impl fmt::Display for EditorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if gilvt_i18n::english() {
+            return match self {
+                EditorError::TooLarge { size, limit } => {
+                    write!(f, "The file is too large ({size} bytes); the editor's limit is {limit} bytes")
+                }
+                EditorError::Binary => f.write_str("This is a binary file and cannot be edited"),
+                EditorError::UnsupportedEncoding => f.write_str("Could not recognise this file's encoding"),
+                EditorError::NotAFile => f.write_str("This is not a regular file"),
+                EditorError::ReadOnly => f.write_str("The file is read-only"),
+                EditorError::NoPath => f.write_str("The file has no name yet; use \"Save As\" first"),
+                EditorError::ModifiedOnDisk => {
+                    f.write_str("Another program changed the file on disk; saving will overwrite those changes")
+                }
+                EditorError::PermissionDenied => f.write_str("No permission to write this file"),
+                EditorError::Unrepresentable { line, col } => write!(
+                    f,
+                    "The character at line {}, column {} cannot be saved in the file's original encoding",
+                    line + 1,
+                    col + 1
+                ),
+                EditorError::Io(e) => write!(f, "Could not read or write the file: {e}"),
+            };
+        }
         match self {
             EditorError::TooLarge { size, limit } => write!(f, "文件太大（{size} 字节），超过编辑上限 {limit} 字节"),
             EditorError::Binary => f.write_str("这是二进制文件，不能编辑"),
@@ -78,5 +101,26 @@ mod tests {
             "第 1 行第 5 列的字符无法用文件原来的编码保存"
         );
         assert!(EditorError::TooLarge { size: 9, limit: 3 }.to_string().contains("超过编辑上限 3"));
+    }
+
+    #[test]
+    fn messages_in_english() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let all = [
+            EditorError::TooLarge { size: 9, limit: 3 },
+            EditorError::Binary,
+            EditorError::UnsupportedEncoding,
+            EditorError::NotAFile,
+            EditorError::ReadOnly,
+            EditorError::NoPath,
+            EditorError::ModifiedOnDisk,
+            EditorError::PermissionDenied,
+            EditorError::Unrepresentable { line: 0, col: 4 },
+            EditorError::Io(io::Error::other("disk full")),
+        ];
+        let english: Vec<String> = with_language(Language::English, || all.iter().map(ToString::to_string).collect());
+        assert!(english.iter().all(|s| !has_chinese(s)), "{english:?}");
+        assert_eq!(english[8], "The character at line 1, column 5 cannot be saved in the file's original encoding");
+        assert_eq!(all[1].to_string(), "这是二进制文件，不能编辑");
     }
 }

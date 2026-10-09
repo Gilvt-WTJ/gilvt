@@ -479,3 +479,9 @@ fn with_summaries_fills_rows() {
     assert_eq!(rows.iter().find(|r| r.name == "task a").unwrap().summary.as_deref(), Some("近期 a"));
     assert_eq!(rows.iter().find(|r| r.name == "task b").unwrap().summary, None);
 }
+
+#[test]
+fn window_label_follows_the_language() {
+    assert_eq!(window_label(2), "窗口 2");
+    assert_eq!(crate::i18n::with_language(crate::i18n::Language::English, || window_label(2)), "Window 2");
+}

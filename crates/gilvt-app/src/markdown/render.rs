@@ -533,10 +533,16 @@ impl Builder<'_> {
                 let mut frame = div().w_full().max_w(px(*width));
                 frame.style().aspect_ratio = Some(width / height);
                 let (alt, shown) = (alt.to_string(), path.display().to_string());
-                let fallback = move || placeholder(border, muted, text, size, &alt, &format!("无法显示图片 · {shown}"));
+                let fallback = move || {
+                    let detail = format!("{} · {shown}", crate::i18n::text("无法显示图片", "Could not show image"));
+                    placeholder(border, muted, text, size, &alt, &detail)
+                };
                 frame.child(img(path.clone()).size_full().object_fit(ObjectFit::Contain).with_fallback(fallback)).into_any_element()
             }
-            Some(Image::Remote(url)) => placeholder(border, muted, text, size, alt, &format!("远程图片未加载 · {url}")),
+            Some(Image::Remote(url)) => {
+                let detail = format!("{} · {url}", crate::i18n::text("远程图片未加载", "Remote image not loaded"));
+                placeholder(border, muted, text, size, alt, &detail)
+            }
             Some(Image::Unavailable { path, reason }) => placeholder(border, muted, text, size, alt, &format!("{reason} · {path}")),
             None => placeholder(border, muted, text, size, alt, src),
         }
@@ -561,7 +567,7 @@ impl Builder<'_> {
         let s = self.s();
         let c = &s.colors;
         let open = self.r.expanded.contains(&index);
-        let label = format!("− 已删除 {} 行 · {}", d.lines.len(), if open { "点击收起" } else { "点击展开" });
+        let label = deleted_label(d.lines.len(), open);
         let view = self.r.view.clone();
         let mut el = div()
             .id(("md-deleted", index))
@@ -586,9 +592,18 @@ impl Builder<'_> {
     }
 }
 
+/// The bar of a deleted block: how many lines, and what a click does.
+fn deleted_label(lines: usize, open: bool) -> String {
+    if crate::i18n::english() {
+        format!("− Deleted {} · {}", crate::i18n::count(lines, "line", "lines"), if open { "click to collapse" } else { "click to expand" })
+    } else {
+        format!("− 已删除 {lines} 行 · {}", if open { "点击收起" } else { "点击展开" })
+    }
+}
+
 /// Box standing in for an image that cannot be drawn.
 fn placeholder(border: Hsla, muted: Hsla, text: Hsla, size: Pixels, alt: &str, detail: &str) -> AnyElement {
-    let alt = if alt.is_empty() { "图片".to_string() } else { alt.to_string() };
+    let alt = if alt.is_empty() { crate::i18n::text("图片", "Image").to_string() } else { alt.to_string() };
     div()
         .flex()
         .flex_col()
@@ -602,4 +617,14 @@ fn placeholder(border: Hsla, muted: Hsla, text: Hsla, size: Pixels, alt: &str, d
         .child(div().text_color(text).child(format!("🖼 {alt}")))
         .child(div().text_color(muted).child(detail.to_string()))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_deleted_label_follows_the_language() {
+        assert_eq!(super::deleted_label(3, false), "− 已删除 3 行 · 点击展开");
+        let english = crate::i18n::with_language(crate::i18n::Language::English, || super::deleted_label(3, true));
+        assert_eq!(english, "− Deleted 3 lines · click to collapse");
+    }
 }

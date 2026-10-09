@@ -88,8 +88,8 @@ fn empty(k: &Colors) -> AnyElement {
 
 fn cards(ws: &Workspace, summary: &Summary, k: &Colors, cx: &mut Context<Workspace>) -> AnyElement {
     let title = match summary.agent {
-        gilvt_agent::AgentKind::Claude => "Claude Code 配置",
-        gilvt_agent::AgentKind::Codex => "Codex 配置",
+        gilvt_agent::AgentKind::Claude => crate::i18n::text("Claude Code 配置", "Claude Code configuration"),
+        gilvt_agent::AgentKind::Codex => crate::i18n::text("Codex 配置", "Codex configuration"),
     };
     let open = &ws.inspector().config.disclosure;
     // Drawing-order index of the expandable rows, for the debug rects.

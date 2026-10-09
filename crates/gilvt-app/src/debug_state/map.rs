@@ -206,7 +206,7 @@ pub fn sidebar<'a>(
     };
     let trash_confirm = trash.map(|keys| TrashConfirm {
         sessions: keys.iter().map(session_id).collect(),
-        buttons: buttons(&CONFIRM_BUTTONS, RectId::SidebarTrashButton, rect),
+        buttons: buttons(&confirm_buttons(), RectId::SidebarTrashButton, rect),
     });
     let Some(m) = model else {
         return Sidebar {
@@ -310,6 +310,11 @@ pub fn menu<'a>(
 
 /// The buttons of both trash confirm bars (the sidebar's and the 会话 palette's), in drawing order.
 pub const CONFIRM_BUTTONS: [&str; 2] = ["取消", "移到废纸篓"];
+
+/// [`CONFIRM_BUTTONS`] in the interface language, as the bars draw them.
+pub fn confirm_buttons() -> [&'static str; 2] {
+    [crate::i18n::text(CONFIRM_BUTTONS[0], "Cancel"), crate::i18n::text(CONFIRM_BUTTONS[1], "Move to Trash")]
+}
 
 /// Buttons from their labels in drawing order; `id` names button n's rect.
 pub fn buttons(labels: &[&str], id: fn(usize) -> RectId, rect: &dyn Fn(RectId) -> Option<Rect4>) -> Vec<Button> {

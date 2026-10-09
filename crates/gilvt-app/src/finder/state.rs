@@ -123,10 +123,11 @@ pub fn awaiting_first_hits(shown: u64, listed: u64) -> bool {
 /// Banner for a selected file that cannot be acted on: gone since it was listed, or not a regular
 /// file (e.g. a listed symlink to a directory).
 pub fn unusable_banner(rel: &str, path: &Path) -> Option<String> {
+    let english = crate::i18n::english();
     if !path.exists() {
-        Some(format!("找不到 {rel}"))
+        Some(if english { format!("Could not find {rel}") } else { format!("找不到 {rel}") })
     } else if !path.is_file() {
-        Some(format!("{rel} 不是文件"))
+        Some(if english { format!("{rel} is not a file") } else { format!("{rel} 不是文件") })
     } else {
         None
     }
@@ -320,6 +321,10 @@ mod tests {
         assert_eq!(unusable_banner("to-dir", &d.join("to-dir")).as_deref(), Some("to-dir 不是文件"));
         assert_eq!(unusable_banner("broken", &d.join("broken")).as_deref(), Some("找不到 broken"));
         assert_eq!(unusable_banner("gone.rs", &d.join("gone.rs")).as_deref(), Some("找不到 gone.rs"));
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            assert_eq!(unusable_banner("to-dir", &d.join("to-dir")).as_deref(), Some("to-dir is not a file"));
+            assert_eq!(unusable_banner("gone.rs", &d.join("gone.rs")).as_deref(), Some("Could not find gone.rs"));
+        });
     }
 
     #[test]

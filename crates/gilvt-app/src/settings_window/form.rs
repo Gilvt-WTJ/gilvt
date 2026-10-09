@@ -398,11 +398,17 @@ fn short_program(program: &str) -> &str {
 
 /// The reason and what to do about it (S2 §7).
 pub fn advice(program: &str, e: &ProviderError) -> String {
+    let english = crate::i18n::english();
     match e {
+        ProviderError::NotFound { .. } if english => format!("{program} not found; set the CLI path in Settings"),
         ProviderError::NotFound { .. } => format!("未找到 {program}，请在设置里指定 CLI 路径"),
         ProviderError::Auth(_) => {
             let p = short_program(program);
-            format!("{p} 认证失败（请在终端运行 {p} 登录）")
+            if english {
+                format!("{p} authentication failed (run {p} in a terminal to log in)")
+            } else {
+                format!("{p} 认证失败（请在终端运行 {p} 登录）")
+            }
         }
         other => other.message(),
     }
@@ -411,6 +417,9 @@ pub fn advice(program: &str, e: &ProviderError) -> String {
 /// Why a 「其他…」 name was not taken.
 pub fn trial_failure(program: &str, e: &ProviderError) -> String {
     match e {
+        ProviderError::Exited { .. } | ProviderError::Protocol(_) if crate::i18n::english() => {
+            format!("The model does not exist or you cannot use it ({})", e.message())
+        }
         ProviderError::Exited { .. } | ProviderError::Protocol(_) => format!("模型不存在或无权使用（{}）", e.message()),
         other => advice(program, other),
     }
@@ -431,9 +440,20 @@ pub fn trial_outcome(field: FieldId, name: &str, started: MonitorProvider, now: 
 pub fn test_line(program: &str, version: &Result<String, ProviderError>, summary: &Result<Duration, ProviderError>, chat: &super::probe::ChatTest) -> (bool, String) {
     use super::probe::ChatTest;
     let base = match (version, summary) {
+        (Ok(v), Ok(d)) if crate::i18n::english() => {
+            format!("✓ {} {v} · Authenticated · Summary {:.1}s", short_program(program), d.as_secs_f32())
+        }
         (Ok(v), Ok(d)) => format!("✓ {} {v} · 认证正常 · 总结 {:.1}s", short_program(program), d.as_secs_f32()),
         (Err(e), _) | (Ok(_), Err(e)) => return (false, format!("✗ {}", advice(program, e))),
     };
+    if crate::i18n::english() {
+        return match chat {
+            ChatTest::Skipped(why) => (true, format!("{base} · Chat not tested ({why})")),
+            ChatTest::Done(Ok(d)) => (true, format!("{base} · Chat {:.1}s (list_sessions ✓)", d.as_secs_f32())),
+            ChatTest::Done(Err(ProviderError::Unsupported(m))) => (false, format!("✗ Chat: {m}")),
+            ChatTest::Done(Err(e)) => (false, format!("✗ Chat: {}", advice(program, e))),
+        };
+    }
     match chat {
         ChatTest::Skipped(why) => (true, format!("{base} · 对话未测试（{why}）")),
         ChatTest::Done(Ok(d)) => (true, format!("{base} · 对话 {:.1}s（list_sessions ✓）", d.as_secs_f32())),
@@ -586,5 +606,34 @@ mod tests {
         assert_eq!(text, "✗ 未找到 claude，请在设置里指定 CLI 路径");
         let (_, text) = test_line("codex", &Ok("0.160.0".into()), &Err(ProviderError::Auth("401".into())), &ChatTest::Skipped("x".into()));
         assert_eq!(text, "✗ codex 认证失败（请在终端运行 codex 登录）");
+    }
+
+    #[test]
+    fn test_line_texts_in_english() {
+        use super::super::probe::ChatTest;
+        use crate::i18n::{has_chinese, with_language, Language};
+        let v = Ok("2.1.291".to_string());
+        let s = Ok(Duration::from_millis(3200));
+        let not_found = || ProviderError::NotFound { program: "claude".into() };
+        let lines = with_language(Language::English, || {
+            let exited = ProviderError::Exited { code: Some(1), stderr_tail: "bad model".into() };
+            let TrialOutcome::Rejected(trial) = trial_outcome(FieldId::Model, "x", MonitorProvider::Codex, MonitorProvider::Codex, "codex", Err(exited)) else { panic!() };
+            [
+                test_line("/opt/bin/claude", &v, &s, &ChatTest::Done(Ok(Duration::from_millis(8400)))).1,
+                test_line("claude", &v, &s, &ChatTest::Skipped(crate::monitor::tools::disabled().into())).1,
+                test_line("codex", &Ok("0.160.0".into()), &s, &ChatTest::Done(Err(ProviderError::Protocol("x".into())))).1,
+                test_line("claude", &Err(not_found()), &Err(not_found()), &ChatTest::Skipped("x".into())).1,
+                test_line("codex", &Ok("0.160.0".into()), &Err(ProviderError::Auth("401".into())), &ChatTest::Skipped("x".into())).1,
+                trial,
+                super::super::view::probe_lost().to_string(),
+            ]
+        });
+        assert_eq!(lines[0], "✓ claude 2.1.291 · Authenticated · Summary 3.2s · Chat 8.4s (list_sessions ✓)");
+        assert_eq!(lines[3], "✗ claude not found; set the CLI path in Settings");
+        assert_eq!(lines[4], "✗ codex authentication failed (run codex in a terminal to log in)");
+        assert_eq!(lines[5], "The model does not exist or you cannot use it (Exit code 1: bad model)");
+        for line in &lines {
+            assert!(!has_chinese(line), "{line}");
+        }
     }
 }

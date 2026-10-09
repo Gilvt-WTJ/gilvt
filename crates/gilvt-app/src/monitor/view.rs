@@ -157,10 +157,13 @@ pub(crate) fn card_lines(c: &Card) -> (String, String, String) {
                     if crate::i18n::current() == crate::i18n::Language::English {
                         if e.starts_with("took") {
                             e.clone()
+                        } else if let Some(rest) = e.strip_prefix("用时") {
+                            // Built before a switch to English.
+                            format!("took{rest}")
                         } else {
                             format!("This turn {e}")
                         }
-                    } else if e.starts_with("用时") {
+                    } else if e.starts_with("用时") || e.starts_with("took") {
                         e.clone()
                     } else {
                         format!("本轮 {e}")
@@ -450,7 +453,7 @@ fn agent_body(el: Stateful<Div>, a: &AgentCard, (title, status, meta): (String, 
         d.child(div().h(px(4.)).w_full().rounded_sm().bg(k.track).child(div().h_full().rounded_sm().bg(k.blue).w(relative(ratio))))
     })
     .when(!bottom.is_empty(), |d| d.child(div().text_color(k.faint).text_size(px(11.)).child(bottom.join(" · "))))
-    .when(!a.quote.is_empty(), |d| d.child(div().text_color(k.faint).italic().truncate().child(SharedString::from(format!("「{}」", a.quote)))))
+    .when(!a.quote.is_empty(), |d| d.child(div().text_color(k.faint).italic().truncate().child(SharedString::from(quoted(&a.quote)))))
 }
 
 fn terminal_body(el: Stateful<Div>, t: &TerminalCard, (title, status, error): (String, String, String), n: usize, key: String, k: &Colors, cx: &mut Context<Workspace>) -> Stateful<Div> {
@@ -535,9 +538,19 @@ fn summary_block(s: &SummaryLine, n: usize, key: String, k: &Colors, cx: &mut Co
         .into_any_element()
 }
 
+/// 「quote」, or "quote" in English.
+fn quoted(s: &str) -> String {
+    if crate::i18n::english() {
+        format!("\"{s}\"")
+    } else {
+        format!("「{s}」")
+    }
+}
+
 /// 「✗ make test · exit 2 · 3 分钟前」; `last` adds 最后一条：.
 pub(crate) fn block_text(b: &BlockLine, last: bool) -> String {
-    let mut parts = vec![format!("{}{} {}", if last { "最后一条：" } else { "" }, b.mark.glyph(), b.command)];
+    let last = if last { crate::i18n::text("最后一条：", "Last: ") } else { "" };
+    let mut parts = vec![format!("{last}{} {}", b.mark.glyph(), b.command)];
     if let Some(code) = b.exit {
         parts.push(format!("exit {code}"));
     }
@@ -549,7 +562,7 @@ pub(crate) fn block_text(b: &BlockLine, last: bool) -> String {
 }
 
 pub(crate) fn turn_text(l: &TurnLine) -> String {
-    let mut parts = vec![format!("T{} 「{}」 {}", l.turn, l.prompt, l.mark.glyph())];
+    let mut parts = vec![format!("T{} {} {}", l.turn, quoted(&l.prompt), l.mark.glyph())];
     if let Some(took) = &l.took {
         parts.push(took.clone());
     }
@@ -557,6 +570,7 @@ pub(crate) fn turn_text(l: &TurnLine) -> String {
         parts.push(match (ch.added, ch.removed) {
             (Some(added), Some(removed)) => format!("+{added} −{removed}"),
             // Not the task's net yet: no line counts to show.
+            _ if crate::i18n::english() => format!("{} files", ch.files),
             _ => format!("{} 文件", ch.files),
         });
     }

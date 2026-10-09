@@ -19,7 +19,7 @@ use gilvt_theme::UiColors;
 use super::chat::{self, ChatView};
 use super::chat_input::{Candidate, ChatInput, Draft};
 use super::chat_md::{self, LineKind};
-use super::chat_model::{Outgoing, Role, Status, QUICK};
+use super::chat_model::{Outgoing, Role, Status};
 use super::model::MonitorModel;
 use super::MonitorPane;
 use crate::debug_state::rects::{self, Rect4, RectId};
@@ -88,15 +88,10 @@ pub fn debug_chat(view: &ChatView, mode: PanelMode, draft: &Draft, matches: &[Ca
         unread: view.unread,
         scope: draft.chips().iter().map(|(k, _)| k.clone()).collect(),
         messages,
-        quick: QUICK
+        quick: super::chat_model::quick()
             .iter()
             .enumerate()
             .map(|(i, (label, _))| {
-                let label = match i {
-                    0 => crate::i18n::text(label, "✦ Generate Standup Brief"),
-                    1 => crate::i18n::text(label, "What needs me?"),
-                    _ => crate::i18n::text(label, "What failed?"),
-                };
                 ds::ChatQuick {
                     label: label.to_string(),
                     rect: rect(RectId::ChatQuick(i)),
@@ -440,7 +435,10 @@ fn messages(view: &ChatView, pane: PaneId, wall: &MonitorModel, base: &Font, k: 
 /// grey line in the chat.
 fn open_log(cx: &mut App) {
     let Some(path) = chat::log_path() else {
-        chat::notice("无法打开日志：找不到 gilvt 的状态目录", cx);
+        chat::notice(
+            crate::i18n::text("无法打开日志：找不到 gilvt 的状态目录", "Could not open the log: gilvt's state folder was not found"),
+            cx,
+        );
         return;
     };
     if let Some(dir) = path.parent() {
@@ -454,6 +452,7 @@ fn open_log(cx: &mut App) {
                 let _ = child.wait();
             });
         }
+        Err(e) if crate::i18n::english() => chat::notice(&format!("Could not open the log: {e}"), cx),
         Err(e) => chat::notice(&format!("无法打开日志：{e}"), cx),
     }
 }
@@ -544,12 +543,7 @@ fn panel(
         .children(messages(view, pane, wall, base, k, cx));
 
     let mut quick = div().flex().flex_wrap().gap_1().px_2();
-    for (i, (label, text)) in QUICK.iter().enumerate() {
-        let label = match i {
-            0 => crate::i18n::text(label, "✦ Generate Standup Brief"),
-            1 => crate::i18n::text(label, "What needs me?"),
-            _ => crate::i18n::text(label, "What failed?"),
-        };
+    for (i, (label, text)) in super::chat_model::quick().into_iter().enumerate() {
         let text = text.to_string();
         quick = quick.child(
             div()

@@ -45,6 +45,7 @@ toml_edit.workspace = true
 gilvt-agent.workspace = true
 gilvt-config.workspace = true
 gilvt-finder.workspace = true
+gilvt-i18n.workspace = true
 gilvt-ipc.workspace = true
 gilvt-markdown.workspace = true
 gilvt-mermaid.workspace = true

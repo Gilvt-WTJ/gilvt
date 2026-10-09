@@ -13,7 +13,7 @@ use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, Font, FocusHan
 use super::chat;
 use super::chat_input::{ChatInput, ChatInputEvent};
 use super::chat_md::{self, LineKind, MdLine};
-use super::chat_model::{Conversation, Message, Role, Status};
+use super::chat_model::{Conversation, ErrorCard, Message, Role, Status};
 use super::chat_view::{self, Colors, LinkStyle};
 use super::model::MonitorModel;
 use crate::debug_state::rects::{self, RectId};
@@ -144,7 +144,20 @@ pub fn last_exchange(messages: &[Message]) -> Option<Exchange> {
 /// 「你：@zsh @web-login 为什么失败？」.
 pub fn question_line(m: &Message) -> String {
     let chips: String = m.chips.iter().map(|(_, label)| format!("@{label} ")).collect();
-    format!("你：{chips}{}", m.text)
+    if crate::i18n::english() {
+        format!("You: {chips}{}", m.text)
+    } else {
+        format!("你：{chips}{}", m.text)
+    }
+}
+
+/// An error card on one line: 「title：text」.
+fn card_line(c: &ErrorCard) -> String {
+    if crate::i18n::english() {
+        format!("{}: {}", c.title, c.text)
+    } else {
+        format!("{}：{}", c.title, c.text)
+    }
 }
 
 /// The popup as plain text (DebugState `popup_text`): the question, then each reply's tool rows and Markdown lines,
@@ -166,7 +179,7 @@ pub fn popup_text(messages: &[Message]) -> String {
             }
             Role::User | Role::Notice => out.push(m.text.clone()),
             Role::Error => out.push(match &m.card {
-                Some(c) => format!("{}：{}", c.title, c.text),
+                Some(c) => card_line(c),
                 None => m.text.clone(),
             }),
         }
@@ -337,7 +350,7 @@ fn reply(m: &Message, n: usize, style: &LinkStyle, base: &Font, weak: &WeakEntit
         Role::Error => div()
             .text_color(k.red)
             .child(match &m.card {
-                Some(c) => format!("{}：{}", c.title, c.text),
+                Some(c) => card_line(c),
                 None => m.text.clone(),
             })
             .into_any_element(),

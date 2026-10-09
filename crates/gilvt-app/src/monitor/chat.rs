@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gilvt_monitor::chat::{self, ChatConfig, ChatEvent, ChatHandle, McpLaunch, CHAT_INSTRUCTIONS};
+use gilvt_monitor::chat::{self, ChatConfig, ChatEvent, ChatHandle, McpLaunch};
 use gilvt_monitor::provider::{ProviderError, ProviderKind};
 use gpui::{App, Global};
 
@@ -260,8 +260,12 @@ pub fn send(out: Outgoing, cx: &mut App) {
 fn switch(c: &mut Chat, out: Outgoing, launch: &Launch) {
     let_go(c);
     let (_, label) = provider_ids(launch.provider);
-    let model = launch.model.clone().unwrap_or_else(|| "CLI 默认".into());
-    c.conv.notice(&format!("已切换到 {label} · {model}"));
+    let model = launch.model.clone().unwrap_or_else(|| crate::i18n::text("CLI 默认", "CLI default").into());
+    c.conv.notice(&if crate::i18n::english() {
+        format!("Switched to {label} · {model}")
+    } else {
+        format!("已切换到 {label} · {model}")
+    });
     c.conv.push_user(&out);
     enqueue(c, out);
 }
@@ -269,14 +273,24 @@ fn switch(c: &mut Chat, out: Outgoing, launch: &Launch) {
 /// What `chat::start` needs; `path` stays None (the login PATH is filled in on the starting thread).
 fn config(m: &MonitorSettings, record: Option<PathBuf>, cx: &App) -> Result<ChatConfig, ErrorCard> {
     let (_, label) = provider_ids(m.provider);
-    let card = |text: &str| ErrorCard { title: format!("无法启动 {label} 对话"), text: text.to_string() };
+    let card = |text: &str| ErrorCard { title: crate::monitor::chat_model::cannot_start_title(label), text: text.to_string() };
     let env = cx.try_global::<ShellEnv>();
     let gilvt = env
         .and_then(|e| e.bin_dir.as_ref())
         .map(|d| d.join("gilvt"))
         .filter(|p| p.is_file())
-        .ok_or_else(|| card("找不到 gilvt 命令行（应在 Gilvt.app 里），监控官没有可用的只读工具。请用完整的 Gilvt.app 运行。"))?;
-    let socket = env.and_then(|e| e.socket.clone()).ok_or_else(|| card("gilvt 的本地通信没有启动（见启动日志），监控官的工具无法连接 gilvt。"))?;
+        .ok_or_else(|| {
+            card(crate::i18n::text(
+                "找不到 gilvt 命令行（应在 Gilvt.app 里），监控官没有可用的只读工具。请用完整的 Gilvt.app 运行。",
+                "Could not find the gilvt CLI (it should be inside Gilvt.app), so the Monitor has no read-only tools. Run the complete Gilvt.app.",
+            ))
+        })?;
+    let socket = env.and_then(|e| e.socket.clone()).ok_or_else(|| {
+        card(crate::i18n::text(
+            "gilvt 的本地通信没有启动（见启动日志），监控官的工具无法连接 gilvt。",
+            "gilvt's local IPC is not running (see the startup log), so the Monitor's tools cannot reach gilvt.",
+        ))
+    })?;
     Ok(ChatConfig {
         kind: match m.provider {
             MonitorProvider::Claude => ProviderKind::Claude,
@@ -286,7 +300,7 @@ fn config(m: &MonitorSettings, record: Option<PathBuf>, cx: &App) -> Result<Chat
         model: m.chat_model().map(String::from),
         run_dir: crate::settings_window::probe::run_dir(),
         path: None,
-        instructions: CHAT_INSTRUCTIONS.to_string(),
+        instructions: chat::chat_instructions(),
         mcp: McpLaunch { gilvt, socket, token: new_token() },
         log: log_path(),
         record,
@@ -322,7 +336,7 @@ fn start_process(launch: Launch, cx: &mut App) {
     // never on the main thread or gpui's executor.
     let rx = crate::settings_window::probe::spawn(move || chat::start(&ChatConfig { path: crate::monitor::summaries::login_path(), ..cfg }));
     cx.spawn(async move |cx| {
-        let result = rx.recv().await.unwrap_or_else(|_| Err(ProviderError::Protocol("对话进程没有启动".into())));
+        let result = rx.recv().await.unwrap_or_else(|_| Err(ProviderError::Protocol(crate::i18n::text("对话进程没有启动", "the chat process did not start").into())));
         let _ = cx.update(|cx| on_started(gen, launch, program, result, cx));
     })
     .detach();
@@ -491,11 +505,17 @@ pub fn tick(cx: &mut App) {
                 }
                 c.timers.interrupted_at = Some(now);
                 c.conv.status = Status::Stopping;
-                c.conv.notice("这一轮 5 分钟没有任何输出，已中断");
+                c.conv.notice(crate::i18n::text(
+                    "这一轮 5 分钟没有任何输出，已中断",
+                    "No output for 5 minutes in this turn; interrupted",
+                ));
             }
             Timeout::InterruptIgnored => {
                 let_go(c);
-                c.conv.notice("中断没有响应，已结束监控官进程");
+                c.conv.notice(crate::i18n::text(
+                    "中断没有响应，已结束监控官进程",
+                    "The interrupt got no response; the Monitor process was ended",
+                ));
             }
             Timeout::Idle => let_go(c),
         }

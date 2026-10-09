@@ -50,11 +50,11 @@ pub fn parse_model_page(resp: &Value) -> Result<(Vec<ModelChoice>, Option<String
         let message = err.get("message").and_then(Value::as_str).unwrap_or("").to_string();
         return Err(match classify(&message, None) {
             auth @ ProviderError::Auth(_) => auth,
-            _ => ProviderError::Protocol(format!("model/list：{message}")),
+            _ => ProviderError::Protocol(format!("model/list{}{message}", gilvt_i18n::text("：", ": "))),
         });
     }
-    let result = resp.get("result").ok_or_else(|| ProviderError::Protocol("model/list 没有 result".into()))?;
-    let data = result.get("data").and_then(Value::as_array).ok_or_else(|| ProviderError::Protocol("model/list 没有 data".into()))?;
+    let result = resp.get("result").ok_or_else(|| ProviderError::Protocol(gilvt_i18n::text("model/list 没有 result", "model/list has no result").into()))?;
+    let data = result.get("data").and_then(Value::as_array).ok_or_else(|| ProviderError::Protocol(gilvt_i18n::text("model/list 没有 data", "model/list has no data").into()))?;
     let models = data
         .iter()
         .filter(|m| !m.get("hidden").and_then(Value::as_bool).unwrap_or(false))
@@ -159,7 +159,11 @@ fn exchange(stdin: &mut impl Write, rx: &mpsc::Receiver<String>, deadline: Insta
             None => return Ok(out),
         }
     }
-    Err(Fail::Err(ProviderError::Protocol(format!("model/list 超过 {MAX_PAGES} 页"))))
+    Err(Fail::Err(ProviderError::Protocol(if gilvt_i18n::english() {
+        format!("model/list has more than {MAX_PAGES} pages")
+    } else {
+        format!("model/list 超过 {MAX_PAGES} 页")
+    })))
 }
 
 fn send(stdin: &mut impl Write, msg: &Value) -> Result<(), Fail> {
@@ -179,7 +183,7 @@ fn recv(rx: &mpsc::Receiver<String>, id: u64, deadline: Instant) -> Result<Value
         let Ok(msg) = serde_json::from_str::<Value>(&line) else {
             bad += 1;
             if bad > MAX_BAD_LINES {
-                return Err(Fail::Err(ProviderError::Protocol("app-server 的输出无法解析".into())));
+                return Err(Fail::Err(ProviderError::Protocol(gilvt_i18n::text("app-server 的输出无法解析", "could not parse app-server's output").into())));
             }
             continue;
         };

@@ -90,3 +90,12 @@ fn an_agent_title_is_one_bounded_line() {
     assert_eq!(cut.chars().count(), 120);
     assert!(cut.ends_with('…'));
 }
+
+#[test]
+fn the_no_prompt_title_follows_the_language() {
+    use gilvt_i18n::{has_chinese, with_language, Language};
+    let english = with_language(Language::English, || pick(None, None, None, "", ""));
+    assert_eq!(english.text, "(no prompt)");
+    assert!(!has_chinese(&english.text));
+    assert_eq!(pick(None, None, None, "", "").text, "（无提示词）");
+}

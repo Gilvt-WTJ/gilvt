@@ -352,7 +352,7 @@ pub(crate) fn status(view: &EditorView, p: &Palette, cx: &mut Context<EditorView
     let hover = hsla(mix(p.background, p.foreground, 0.14));
     for (i, s) in segs.into_iter().enumerate() {
         if i > 0 {
-            row = row.child("｜");
+            row = row.child(crate::i18n::text("｜", " | "));
         }
         row = match i {
             STATUS_ENCODING => row.child(

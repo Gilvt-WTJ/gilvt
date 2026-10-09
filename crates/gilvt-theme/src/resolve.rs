@@ -122,10 +122,10 @@ fn read_user(path: &Path) -> Result<Palette, LoadError> {
     let invalid = |reason: String| LoadError::Invalid { path: path.display().to_string(), reason };
     let meta = fs::metadata(path).map_err(|e| invalid(e.to_string()))?;
     if !meta.is_file() {
-        return Err(invalid("不是文件".into()));
+        return Err(invalid(gilvt_i18n::text("不是文件", "not a file").into()));
     }
     if meta.len() > MAX_USER_THEME {
-        return Err(invalid("文件超过 64 KiB".into()));
+        return Err(invalid(gilvt_i18n::text("文件超过 64 KiB", "the file is larger than 64 KiB").into()));
     }
     let text = fs::read_to_string(path).map_err(|e| invalid(e.to_string()))?;
     parse(&text).map(|s| s.to_palette()).map_err(invalid)
@@ -178,9 +178,16 @@ pub fn resolve(sel: &Selection, ov: &Overrides, system_dark: bool, user_dir: Opt
         Err(e) => {
             let fallback = if slot_dark { GILVT_DARK } else { GILVT_LIGHT };
             let msg = match e {
+                LoadError::NotFound { suggestion } if gilvt_i18n::english() => {
+                    let hint = suggestion.map(|s| format!("; did you mean \"{s}\"?")).unwrap_or_default();
+                    format!("Theme \"{want}\" does not exist; using {fallback} instead{hint}")
+                }
                 LoadError::NotFound { suggestion } => {
                     let hint = suggestion.map(|s| format!("；你是不是想用 \"{s}\"？")).unwrap_or_default();
                     format!("主题 \"{want}\" 不存在，已改用 {fallback}{hint}")
+                }
+                LoadError::Invalid { path, reason } if gilvt_i18n::english() => {
+                    format!("Theme file {path} is invalid ({reason}); using {fallback} instead")
                 }
                 LoadError::Invalid { path, reason } => format!("主题文件 {path} 无效（{reason}），已改用 {fallback}"),
             };
@@ -326,6 +333,11 @@ mod tests {
         assert_eq!((t.name.as_str(), t.source), (GILVT_DARK, Source::Fallback));
         let e = t.error.unwrap();
         assert!(e.contains("\"Catppucin Mocha\" 不存在") && e.contains("gilvt Dark") && e.contains("\"Catppuccin Mocha\""), "{e}");
+        let english = gilvt_i18n::with_language(gilvt_i18n::Language::English, || {
+            resolve(&Selection::Fixed("Catppucin Mocha".into()), &Overrides::default(), true, None).error.unwrap()
+        });
+        assert_eq!(english, "Theme \"Catppucin Mocha\" does not exist; using gilvt Dark instead; did you mean \"Catppuccin Mocha\"?");
+        assert!(!gilvt_i18n::has_chinese(&english));
         let pair = Selection::Pair { light: "nope".into(), dark: GILVT_DARK.into() };
         assert_eq!(resolve(&pair, &Overrides::default(), false, None).name, GILVT_LIGHT, "the slot's darkness picks the fallback");
     }

@@ -97,7 +97,7 @@ fn main() {
         cx.set_global(theme_state);
         // A missing or invalid theme is reported with the config's own errors.
         let error = error.into_iter().chain(cx.global::<theme::ThemeState>().errors()).collect::<Vec<_>>();
-        let error = if error.is_empty() { None } else { Some(error.join("；")) };
+        let error = if error.is_empty() { None } else { Some(error.join(i18n::text("；", "; "))) };
         if let Some(e) = &error {
             eprintln!("gilvt: {e}");
         }

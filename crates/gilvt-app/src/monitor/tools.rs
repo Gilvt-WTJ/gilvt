@@ -24,6 +24,11 @@ use crate::theme::AppSettings;
 
 pub const BAD_TOKEN: &str = "token 无效：只有 gilvt 自己启动的监控官进程可以调用这些工具";
 pub const DISABLED: &str = "监控官未开启";
+
+/// [`DISABLED`] in the interface language, for gilvt's own UI (the model is told [`DISABLED`]).
+pub fn disabled() -> &'static str {
+    crate::i18n::text(DISABLED, "Monitor is off")
+}
 /// Turns summarized by `get_session` (the newest).
 const BRIEF_TURNS: usize = 20;
 
@@ -161,7 +166,7 @@ fn summary_info(w: &WallCard) -> Option<SummaryInfo> {
     let s = w.card.summary().filter(|s| matches!(s.state, "ready" | "stale" | "pending"))?;
     let recent = s.recent.clone()?;
     let fields: Vec<&str> = s.header.split(" · ").skip(1).collect();
-    let age = fields.iter().find_map(|f| f.strip_prefix("上次 ")).or(fields.first().copied()).unwrap_or("").to_string();
+    let age = fields.iter().find_map(|f| f.strip_prefix("上次 ").or_else(|| f.strip_prefix("previous "))).or(fields.first().copied()).unwrap_or("").to_string();
     Some(SummaryInfo { goal: s.goal.clone(), recent, age })
 }
 

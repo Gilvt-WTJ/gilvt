@@ -368,10 +368,7 @@ impl FinderView {
             );
         if self.query.is_empty() && self.marked.is_none() {
             let name = self.root.as_ref().and_then(|r| r.dir.file_name()).map(|n| n.to_string_lossy().into_owned());
-            let placeholder = match name {
-                Some(name) => format!("在 {name} 中搜索文件"),
-                None => "搜索文件".to_string(),
-            };
+            let placeholder = placeholder(name.as_deref());
             row.child(caret.mr(px(4.))).child(div().text_color(muted).child(placeholder))
         } else {
             row.child(self.query.clone()).children(self.marked.clone().map(|m| div().underline().child(m))).child(caret)
@@ -381,14 +378,52 @@ impl FinderView {
     /// Shown instead of the list: loading (the listing, or its first ranking), not listed, nothing
     /// listed, nothing matched.
     fn message(&self) -> Option<&'static str> {
+        let t = crate::i18n::text;
         match &self.listing {
-            None => Some("正在列出文件…"),
-            Some(_) if self.hits.is_empty() && awaiting_first_hits(self.shown, self.listed) => Some("正在列出文件…"),
-            Some(l) if l.skipped => Some("主目录和根目录不搜索，请先 cd 到项目目录"),
-            Some(l) if l.files.is_empty() => Some("没有文件"),
-            Some(_) if self.hits.is_empty() => Some("无匹配"),
+            None => Some(t("正在列出文件…", "Listing files…")),
+            Some(_) if self.hits.is_empty() && awaiting_first_hits(self.shown, self.listed) => {
+                Some(t("正在列出文件…", "Listing files…"))
+            }
+            Some(l) if l.skipped => Some(t(
+                "主目录和根目录不搜索，请先 cd 到项目目录",
+                "The home and root directories are not searched; cd to a project directory first",
+            )),
+            Some(l) if l.files.is_empty() => Some(t("没有文件", "No files")),
+            Some(_) if self.hits.is_empty() => Some(t("无匹配", "No matches")),
             Some(_) => None,
         }
+    }
+}
+
+/// The query box's placeholder: the directory searched, when there is one.
+fn placeholder(dir: Option<&str>) -> String {
+    match (dir, crate::i18n::english()) {
+        (Some(name), false) => format!("在 {name} 中搜索文件"),
+        (Some(name), true) => format!("Search files in {name}"),
+        (None, _) => crate::i18n::text("搜索文件", "Search files").to_string(),
+    }
+}
+
+/// The footer note when the listing stopped at `MAX_FILES`.
+fn truncated_note() -> String {
+    if crate::i18n::english() {
+        format!("Too many files; only the first {MAX_FILES} were searched")
+    } else {
+        format!("文件过多，只搜索了前 {MAX_FILES} 个")
+    }
+}
+
+#[cfg(test)]
+mod text_tests {
+    #[test]
+    fn placeholder_and_notes_follow_the_language() {
+        assert_eq!(super::placeholder(Some("gilvt")), "在 gilvt 中搜索文件");
+        assert_eq!(super::placeholder(None), "搜索文件");
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            assert_eq!(super::placeholder(Some("gilvt")), "Search files in gilvt");
+            assert_eq!(super::placeholder(None), "Search files");
+            assert!(!crate::i18n::has_chinese(&super::truncated_note()));
+        });
     }
 }
 
@@ -458,7 +493,7 @@ impl Render for FinderView {
         };
         let warn = crate::theme::hsla(crate::theme::current(cx).ui.attention.fg);
         let truncated = self.listing.as_ref().is_some_and(|l| l.truncated).then(|| {
-            div().text_color(warn).child(format!("文件过多，只搜索了前 {MAX_FILES} 个"))
+            div().text_color(warn).child(truncated_note())
         });
         let banner = self.banner.clone().map(|text| {
             div().flex_none().px_3().py_1().text_size(px(12.)).bg(hsla(mix(p.background, p.ansi[1], 0.25))).child(text)

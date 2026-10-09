@@ -23,18 +23,42 @@ pub struct ArchiveReport {
 impl ArchiveReport {
     /// The banner for the action: None when there was nothing to say (nothing was given).
     pub fn toast(&self) -> Option<String> {
+        let english = crate::i18n::english();
         if let Some(err) = &self.failed {
-            return Some(format!("无法保存：{err}"));
+            return Some(save_failed(err));
         }
         if self.archived == 0 {
-            return (self.skipped_running > 0).then(|| "运行中的会话不能归档".to_string());
+            return (self.skipped_running > 0).then(|| running_not_archived().to_string());
         }
-        let mut text = format!("已归档 {} 个会话", self.archived);
+        let mut text = if english {
+            format!("Archived {}", crate::i18n::count(self.archived, "session", "sessions"))
+        } else {
+            format!("已归档 {} 个会话", self.archived)
+        };
         if self.skipped_running > 0 {
-            text.push_str(&format!("，跳过 {} 个运行中的", self.skipped_running));
+            text.push_str(&if english {
+                format!(", skipped {} running", self.skipped_running)
+            } else {
+                format!("，跳过 {} 个运行中的", self.skipped_running)
+            });
         }
         Some(text)
     }
+}
+
+/// The banner when an archive state could not be saved.
+pub fn save_failed(err: impl std::fmt::Display) -> String {
+    if crate::i18n::english() { format!("Could not save: {err}") } else { format!("无法保存：{err}") }
+}
+
+/// The banner when every target is running.
+pub fn running_not_archived() -> &'static str {
+    crate::i18n::text("运行中的会话不能归档", "Running sessions cannot be archived")
+}
+
+/// Why nothing could be saved: no state directory.
+pub fn state_dir_unavailable() -> &'static str {
+    crate::i18n::text("状态目录不可用", "State directory unavailable")
 }
 
 /// The pure part: running sessions are skipped, every other one is handed to `save`.
@@ -61,7 +85,7 @@ pub fn archive_with(
 pub fn archive_sessions(entries: &[HistoryEntry], cx: &mut App) -> ArchiveReport {
     if !cx.has_global::<ReviewService>() {
         return ArchiveReport {
-            failed: Some("状态目录不可用".into()),
+            failed: Some(state_dir_unavailable().into()),
             ..ArchiveReport::default()
         };
     }
@@ -97,6 +121,17 @@ mod tests {
     use super::*;
     use gilvt_agent::AgentKind;
     use std::path::PathBuf;
+
+    #[test]
+    fn toasts_read_in_english() {
+        let report = |archived, skipped_running, failed: Option<&str>| ArchiveReport { archived, skipped_running, failed: failed.map(Into::into) };
+        assert_eq!(report(2, 1, None).toast().as_deref(), Some("已归档 2 个会话，跳过 1 个运行中的"));
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            assert_eq!(report(2, 1, None).toast().as_deref(), Some("Archived 2 sessions, skipped 1 running"));
+            assert_eq!(report(0, 1, None).toast().as_deref(), Some("Running sessions cannot be archived"));
+            assert_eq!(report(0, 0, Some(state_dir_unavailable())).toast().as_deref(), Some("Could not save: State directory unavailable"));
+        });
+    }
 
     fn entry(id: &str) -> HistoryEntry {
         HistoryEntry {

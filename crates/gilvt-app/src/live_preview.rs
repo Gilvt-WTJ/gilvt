@@ -10,7 +10,9 @@ use gilvt_viewer::Preview;
 
 /// Quiet time after the last keystroke before the preview is rebuilt.
 pub const DEBOUNCE_MS: u64 = 200;
-pub const TOO_LARGE_BANNER: &str = "文件太大，未实时预览 · 保存后更新";
+pub fn too_large_banner() -> &'static str {
+    crate::i18n::text("文件太大，未实时预览 · 保存后更新", "File too large for live preview · updates on save")
+}
 /// The editor's highlight limits (`editor::model`): past them the preview only follows saves.
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_LINES: usize = 50_000;

@@ -8,8 +8,8 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use gilvt_monitor::chat::{self, ChatConfig, McpLaunch, CHAT_INSTRUCTIONS};
-use gilvt_monitor::input::TERMINAL_INSTRUCTIONS;
+use gilvt_monitor::chat::{self, ChatConfig, McpLaunch};
+use gilvt_monitor::input::terminal_instructions;
 use gilvt_monitor::provider::models::{self, ModelChoice};
 use gilvt_monitor::provider::{self, OneShot, ProviderConfig, ProviderError, ProviderKind};
 
@@ -51,7 +51,7 @@ fn with_login_path(cfg: &ProviderConfig) -> ProviderConfig {
 /// One summary with `cfg` (its model is the one being tried).
 pub fn trial(cfg: &ProviderConfig) -> Result<(), ProviderError> {
     let cfg = with_login_path(cfg);
-    let req = OneShot { instructions: TERMINAL_INSTRUCTIONS.to_string(), prompt: TRIAL_PROMPT.to_string() };
+    let req = OneShot { instructions: terminal_instructions(), prompt: TRIAL_PROMPT.to_string() };
     provider::summarize(&cfg, &req, TRIAL_TIMEOUT).map(|_| ())
 }
 
@@ -92,7 +92,7 @@ pub fn test_connection(cfg: &ProviderConfig, chat: Result<ChatProbe, String>) ->
         }
     };
     let chat = match (missing, chat) {
-        (true, _) => ChatTest::Skipped("没有找到 CLI".into()),
+        (true, _) => ChatTest::Skipped(crate::i18n::text("没有找到 CLI", "CLI not found").into()),
         (false, Err(why)) => ChatTest::Skipped(why),
         (false, Ok(p)) => {
             let chat_cfg = ChatConfig {
@@ -101,7 +101,7 @@ pub fn test_connection(cfg: &ProviderConfig, chat: Result<ChatProbe, String>) ->
                 model: p.model,
                 run_dir: cfg.run_dir.clone(),
                 path: login.path.clone(),
-                instructions: CHAT_INSTRUCTIONS.to_string(),
+                instructions: chat::chat_instructions(),
                 mcp: p.mcp,
                 log: crate::monitor::chat::log_path(),
                 record: None,

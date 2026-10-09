@@ -691,7 +691,8 @@ fn render_card(
         card = card.child(div().text_size(px(11.)).text_color(k.muted).child(n.text()));
     }
     if !c.quote.is_empty() {
-        card = card.child(div().mt(px(3.)).text_size(px(11.)).text_color(k.meta).child(format!("「{}」", c.quote)));
+        let quote = if crate::i18n::english() { format!("\u{201c}{}\u{201d}", c.quote) } else { format!("「{}」", c.quote) };
+        card = card.child(div().mt(px(3.)).text_size(px(11.)).text_color(k.meta).child(quote));
     }
     card.into_any_element()
 }

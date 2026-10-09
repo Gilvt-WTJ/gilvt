@@ -47,10 +47,11 @@ impl DiffBase {
     /// Label for the UI, e.g. "与 HEAD 相比".
     pub fn label(&self) -> String {
         match self {
-            DiffBase::Head => "与 HEAD 相比".into(),
+            DiffBase::Head => gilvt_i18n::text("与 HEAD 相比", "vs HEAD").into(),
+            DiffBase::Rev(r) if gilvt_i18n::english() => format!("vs {r}"),
             DiffBase::Rev(r) => format!("与 {r} 相比"),
             DiffBase::Turn(r) => r.label.clone(),
-            DiffBase::None => "仅文件".into(),
+            DiffBase::None => gilvt_i18n::text("仅文件", "File only").into(),
         }
     }
 }
@@ -130,11 +131,14 @@ impl Preview {
         });
         let rel = canon_path
             .strip_prefix(&canon_root)
-            .map_err(|_| io::Error::other(format!("{}: 不在这个仓库里", path.display())))?
+            .map_err(|_| {
+                let why = gilvt_i18n::text("不在这个仓库里", "not in this repository");
+                io::Error::other(format!("{}: {why}", path.display()))
+            })?
             .to_string_lossy()
             .into_owned();
         let gone = |e: SnapshotError| match e {
-            SnapshotError::Missing => io::Error::other("快照已清理"),
+            SnapshotError::Missing => io::Error::other(gilvt_i18n::text("快照已清理", "Snapshot was cleaned up")),
             other => io::Error::other(other.to_string()),
         };
         let old = range.store.blob_at(&range.before, &rel).map_err(gone)?;
@@ -206,6 +210,15 @@ mod tests {
         let p = Preview::from_content("a\nb\n".into(), Some("txt".into()));
         assert_eq!(p.diff.unwrap().lines.len(), 2);
         assert_eq!(DiffBase::Rev("main".into()).label(), "与 main 相比");
+    }
+
+    #[test]
+    fn labels_in_english() {
+        use gilvt_i18n::{has_chinese, with_language, Language};
+        let labels = with_language(Language::English, || [DiffBase::Head, DiffBase::Rev("main".into()), DiffBase::None].map(|b| b.label()));
+        assert_eq!(labels, ["vs HEAD", "vs main", "File only"]);
+        assert!(labels.iter().all(|l| !has_chinese(l)));
+        assert_eq!(DiffBase::None.label(), "仅文件");
     }
 
     #[test]
@@ -291,8 +304,12 @@ mod tests {
         let (repo, state) = (testrepo::make(), tempfile::tempdir().unwrap());
         let range = two_snapshots(repo.path(), state.path(), |r| std::fs::write(r.join("a.txt"), "only in the store\n").unwrap());
         gilvt_snapshot::prune(state.path(), std::time::Duration::ZERO).unwrap();
-        let err = Preview::load(&repo.path().join("a.txt"), &DiffBase::Turn(range)).unwrap_err();
+        let err = Preview::load(&repo.path().join("a.txt"), &DiffBase::Turn(range.clone())).unwrap_err();
         assert!(err.to_string().contains("快照已清理"), "{err}");
+        let english = gilvt_i18n::with_language(gilvt_i18n::Language::English, || {
+            Preview::load(&repo.path().join("a.txt"), &DiffBase::Turn(range.clone())).unwrap_err()
+        });
+        assert_eq!(english.to_string(), "Snapshot was cleaned up");
     }
 
     #[test]

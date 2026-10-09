@@ -5,6 +5,7 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+gilvt-i18n.workspace = true
 gilvt-snapshot.workspace = true
 similar.workspace = true
 syntect.workspace = true

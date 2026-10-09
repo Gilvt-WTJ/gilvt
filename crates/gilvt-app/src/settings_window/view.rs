@@ -26,11 +26,16 @@ use crate::theme::{hsla, AppSettings};
 /// A probe thread ended without an answer (it could not start, or died).
 pub const PROBE_LOST: &str = "检查意外中断，请再试一次";
 
+/// [`PROBE_LOST`] in the interface language.
+pub fn probe_lost() -> &'static str {
+    crate::i18n::text(PROBE_LOST, "The check stopped unexpectedly; try again")
+}
+
 /// 「测试连接」's chat half: gilvt's CLI and socket, or why it is not tried. Off: never tried — no token is issued
 /// while the switch promises that no data leaves (a test token must not get round `tools::DISABLED`).
 fn chat_launch(enabled: bool, env: Option<&crate::launch::ShellEnv>) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
     if !enabled {
-        return Err(crate::monitor::tools::DISABLED.to_string());
+        return Err(crate::monitor::tools::disabled().to_string());
     }
     let env = env.ok_or_else(|| {
         crate::i18n::text(
@@ -326,7 +331,7 @@ impl SettingsWindow {
         self.codex = match result {
             Some(Ok(list)) => CodexModels::Ready(list),
             Some(Err(e)) => CodexModels::Failed(form::advice(&program, &e)),
-            None => CodexModels::Failed(PROBE_LOST.into()),
+            None => CodexModels::Failed(probe_lost().into()),
         };
         cx.notify();
     }
@@ -508,7 +513,7 @@ impl SettingsWindow {
             // The CLI path or the field itself changed meanwhile: the answer is about something else.
             Some(_) if now.command != started.command || now.model != started.model => TrialOutcome::Stale,
             Some(r) => form::trial_outcome(field, &name, started.provider, now.provider, &program, r),
-            None => TrialOutcome::Rejected(PROBE_LOST.into()),
+            None => TrialOutcome::Rejected(probe_lost().into()),
         };
         match outcome {
             TrialOutcome::Write(edits) => {
@@ -572,7 +577,7 @@ impl SettingsWindow {
                 .to_string(),
             ),
             Some(r) => form::test_line(&program, &r.version, &r.summary, &r.chat),
-            None => (false, format!("✗ {PROBE_LOST}")),
+            None => (false, format!("✗ {}", probe_lost())),
         };
         self.test = TestState::Done { ok, text };
         cx.notify();

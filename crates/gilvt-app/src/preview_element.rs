@@ -197,8 +197,17 @@ impl Painter<'_> {
         let lh = self.metrics.line_height;
         let bounds = Bounds::new(point(x, y), size(width, lh));
         self.frame.quads.push(fill(bounds, hsla(self.colors.fold)));
-        let label = self.plain(window, format!("    ⋯ {len} 行未改动（点击展开）"), self.colors.muted);
+        let label = self.plain(window, fold_label(len), self.colors.muted);
         self.frame.texts.push((point(x, y), label, Some(bounds)));
+    }
+}
+
+/// A folded run of unchanged lines.
+fn fold_label(len: usize) -> String {
+    if crate::i18n::english() {
+        format!("    ⋯ {} (click to expand)", crate::i18n::count(len, "unchanged line", "unchanged lines"))
+    } else {
+        format!("    ⋯ {len} 行未改动（点击展开）")
     }
 }
 
@@ -376,5 +385,15 @@ impl Element for PreviewElement {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_fold_label_follows_the_language() {
+        assert_eq!(super::fold_label(3), "    ⋯ 3 行未改动（点击展开）");
+        let english = crate::i18n::with_language(crate::i18n::Language::English, || super::fold_label(3));
+        assert_eq!(english, "    ⋯ 3 unchanged lines (click to expand)");
     }
 }

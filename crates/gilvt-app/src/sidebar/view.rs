@@ -193,7 +193,7 @@ pub fn collect<'a>(ws: &'a Workspace, me: AnyWindowHandle, cx: &'a App) -> Colle
             let reachable = found.is_some();
             let location = found
                 .map(|(i, l)| {
-                    let window = (windows > 1).then(|| format!("窗口 {}", i + 1));
+                    let window = (windows > 1).then(|| model::window_label(i + 1));
                     model::location_text(&l.tab_title, l.position, window.as_deref())
                 })
                 .unwrap_or_default();
@@ -218,7 +218,7 @@ pub fn collect<'a>(ws: &'a Workspace, me: AnyWindowHandle, cx: &'a App) -> Colle
         .flat_map(|(i, w)| {
             w.terminal_panes(cx).into_iter().filter(|t| !occupied.contains(&t.pane)).filter_map(move |t| {
                 let loc = w.pane_location(t.pane, cx)?;
-                let window = (windows > 1).then(|| format!("窗口 {}", i + 1));
+                let window = (windows > 1).then(|| model::window_label(i + 1));
                 let dir = t.cwd.as_deref();
                 Some(TerminalItem {
                     pane: t.pane,

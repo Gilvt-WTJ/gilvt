@@ -90,7 +90,7 @@ pub fn run(argv: &[String]) -> ExitCode {
     // From here on the pane is marked remote: every fallback tells the app why, then logs in plainly
     // (through the master when there is one, so the user does not authenticate twice).
     let plain = |reason: &str, ctl: Option<&Path>, hostname: Option<String>| -> ExitCode {
-        eprintln!("gilvt: {reason}，以普通方式登录");
+        if gilvt_i18n::english() { eprintln!("gilvt: {reason}; logging in the plain way") } else { eprintln!("gilvt: {reason}，以普通方式登录") }
         tell(&socket, &Request::RemoteLinked { link: link.clone(), hostname, bridge: None, note: Some(reason.to_string()) });
         let mut v = Vec::new();
         if let Some(c) = ctl {
@@ -103,20 +103,20 @@ pub fn run(argv: &[String]) -> ExitCode {
     // SAFETY: getuid cannot fail.
     let dir = plan::control_dir(std::env::var(ENV_SSH_CONTROL_DIR).ok().as_deref(), unsafe { libc::getuid() });
     if let Err(e) = gilvt_ipc::secure_dir(&dir) {
-        return plain(&format!("控制目录 {} 不安全（{e}）", dir.display()), None, hostname);
+        return plain(&if gilvt_i18n::english() { format!("the control directory {} is not safe ({e})", dir.display()) } else { format!("控制目录 {} 不安全（{e}）", dir.display()) }, None, hostname);
     }
     let ctl = plan::control_path(&dir, &host);
     // Serialize master startup per host across panes; released before probe / upload / exec.
     let lock = master::lock(&ctl);
     if !master::running(&ssh, &ctl, &a.opts, &a.destination) {
         if let Err(e) = master::clear_stale(&ctl, false) {
-            return plain(&format!("无法清理旧的控制套接字 {}（{e}）", ctl.display()), None, hostname);
+            return plain(&if gilvt_i18n::english() { format!("could not remove the stale control socket {} ({e})", ctl.display()) } else { format!("无法清理旧的控制套接字 {}（{e}）", ctl.display()) }, None, hostname);
         }
         match master::start(&ssh, &ctl, &a.opts, &a.destination) {
             // ssh exits 0 even when it could not bind the control socket (e.g. the path is too long):
             // never route the probe, upload, login or bridge through a socket that is not there.
             Ok(0) if !master::running(&ssh, &ctl, &a.opts, &a.destination) => {
-                return plain("无法建立 ssh 复用连接", None, hostname);
+                return plain(gilvt_i18n::text("无法建立 ssh 复用连接", "could not set up the shared ssh connection"), None, hostname);
             }
             Ok(0) => {}
             Ok(code) => {
@@ -157,7 +157,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         None => {
             let out = Command::new(&ssh).args(via(plan::probe_command())).stdin(Stdio::null()).stderr(Stdio::null()).output();
             let Some(p) = out.ok().and_then(|o| String::from_utf8(o.stdout).ok()).and_then(|s| plan::parse_probe(&s)) else {
-                return plain("无法探测远端", Some(&ctl), hostname);
+                return plain(gilvt_i18n::text("无法探测远端", "could not probe the remote host"), Some(&ctl), hostname);
             };
             tell(
                 &socket,
@@ -187,15 +187,15 @@ pub fn run(argv: &[String]) -> ExitCode {
             }
             plan::Answer::Never => {
                 tell(&socket, &record(&host, Some("never"), None, None, None));
-                return plain("这台主机设置为不安装远端组件", Some(&ctl), hostname);
+                return plain(plan::never_reason(), Some(&ctl), hostname);
             }
-            plan::Answer::NotNow => return plain("这次不安装远端组件", Some(&ctl), hostname),
+            plan::Answer::NotNow => return plain(gilvt_i18n::text("这次不安装远端组件", "not installing the remote helper this time"), Some(&ctl), hostname),
         },
     };
     // decide() answers Plain whenever there is no bundled build for this arch; this is only belt and braces.
-    let (Some(build_id), Some(rdir)) = (build_id, rdir) else { return plain("这个 gilvt 构建没有包含远端组件", Some(&ctl), hostname) };
+    let (Some(build_id), Some(rdir)) = (build_id, rdir) else { return plain(plan::no_helper_reason(), Some(&ctl), hostname) };
     if let Some(upgrade) = upgrade {
-        eprint!("gilvt: {}", if upgrade { "正在更新远端组件…" } else { "正在安装远端组件…" });
+        eprint!("gilvt: {}", if upgrade { gilvt_i18n::text("正在更新远端组件…", "updating the remote helper…") } else { gilvt_i18n::text("正在安装远端组件…", "installing the remote helper…") });
         let _ = std::io::stderr().flush();
         let ok = std::fs::File::open(bundle::gz(&rdir, narch))
             .ok()
@@ -204,7 +204,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         eprint!("\r\x1b[K");
         let _ = std::io::stderr().flush();
         if !ok {
-            return plain("远端组件上传失败", Some(&ctl), hostname);
+            return plain(gilvt_i18n::text("远端组件上传失败", "uploading the remote helper failed"), Some(&ctl), hostname);
         }
         tell(&socket, &record(&host, None, Some(&build_id), Some(narch), hostname.clone()));
     }
@@ -230,10 +230,17 @@ pub fn run(argv: &[String]) -> ExitCode {
 /// The install question (Global Constraints), asked on the terminal itself.
 fn ask(display: &str) -> plan::Answer {
     let Ok(mut tty) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty") else { return plan::Answer::NotNow };
-    let _ = write!(
-        tty,
-        "gilvt: 要在 {display} 上安装远端组件吗？（~/.gilvt-server，约 4 MB，常驻一个 daemon）\r\n       安装后可在 ssh 里使用 Agent 检测、检查器、⌘P、编辑等功能。\r\n       [Y] 安装  [n] 这次不用  [N] 这台主机永不安装 "
-    );
+    let _ = if gilvt_i18n::english() {
+        write!(
+            tty,
+            "gilvt: Install the remote helper on {display}? (~/.gilvt-server, about 4 MB, keeps one daemon running)\r\n       It brings agent detection, the inspector, ⌘P and editing to ssh panes.\r\n       [Y] Install  [n] Not now  [N] Never on this host "
+        )
+    } else {
+        write!(
+            tty,
+            "gilvt: 要在 {display} 上安装远端组件吗？（~/.gilvt-server，约 4 MB，常驻一个 daemon）\r\n       安装后可在 ssh 里使用 Agent 检测、检查器、⌘P、编辑等功能。\r\n       [Y] 安装  [n] 这次不用  [N] 这台主机永不安装 "
+        )
+    };
     let _ = tty.flush();
     let mut line = String::new();
     // EOF / error must not read as "" (= Yes).

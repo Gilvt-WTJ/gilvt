@@ -78,8 +78,13 @@ pub fn scope_keys(message: &str) -> Vec<String> {
     first.strip_prefix("<scope keys=\"").and_then(|r| r.split_once('"')).map(|(keys, _)| keys.split_whitespace().map(String::from).collect()).unwrap_or_default()
 }
 
+/// The quick question for a standup brief, in either interface language.
+fn wants_standup(message: &str) -> bool {
+    message.contains("站会简报") || message.to_lowercase().contains("standup brief")
+}
+
 pub fn plan(message: &str) -> Vec<(String, Value)> {
-    if message.contains("站会简报") {
+    if wants_standup(message) {
         return vec![("list_sessions".into(), json!({}))];
     }
     if let Some(k) = scope_keys(message).first() {
@@ -92,7 +97,7 @@ pub fn answer(message: &str, results: &[(String, bool, String)]) -> String {
     let parsed = |tool: &str| results.iter().find(|(t, ok, _)| t == tool && *ok).and_then(|(_, _, text)| serde_json::from_str::<Value>(text).ok());
     let sessions: Vec<Value> = parsed("list_sessions").and_then(|v| v.get("sessions").and_then(Value::as_array).cloned()).unwrap_or_default();
     let link = |s: &Value| format!("[{}](gilvt://session/{})", s["name"].as_str().unwrap_or("?"), s["key"].as_str().unwrap_or(""));
-    if message.contains("站会简报") {
+    if wants_standup(message) {
         let need: Vec<String> = sessions
             .iter()
             .filter(|s| matches!(s["group"].as_str(), Some("needs_you" | "error")))
@@ -382,6 +387,7 @@ mod tests {
     #[test]
     fn plans_and_answers() {
         assert_eq!(plan("生成站会简报"), vec![("list_sessions".to_string(), json!({}))]);
+        assert_eq!(plan("Generate a standup brief"), vec![("list_sessions".to_string(), json!({}))]);
         let scoped = "<scope keys=\"agent:claude:a1 pane:3\"/>\n为什么失败？";
         assert_eq!(scope_keys(scoped), ["agent:claude:a1", "pane:3"]);
         assert_eq!(plan(scoped)[1], ("get_timeline".to_string(), json!({"key": "agent:claude:a1", "turns": "last:2"})));

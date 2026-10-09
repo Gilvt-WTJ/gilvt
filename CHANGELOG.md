@@ -7,6 +7,16 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Fixed
+
+- The English interface no longer shows Chinese: notifications, the close and quit confirmation, the
+  terminal find bar, the file finder, previews, the editor's messages, the sessions palette, the inspector's
+  configuration cards, theme warnings, the monitor's chat, cards and connection test, and what `gilvt ssh` prints
+  in the terminal (the install question and why it logs in the plain way) were still in Chinese.
+- In English, the monitor's chat answers and its ✦ summaries are written in English, and the quick questions
+  send English.
+- The New Agent panel showed its `⌘1 / ⌘2` hint twice, and monitor cards in English read "took" in Chinese.
+
 ## [0.2.0] - 2026-10-08
 
 ### Added

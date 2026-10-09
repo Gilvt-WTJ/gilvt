@@ -26,7 +26,22 @@ impl TrashReport {
     /// The toast after a partial failure: 「已移走 N 个，M 个失败：<首个原因>」; None when all were moved.
     pub fn toast(&self) -> Option<String> {
         let (_, reason) = self.failed.first()?;
-        Some(format!("已移走 {} 个，{} 个失败：{reason}", self.moved, self.failed.len()))
+        Some(if crate::i18n::english() {
+            format!("Moved {}, {} failed: {reason}", self.moved, self.failed.len())
+        } else {
+            format!("已移走 {} 个，{} 个失败：{reason}", self.moved, self.failed.len())
+        })
+    }
+
+    /// The banner after the confirm bar's 移到废纸篓: the partial failure, else how many went.
+    pub fn banner(&self) -> String {
+        self.toast().unwrap_or_else(|| {
+            if crate::i18n::english() {
+                format!("Moved {} to Trash", crate::i18n::count(self.moved, "session", "sessions"))
+            } else {
+                format!("已移到废纸篓 {} 个会话", self.moved)
+            }
+        })
     }
 }
 
@@ -48,7 +63,7 @@ pub fn trash_with<'a>(
     let mut gone = Vec::new();
     for e in entries {
         if live(e) {
-            report.failed.push((title(e), LIVE_REASON.into()));
+            report.failed.push((title(e), crate::i18n::text(LIVE_REASON, "running").into()));
             continue;
         }
         let mut error = None;
@@ -98,6 +113,19 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::time::SystemTime;
+
+    #[test]
+    fn banners_read_in_english() {
+        let failed = vec![("t".to_string(), LIVE_REASON.to_string())];
+        assert_eq!(TrashReport { moved: 2, failed: failed.clone() }.banner(), "已移走 2 个，1 个失败：正在运行");
+        assert_eq!(TrashReport { moved: 2, failed: Vec::new() }.banner(), "已移到废纸篓 2 个会话");
+        crate::i18n::with_language(crate::i18n::Language::English, || {
+            let failed = vec![("t".to_string(), "running".to_string())];
+            assert_eq!(TrashReport { moved: 2, failed }.banner(), "Moved 2, 1 failed: running");
+            assert_eq!(TrashReport { moved: 2, failed: Vec::new() }.banner(), "Moved 2 sessions to Trash");
+            assert_eq!(TrashReport { moved: 1, failed: Vec::new() }.banner(), "Moved 1 session to Trash");
+        });
+    }
 
     /// A fake Trash: moves into `<tempdir>/Trash`, fails for paths containing `fail`.
     fn fake_trash(bin: &Path) -> impl FnMut(&Path) -> Result<(), String> + '_ {

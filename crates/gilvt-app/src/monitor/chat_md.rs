@@ -95,7 +95,10 @@ fn push_block(b: &Block, depth: usize, out: &mut Vec<MdLine>) {
             }
         }
         BlockKind::Rule => out.push(line(LineKind::Rule, Vec::new())),
-        BlockKind::Image { alt, src } => out.push(line(LineKind::Paragraph, text_span(format!("[图片：{}] {src}", alt), false))),
+        BlockKind::Image { alt, src } => {
+            let image = if crate::i18n::english() { format!("[Image: {alt}] {src}") } else { format!("[图片：{}] {src}", alt) };
+            out.push(line(LineKind::Paragraph, text_span(image, false)))
+        }
         BlockKind::FrontMatter(_) | BlockKind::Footnotes(_) => {}
     }
 }

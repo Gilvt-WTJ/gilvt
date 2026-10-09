@@ -218,6 +218,12 @@ pub fn duration_label(d: Duration) -> String {
 }
 
 /// The location line: tab title, position in the tab, and the window when there are several.
+/// 「窗口 2」: which window a pane is in, when there are several (`n` counts from 1).
+pub fn window_label(n: usize) -> String {
+    if crate::i18n::english() { format!("Window {n}") } else { format!("窗口 {n}") }
+}
+
+
 pub fn location_text(tab_title: &str, position: &str, window: Option<&str>) -> String {
     let mut out = tab_title.to_string();
     for part in [Some(position), window].into_iter().flatten().filter(|p| !p.is_empty()) {

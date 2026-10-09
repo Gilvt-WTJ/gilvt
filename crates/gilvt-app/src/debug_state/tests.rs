@@ -6,14 +6,14 @@ use serde_json::json;
 fn top_level_fields() {
     let state = top_level(42, true, Some("2"), 3);
     let Response::DebugState { state } = to_response(&state) else { panic!("not a state") };
-    assert_eq!(state, json!({"version": 1, "pid": 42, "front": true, "dock_badge": "2", "dock_bounces": 3, "theme": null, "pending": [], "windows": [], "chat_process": {"running": false, "status": "idle", "provider": null, "pid": null, "turns": 0, "starts": 0}, "update": {"available": false, "mode": "", "ready": null}, "hosts": []}));
+    assert_eq!(state, json!({"version": 1, "pid": 42, "front": true, "dock_badge": "2", "dock_bounces": 3, "theme": null, "pending": [], "windows": [], "chat_process": {"running": false, "status": "idle", "provider": null, "pid": null, "turns": 0, "starts": 0}, "update": {"available": false, "mode": "", "ready": null}, "hosts": [], "untranslated": []}));
 }
 
 #[test]
 fn no_badge_is_null() {
     let Response::DebugState { state } = to_response(&top_level(7, false, None, 0)) else { panic!("not a state") };
     assert!(state["dock_badge"].is_null());
-    assert_eq!(state.as_object().unwrap().len(), 11);
+    assert_eq!(state.as_object().unwrap().len(), 12);
     assert_eq!(state["front"], json!(false));
 }
 

@@ -8,6 +8,8 @@ pub mod process;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use gilvt_i18n::english;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderKind {
     Claude,
@@ -71,7 +73,11 @@ pub fn version(cfg: &ProviderConfig, timeout: Duration) -> Result<String, Provid
     if out.code != Some(0) {
         return Err(classify(&format!("{}\n{}", out.stdout, out.stderr), out.code));
     }
-    version_number(&out.stdout).ok_or_else(|| ProviderError::Protocol(format!("--version 输出：{}", out.stdout.trim())))
+    version_number(&out.stdout).ok_or_else(|| ProviderError::Protocol(if english() {
+        format!("--version printed: {}", out.stdout.trim())
+    } else {
+        format!("--version 输出：{}", out.stdout.trim())
+    }))
 }
 
 /// The first word that starts with a digit: `2.1.291 (Claude Code)` → `2.1.291`, `codex-cli 0.160.0` → `0.160.0`.
@@ -124,6 +130,22 @@ pub enum ProviderError {
 impl ProviderError {
     /// A short reason for the card header / the settings page.
     pub fn message(&self) -> String {
+        if english() {
+            return match self {
+                ProviderError::NotFound { program } => {
+                    format!("{program} not found (set its full path in [monitor] command)")
+                }
+                ProviderError::Auth(_) => "Authentication failed (log in to this CLI in a terminal)".into(),
+                ProviderError::Timeout => "Timed out".into(),
+                ProviderError::Exited { code: Some(c), stderr_tail } if !stderr_tail.is_empty() => {
+                    format!("Exit code {c}: {stderr_tail}")
+                }
+                ProviderError::Exited { code: Some(c), .. } => format!("Exit code {c}"),
+                ProviderError::Exited { code: None, .. } => "The process was ended by a signal".into(),
+                ProviderError::Protocol(m) => format!("Could not parse the output: {m}"),
+                ProviderError::Unsupported(m) => m.clone(),
+            };
+        }
         match self {
             ProviderError::NotFound { program } => format!("未找到 {program}（请在 [monitor] command 里填写完整路径）"),
             ProviderError::Auth(_) => "认证失败（请在终端里登录这个 CLI）".into(),
