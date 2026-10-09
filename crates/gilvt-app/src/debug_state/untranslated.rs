@@ -45,9 +45,18 @@ pub fn add(state: &mut Value) {
     }
 }
 
+/// The language page's icon: a glyph, not a word.
+const LANGUAGE_ICON: &str = "文A";
+
+/// Chinese that is right in an English interface: a language named in its own language (the language
+/// list's 「简体中文」), and the language page's icon.
+fn meant(s: &str) -> bool {
+    gilvt_i18n::Language::ALL.iter().any(|l| l.label() == s) || !gilvt_i18n::has_chinese(&s.replace(LANGUAGE_ICON, ""))
+}
+
 fn walk(value: &Value, path: &mut String, found: &mut Vec<Value>) {
     match value {
-        Value::String(s) if gilvt_i18n::has_chinese(s) => found.push(json!({ "path": path.clone(), "text": s })),
+        Value::String(s) if gilvt_i18n::has_chinese(s) && !meant(s) => found.push(json!({ "path": path.clone(), "text": s })),
         Value::Array(items) => {
             for (i, item) in items.iter().enumerate() {
                 let len = path.len();
@@ -107,6 +116,13 @@ mod tests {
                 { "path": "settings.field", "text": "（无）" },
             ])
         );
+    }
+
+    #[test]
+    fn language_names_and_the_language_icon_are_not_untranslated() {
+        let mut s = json!({ "settings": { "pages": [{ "label": "文A Language" }, { "label": "文A 语言" }], "languages": [{ "label": "简体中文" }, { "label": "English" }] } });
+        with_language(Language::English, || add(&mut s));
+        assert_eq!(s["untranslated"], json!([{ "path": "settings.pages[1].label", "text": "文A 语言" }]));
     }
 
     #[test]
