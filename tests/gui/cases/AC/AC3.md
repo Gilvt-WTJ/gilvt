@@ -14,7 +14,7 @@ type   'Y\n'
 wait   windows[0].tabs[0].panes[0].remote.enhanced == true timeout=60s
 type   'exit\n'
 wait   windows[0].tabs[0].panes[0].remote == null timeout=15s
-sh     'remote-test exec "cd ~/.gilvt-server && d=$(ls | grep -v -e bin -e run | head -1) && mv $d 0.0.1-00000000"'
+sh     "remote-test exec 'for d in ~/.gilvt-server/*-*; do mv \"\$d\" ~/.gilvt-server/0.0.1-00000000; done'"
 type   'clear\n'
 type   'ssh devbox-test\n'
 wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "远端组件不存在，以普通方式登录" timeout=30s
