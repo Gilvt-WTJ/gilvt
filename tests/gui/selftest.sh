@@ -1664,6 +1664,25 @@ for case_id in cases:
 PY
 if [ $? -eq 0 ]; then ok; else bad "run.sh parallel evidence and isolation"; fi
 
+# requires: remote under --jobs: the remote comes up BEFORE the schedule is built (a stub remote.sh whose status
+# fails and up succeeds), so the case is scheduled runnable, and a remote this run started is taken down at exit.
+mkdir -p "$T/rem/R"
+mk_case "$T/rem/R" R1 remote 'wait ok == 1'
+RMLOG="$T/remote-stub.log"; : >"$RMLOG"; rm -f "$T/remote-is-up"
+printf '%s\n' '#!/bin/bash' "echo \"remote \$1\" >>'$RMLOG'" "[ \"\$1\" = up ] && touch '$T/remote-is-up'" "[ \"\$1\" = down ] && rm -f '$T/remote-is-up'" "[ \"\$1\" = status ] && { [ -f '$T/remote-is-up' ] && exit 0; exit 1; }" 'exit 0' >"$T/stub-remote"
+chmod +x "$T/stub-remote"
+GILVT_GUI_CASES="$T/rem" GILVT_GUI_SANDBOX="$T/stub-sandbox-par" GILVT_GUI_DRIVE="$T/stub-drive" \
+  GILVT_GUI_KEYS="$T/stub-keys" GILVT_GUI_REMOTE="$T/stub-remote" \
+  "$here/run.sh" --jobs 2 --out "$T/out-rem" R >"$T/rem.out" 2>&1
+check "run.sh --jobs: a remote case is scheduled runnable" "R1	serial	remote" cat "$T/out-rem/schedule.tsv"
+if grep -q 'remote-unavailable' "$T/rem.out"; then bad "run.sh --jobs skipped a remote case: $(cat "$T/rem.out")"; else ok; fi
+check "run.sh --jobs: remote up first, down at exit only once" "remote status
+remote up
+remote status
+remote up
+remote reset
+remote down" cat "$RMLOG"
+
 # S0 remains a serial gate: a failure prevents every other selected case from starting.
 mkdir -p "$T/gate/S" "$T/gate/X"
 mk_case "$T/gate/S" S0 sandbox 'wait FAILME == 1'
