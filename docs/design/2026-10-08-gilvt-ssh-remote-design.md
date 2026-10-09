@@ -364,7 +364,7 @@ trait TranscriptSource { fn subscribe(..); fn range(..); }
 实施中的裁决：
 
 - (a) `decide` 先看「never」再看「远端已装」：用户拒绝过的主机，即使另一台 Mac 在上面装过，仍走普通登录。
-- (b) `gilvt ssh` 在 `-o` / ssh_config 形式设置了 `SessionType`、`ForkAfterAuthentication`、`ControlMaster`、`ControlPath`、`ControlPersist`、`RequestTTY`、`RemoteCommand`、`StdinNull` 时原样透传；目标主机之后还有选项时也透传。
+- (b) 命令行 `-o` 设置了 `SessionType`、`ForkAfterAuthentication`、`ControlMaster`、`ControlPath`、`ControlPersist`、`RequestTTY`、`RemoteCommand`、`StdinNull` 时，`gilvt ssh` 原样透传；目标主机之后还有选项时也透传。ssh_config 里只有 `SessionType`、`ForkAfterAuthentication`、`RequestTTY no`、`RemoteCommand`、`StdinNull` 会导致透传；ssh_config 的 `ControlMaster`（如 `Host *` / `ControlMaster auto`）**不**透传（修订：原先透传会让这类用户整个功能失效）——master 的 `-o` 放在最前（先出现者生效），经 master 的其他 ssh（探测、上传、交互登录、带 `-S` 的普通登录、bridge）都加 `-o ControlMaster=no`，不会在 gilvt 的路径上再开一个 master。
 - (c) 探测输出以哨兵 `GILVT-PROBE-1` 开头，用来滤掉 motd / profile 等噪声。
 - (d) 上传用的临时文件名是 `gilvt-remote.tmp.$$`。
 - (e) 启动 master 之前先删除陈旧的控制套接字；master 绑定失败时改为普通登录。

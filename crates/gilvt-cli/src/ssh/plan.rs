@@ -38,7 +38,9 @@ pub fn parse_probe(out: &str) -> Option<Probe> {
     Some(Probe { os, arch, hostname, installed })
 }
 
-/// True when `ssh -G` output shows the user configured session/multiplexing behaviour we must not alter.
+/// True when `ssh -G` output shows the user configured session behaviour we must not alter.
+/// A configured `ControlMaster` (often `Host * / ControlMaster auto`) does not count: gilvt's own `-o`
+/// come first in the master's argv and every other ssh gilvt runs says `ControlMaster=no` (spec §11 (b)).
 pub fn g_forces_passthrough(ssh_g: &str) -> bool {
     ssh_g.lines().any(|l| {
         let (k, v) = l.split_once(' ').unwrap_or((l, ""));
@@ -48,7 +50,6 @@ pub fn g_forces_passthrough(ssh_g: &str) -> bool {
             "sessiontype" => v != "default",
             "requesttty" => v == "no",
             "forkafterauthentication" | "stdinnull" => v == "yes",
-            "controlmaster" => v != "false" && v != "no",
             _ => false,
         }
     })
@@ -179,8 +180,11 @@ mod tests {
         let base = "user u\nhostname h\nport 22\nrequesttty auto\nsessiontype default\nremotecommand none\nforkafterauthentication no\nstdinnull no\ncontrolmaster false\n";
         assert!(!g_forces_passthrough(base));
         for (from, to) in [("remotecommand none", "remotecommand tmux a"), ("sessiontype default", "sessiontype none"), ("requesttty auto", "requesttty no"),
-                           ("forkafterauthentication no", "forkafterauthentication yes"), ("stdinnull no", "stdinnull yes"), ("controlmaster false", "controlmaster auto")] {
+                           ("forkafterauthentication no", "forkafterauthentication yes"), ("stdinnull no", "stdinnull yes")] {
             assert!(g_forces_passthrough(&base.replace(from, to)), "{to}");
+        }
+        for v in ["auto", "true", "autoask", "ask"] {
+            assert!(!g_forces_passthrough(&base.replace("controlmaster false", &format!("controlmaster {v}"))), "a configured ControlMaster {v} keeps the feature");
         }
     }
 
