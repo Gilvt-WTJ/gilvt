@@ -1,9 +1,11 @@
 // gilvt.com: a Worker that only serves static assets (dist-site/, built by `sh site/build.sh`), including
 // _redirects (/download). Deploy: sh site/build.sh && npx wrangler deploy -c site/wrangler.jsonc
+// Workers Builds runs `npx wrangler preview` for branches other than main, which needs the `previews` block.
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "gilvt",
   "compatibility_date": "2026-10-06",
+  "previews": {},
   "assets": {
     "directory": "../dist-site",
     "html_handling": "auto-trailing-slash",

@@ -29,6 +29,11 @@ also binds the custom domains `gilvt.com` and `www.gilvt.com`):
 
 (`wrangler login` once first. The explicit registry is only needed where npm defaults to another mirror.)
 
+Cloudflare Workers Builds is connected to the repository, so this normally happens on its own: every push to
+`main` runs `sh site/build.sh` and deploys. Other branches (pull requests) run `npx wrangler preview`, which
+needs the empty `previews` block in `site/wrangler.jsonc`, and get a Preview deployment instead; production is
+untouched until the change reaches `main`.
+
 Only publish `https://gilvt.com/download` as the download link, so the host behind it can change later
 without breaking links.
 
