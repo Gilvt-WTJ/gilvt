@@ -739,3 +739,35 @@ fn a_remote_row_is_keyed_by_its_host_and_reads_host_dot_dir() {
     assert_eq!(remote.dir, "devbox · /home/dev/app");
     assert!(!remote.dir_missing && remote.branch.is_none() && !remote.archived);
 }
+
+#[test]
+fn remote_rows_show_in_the_current_scope_where_local_rows_of_other_projects_do_not() {
+    use gilvt_agent::host::{Host, HostId};
+    let es = vec![
+        entry(AgentKind::Claude, "same", "/Users/u/elsewhere", "local", 1),
+        entry(AgentKind::Claude, "same", "/home/dev/app", "remote", 0),
+    ];
+    let hosts = [Host::Local, Host::Remote(HostId("dev@h:22".into()))];
+    let label = |h: &Host| h.is_remote().then(|| "devbox".to_string());
+    let (live, names) = (HashMap::new(), |_: &SessionKey| None);
+    let when = |_: SystemTime| String::new();
+    let list = build(&Input {
+        entries: &es,
+        live: &live,
+        saved_name: &names,
+        project: &project,
+        current: Some(&lab()),
+        query: "",
+        filters: CURRENT,
+        now: now(),
+        when: &when,
+        home: Some(Path::new("/Users/u")),
+        dir_exists: &|_| false, // a remote row must not be judged by this Mac's disk
+        branch: &|_| None,
+        archived: &|_| false,
+        hosts: &hosts,
+        host_label: &label,
+    });
+    let ids: Vec<(&str, bool)> = list.rows.iter().map(|r| (r.key.1.as_str(), r.key.2.is_remote())).collect();
+    assert_eq!(ids, [("same", true)], "the other local project is out of scope, the host's row is in");
+}

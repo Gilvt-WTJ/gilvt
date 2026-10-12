@@ -325,7 +325,8 @@ impl SessionsView {
         }
         self.local_source = Some(local_list);
         // Host names come from the one place that knows them (`RemoteHosts`, via `remote::display_of`).
-        self.notices = failed.iter().map(|h| crate::remote::history::failure_text(&crate::remote::display_of(h, cx))).collect();
+        // Remote rows are never archived: under 已归档 a failure row would point at rows that cannot show.
+        self.notices = failed.iter().filter(|_| !self.filters.archived).map(|h| crate::remote::history::failure_text(&crate::remote::display_of(h, cx))).collect();
         let entries_id = Arc::as_ptr(&self.entries) as usize;
         if entries_id != self.resolved_for {
             self.resolved_for = entries_id;

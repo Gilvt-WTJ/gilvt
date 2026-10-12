@@ -265,7 +265,8 @@ pub fn build(i: &Input) -> List {
             (i.project)(&e.cwd)
         };
         let own = i.current.is_some_and(|c| c.root == project.root);
-        if scope == Scope::Current && !own {
+        // A remote row has no local project: it is listed in the current scope too (its host is the scope).
+        if scope == Scope::Current && !own && !host.is_remote() {
             continue;
         }
         let saved = (i.saved_name)(&key);
@@ -306,7 +307,7 @@ pub fn build(i: &Input) -> List {
             live,
             archived,
         };
-        if own { ours.push((row, project)) } else { others.push((row, project)) }
+        if own || (host.is_remote() && scope == Scope::Current) { ours.push((row, project)) } else { others.push((row, project)) }
     }
     let plain = |(r, _): (Row, Project)| r;
     let mut list = List::default();

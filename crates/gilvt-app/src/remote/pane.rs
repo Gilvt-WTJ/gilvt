@@ -59,7 +59,8 @@ impl RemoteCwd {
     /// The remote shell shows its prompt (A or B is the latest mark). The local `ssh` command block stays
     /// "running" for the whole login, so command blocks cannot tell this (R2a §5.6).
     pub fn at_prompt(&self) -> bool {
-        matches!(self.last_mark, Some(gilvt_term::PromptMark::PromptStart | gilvt_term::PromptMark::InputStart))
+        // A strike means the ssh process is gone from the foreground: the marks are the local shell's now.
+        self.first_strike.is_none() && matches!(self.last_mark, Some(gilvt_term::PromptMark::PromptStart | gilvt_term::PromptMark::InputStart))
     }
 
     pub fn cwd(&self) -> Option<&Path> { self.cwd.as_deref() }
@@ -133,6 +134,18 @@ mod tests {
         assert!(!r.at_prompt());
         r.observe_mark(PromptMark::PromptStart);
         assert!(r.at_prompt());
+    }
+
+    #[test]
+    fn after_the_link_ended_the_local_shells_marks_are_not_a_remote_prompt() {
+        use gilvt_term::PromptMark;
+        let mut r = RemoteCwd::new(pr(Some("n37")));
+        r.observe_mark(PromptMark::PromptStart);
+        assert!(r.at_prompt());
+        r.link_alive(Some("zsh"), Instant::now());
+        r.observe_mark(PromptMark::CommandEnd(Some(0)));
+        r.observe_mark(PromptMark::PromptStart);
+        assert!(!r.at_prompt(), "ssh exited: the prompt is the Mac's");
     }
 
     #[test]

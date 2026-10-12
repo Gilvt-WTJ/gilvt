@@ -42,7 +42,10 @@ impl Workspace {
         if let gilvt_agent::host::Host::Remote(h) = &key.2 {
             let Some(session) = cx.global::<Agents>().registry().get(&key) else { return };
             if let Some(pane) = session.pane.filter(|_| session.is_live()) {
-                return self.focus_pane(pane, window, cx);
+                if self.has_pane(pane) {
+                    return self.focus_pane(pane, window, cx);
+                }
+                return App::defer(cx, move |cx| focus_pane_anywhere(pane, cx));
             }
             let Some(cwd) = session.cwd.clone() else {
                 self.error = Some(crate::i18n::text("不知道该会话的目录，无法恢复", "The session directory is unknown, so it cannot be resumed").into());
