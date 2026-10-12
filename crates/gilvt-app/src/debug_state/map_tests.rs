@@ -7,7 +7,7 @@ use crate::sidebar::model::{build, Item, SidebarState, TerminalItem};
 use crate::workspace::marks::edge;
 
 fn session(agent: AgentKind, id: &str, status: Status, t0: Instant) -> Session {
-    let mut s = Session::new((agent, id.to_string()), t0);
+    let mut s = Session::new(gilvt_agent::local_key(agent, id), t0);
     s.status = status;
     s.name = format!("task {id}");
     s.pane = Some(id.len() as u64);
@@ -32,7 +32,7 @@ fn status_names_cover_every_status() {
     for (status, name, detail) in table {
         assert_eq!((status_name(&status), status_detail(&status).as_str()), (name, detail), "{status:?}");
     }
-    assert_eq!(session_id(&(AgentKind::Codex, "0199".into())), "codex:0199");
+    assert_eq!(session_id(&gilvt_agent::local_key(AgentKind::Codex, "0199")), "codex:0199");
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn menus_keep_labels_checks_and_rects() {
 fn palette_rows_and_buttons() {
     use crate::launcher::sessions_model::{LiveAt, Row as PaletteRow};
     let row = |id: &str, live: Option<&str>| PaletteRow {
-        key: (AgentKind::Claude, id.to_string()),
+        key: gilvt_agent::local_key(AgentKind::Claude, id),
         entry: 0,
         letter: 'C',
         title: format!("i9 {id}"),
@@ -245,7 +245,7 @@ fn sidebar_rows_carry_git_only_when_the_row_draws_a_line() {
 fn pending_and_close_confirm_map_plain_data() {
     use crate::agents::PendingResume;
     let p = pending(&[PendingResume {
-        key: (AgentKind::Codex, "0199".into()),
+        key: gilvt_agent::local_key(AgentKind::Codex, "0199"),
         pane: 7,
         cwd: Some("/w/a".into()),
         name: "补测试".into(),
@@ -255,7 +255,7 @@ fn pending_and_close_confirm_map_plain_data() {
     assert!(pending(&[]).is_empty());
     let c = close_confirm(
         "quit",
-        &[gilvt_agent::SessionSummary { key: (AgentKind::Claude, "x".into()), pane: Some(2), name: "修登录".into(), status: "思考中".into() }],
+        &[gilvt_agent::SessionSummary { key: gilvt_agent::local_key(AgentKind::Claude, "x"), pane: Some(2), name: "修登录".into(), status: "思考中".into() }],
         &[],
     );
     assert_eq!((c.action, c.items[0].session.as_str(), c.items[0].pane, c.items[0].status.as_str()), ("quit", "claude:x", Some(2), "思考中"));

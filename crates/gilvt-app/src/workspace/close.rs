@@ -489,7 +489,7 @@ mod tests {
     }
 
     fn summary(agent: AgentKind, id: &str, name: &str, pane: PaneId) -> SessionSummary {
-        SessionSummary { key: (agent, id.into()), pane: Some(pane), name: name.into(), status: "思考中".into() }
+        SessionSummary { key: gilvt_agent::local_key(agent, id), pane: Some(pane), name: name.into(), status: "思考中".into() }
     }
 
     #[test]

@@ -238,6 +238,10 @@ impl Agents {
                 session_id: s.session_id().to_string(),
                 name: s.name.clone(),
                 last_status: gilvt_agent::status_label(&s.status),
+                host: match &s.key.2 {
+                    gilvt_agent::host::Host::Local => None,
+                    gilvt_agent::host::Host::Remote(h) => Some(h.0.clone()),
+                },
             });
         }
         self.pending.for_pane(pane).map(PendingResume::to_snap)
@@ -589,7 +593,7 @@ fn reconcile_external(
                 BindingConfidence::Unresolved,
             ),
         };
-        let key = (process.agent, session_id.clone());
+        let key = gilvt_agent::local_key(process.agent, session_id.clone());
         if next.contains_key(&key) {
             continue;
         }
@@ -719,7 +723,7 @@ mod occupied_tests {
     }
 
     fn pending(pane: u64) -> PendingResume {
-        let a = AgentSnap { kind: "claude".into(), session_id: "p".into(), name: "n".into(), last_status: "空闲".into() };
+        let a = AgentSnap { kind: "claude".into(), session_id: "p".into(), name: "n".into(), last_status: "空闲".into(), host: None };
         PendingResume::from_snap(pane, None, &a).unwrap()
     }
 

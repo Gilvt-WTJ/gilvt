@@ -253,3 +253,19 @@ fn queued_approvals_keep_the_session_waiting() {
     let s = d.session(&k);
     assert_eq!((s.status.clone(), s.pending_approvals), (Status::Tool { label: "Bash(ls b)".into() }, 0));
 }
+
+#[test]
+fn same_id_on_two_hosts_are_two_sessions() {
+    use gilvt_agent::host::{Host, HostId};
+    use gilvt_agent::{Event, HookMeta};
+    use std::time::Instant;
+    let mut r = Registry::new(Store::in_memory());
+    let meta = HookMeta { session_id: "s".into(), transcript_path: None, cwd: None, agent_id: None };
+    let now = Instant::now();
+    let remote = Host::Remote(HostId("dev@h:22".into()));
+    r.apply_hook(&Host::Local, Some(1), AgentKind::Claude, &meta, &[Event::SessionStart { model: None }], true, now);
+    r.apply_hook(&remote, Some(2), AgentKind::Claude, &meta, &[Event::SessionStart { model: None }], true, now);
+    assert_eq!(r.sessions().count(), 2);
+    assert_eq!(r.by_pane(1).unwrap().key.2, Host::Local);
+    assert_eq!(r.by_pane(2).unwrap().key.2, remote);
+}

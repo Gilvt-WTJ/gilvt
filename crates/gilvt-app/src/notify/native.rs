@@ -84,7 +84,7 @@ define_class!(
                 info.objectForKey(&NSString::from_str(key)).and_then(|v| v.downcast::<NSString>().ok()).map(|s| s.to_string())
             };
             let pane = get(PANE_KEY).and_then(|s| s.parse::<PaneId>().ok());
-            let session = get(AGENT_KEY).and_then(|a| AgentKind::from_name(&a)).zip(get(SESSION_KEY));
+            let session = get(AGENT_KEY).and_then(|a| AgentKind::from_name(&a)).zip(get(SESSION_KEY)).map(|(a, s)| gilvt_agent::local_key(a, s));
             if let (Some(pane), Some(tx)) = (pane, CLICKS.get()) {
                 let _ = tx.try_send((pane, session));
             }
@@ -153,7 +153,7 @@ fn add(p: &Post) {
         keys.push(NSString::from_str(PANE_KEY));
         values.push(NSString::from_str(&pane.to_string()));
     }
-    if let Some((agent, id)) = &p.session {
+    if let Some((agent, id, _)) = &p.session {
         keys.extend([NSString::from_str(AGENT_KEY), NSString::from_str(SESSION_KEY)]);
         values.extend([NSString::from_str(agent.name()), NSString::from_str(id)]);
     }

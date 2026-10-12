@@ -119,7 +119,7 @@ fn build_in(entries: &[HistoryEntry], filters: Filters, current: Option<&Project
 }
 
 fn key(agent: AgentKind, id: &str) -> SessionKey {
-    (agent, id.to_string())
+    gilvt_agent::local_key(agent, id)
 }
 
 /// Headers as "# title", rows as their session id.

@@ -327,7 +327,7 @@ impl SessionsView {
         let now_local = local(now);
         let history = cx.try_global::<History>();
         let agents = cx.try_global::<Agents>();
-        let review_states = cx.try_global::<ReviewService>().map(|s| s.states(self.entries.iter().map(|e| (e.agent, e.session_id.clone())))).unwrap_or_default();
+        let review_states = cx.try_global::<ReviewService>().map(|s| s.states(self.entries.iter().map(|e| gilvt_agent::local_key(e.agent, e.session_id.clone())))).unwrap_or_default();
         let home = super::dir_label::label_home();
         self.list = model::build(&Input {
             entries: &self.entries,
@@ -343,7 +343,7 @@ impl SessionsView {
             dir_exists: &|p| history.is_none_or(|h| h.dir_exists(p)),
             // The sidebar's git cache (live sessions' directories): a cheap read, never a git call here.
             branch: &|p| agents.and_then(|a| a.git_of_dir(p)).and_then(|g| g.branch.clone()),
-            archived: &|e| review_states.get(&(e.agent, e.session_id.clone())).is_some_and(|s| s.archived_for(e.turns)),
+            archived: &|e| review_states.get(&gilvt_agent::local_key(e.agent, e.session_id.clone())).is_some_and(|s| s.archived_for(e.turns)),
         });
         self.selection.sync(&self.list.rows, follow);
         if !follow {
@@ -533,7 +533,7 @@ impl SessionsView {
         }
         let (mut done, mut failed) = (0, None);
         for e in entries {
-            let key: SessionKey = (e.agent, e.session_id.clone());
+            let key: SessionKey = gilvt_agent::local_key(e.agent, e.session_id.clone());
             match cx.global_mut::<ReviewService>().clear_archived(&key) {
                 Ok(()) => done += 1,
                 Err(err) => failed = Some(err),
@@ -615,7 +615,7 @@ impl SessionsView {
     /// ⌘R / 重命名…: the rename field in row `row`. ⏎ saves to the M3a store (the sidebar follows).
     fn start_rename(&mut self, row: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(e) = self.entry(row).cloned() else { return };
-        let key: SessionKey = (e.agent, e.session_id.clone());
+        let key: SessionKey = gilvt_agent::local_key(e.agent, e.session_id.clone());
         let saved = cx.try_global::<Agents>().and_then(|a| a.registry().saved_name(&key));
         // What the row is called without a rename: committing that unchanged must not freeze it as one.
         let auto = crate::launcher::history::title(&e, None);

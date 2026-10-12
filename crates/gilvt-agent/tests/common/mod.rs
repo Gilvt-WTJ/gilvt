@@ -79,7 +79,7 @@ impl Driver {
         let event = payload["hook_event_name"].as_str().unwrap_or("");
         let events = parse_hook(&HookInput { agent, event, payload });
         let meta = hook_meta(payload).unwrap();
-        self.reg.apply_hook(pane, agent, &meta, &events, self.visible, now)
+        self.reg.apply_hook(&gilvt_agent::host::Host::Local, pane, agent, &meta, &events, self.visible, now)
     }
 
     /// Delivers transcript lines for `key`, one call per line.
@@ -99,5 +99,5 @@ impl Driver {
 }
 
 pub fn key(agent: AgentKind, id: &str) -> SessionKey {
-    (agent, id.to_string())
+    gilvt_agent::local_key(agent, id)
 }

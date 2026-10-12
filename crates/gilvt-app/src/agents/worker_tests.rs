@@ -66,7 +66,7 @@ fn tool<'a>(items: &'a [Item], id: &str) -> Option<&'a ToolItem> {
 }
 
 fn codex_key() -> SessionKey {
-    (AgentKind::Codex, "codex-1".into())
+    gilvt_agent::local_key(AgentKind::Codex, "codex-1")
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn lines_and_hooks_reach_only_their_own_session() {
     write_lines(&codex_path, &rollout);
     let claude_path = copy_run1(dir.path());
     let codex = codex_key();
-    let claude: SessionKey = (AgentKind::Claude, RUN1.into());
+    let claude: SessionKey = gilvt_agent::local_key(AgentKind::Claude, RUN1);
     let mut w = Worker::default();
     w.watch(vec![(codex.clone(), codex_path), (claude.clone(), claude_path.clone())]);
     let (_, views) = pass(&mut w);
@@ -133,7 +133,7 @@ fn lines_and_hooks_reach_only_their_own_session() {
     let row = tool(&current.items, "call_new").unwrap();
     assert_eq!((row.anchor, row.started), (anchor, Some(at)));
     // A hook of a session no transcript is watched for (yet) starts its timeline.
-    let other: SessionKey = (AgentKind::Claude, "no-transcript".into());
+    let other: SessionKey = gilvt_agent::local_key(AgentKind::Claude, "no-transcript");
     let prompt = json!({"hook_event_name": "UserPromptSubmit", "prompt": "hi"});
     w.hook(other.clone(), HookFeed { event: String::new(), payload: prompt, anchor: None, at });
     let (_, views) = pass(&mut w);
@@ -144,7 +144,7 @@ fn lines_and_hooks_reach_only_their_own_session() {
 fn subagent_transcripts_nest_under_their_agent_call() {
     let dir = tempfile::tempdir().unwrap();
     let transcript = copy_run1(dir.path());
-    let key: SessionKey = (AgentKind::Claude, RUN1.into());
+    let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, RUN1);
     let mut w = Worker::default();
     w.watch(vec![(key.clone(), transcript.clone())]);
     let (_, views) = pass(&mut w);
@@ -274,7 +274,7 @@ fn a_resumed_session_is_named_from_its_history() {
     let id = "22222222-3333-4444-8555-0000000000a4";
     let path = dir.path().join(format!("{id}.jsonl"));
     std::fs::copy(format!("{FIXTURES}/claude/transcript-interactive.jsonl"), &path).unwrap();
-    let key: SessionKey = (AgentKind::Claude, id.into());
+    let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, id);
     let t0 = std::time::Instant::now();
     let start = json!({"session_id": id, "transcript_path": path, "cwd": "/Users/u/proj",
                        "hook_event_name": "SessionStart", "source": "resume"});

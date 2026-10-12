@@ -68,7 +68,7 @@ pub fn build_inbox(
 ) -> Vec<ReviewInboxItem> {
     let history: HashMap<SessionKey, &HistoryEntry> = history
         .iter()
-        .map(|entry| ((entry.agent, entry.session_id.clone()), entry))
+        .map(|entry| (gilvt_agent::local_key(entry.agent, entry.session_id.clone()), entry))
         .collect();
     let mut items = reviews
         .iter()

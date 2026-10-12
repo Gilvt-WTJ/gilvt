@@ -94,7 +94,7 @@ pub fn archive_sessions(entries: &[HistoryEntry], cx: &mut App) -> ArchiveReport
         entries
             .iter()
             .map(|e| {
-                let key: SessionKey = (e.agent, e.session_id.clone());
+                let key: SessionKey = gilvt_agent::local_key(e.agent, e.session_id.clone());
                 registry
                     .and_then(|r| r.get(&key))
                     .is_some_and(Session::is_live)
@@ -111,7 +111,7 @@ pub fn archive_sessions(entries: &[HistoryEntry], cx: &mut App) -> ArchiveReport
     let service = cx.global_mut::<ReviewService>();
     archive_with(entries, by_ptr, |e| {
         service
-            .set_archived(&(e.agent, e.session_id.clone()), e.turns, now)
+            .set_archived(&gilvt_agent::local_key(e.agent, e.session_id.clone()), e.turns, now)
             .map_err(|err| err.to_string())
     })
 }

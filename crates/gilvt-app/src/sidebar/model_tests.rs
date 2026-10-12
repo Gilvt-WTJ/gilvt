@@ -1,7 +1,7 @@
 use super::*;
 
 fn session(agent: AgentKind, id: &str, status: Status, t0: Instant) -> Session {
-    let mut s = Session::new((agent, id.to_string()), t0);
+    let mut s = Session::new(gilvt_agent::local_key(agent, id), t0);
     s.status = status;
     s.name = format!("task {id}");
     s.pane = Some(id.len() as u64);
@@ -219,8 +219,8 @@ fn session_order_spans_windows_in_sidebar_order() {
 
 #[test]
 fn neighbor_wraps_and_starts_at_the_ends() {
-    let k = |id: &str, pane: u64| ((AgentKind::Codex, id.to_string()), pane);
-    let key = |id: &str| (AgentKind::Codex, id.to_string());
+    let k = |id: &str, pane: u64| (gilvt_agent::local_key(AgentKind::Codex, id), pane);
+    let key = |id: &str| gilvt_agent::local_key(AgentKind::Codex, id);
     let rows = [k("a", 1), k("b", 2), k("c", 3)];
     assert_eq!(neighbor(&rows, Some(&key("a")), Step::Next), Some(k("b", 2)));
     assert_eq!(neighbor(&rows, Some(&key("c")), Step::Next), Some(k("a", 1)));
@@ -261,7 +261,7 @@ fn visible_rows_skip_collapsed_sections_but_keep_the_rename_row() {
 #[test]
 fn pending_rows_are_muted_and_say_待恢复() {
     use crate::agents::PendingResume;
-    let p = PendingResume { key: (AgentKind::Codex, "s9".into()), pane: 4, cwd: None, name: "写迁移".into(), last_status: "空闲".into() };
+    let p = PendingResume { key: gilvt_agent::local_key(AgentKind::Codex, "s9"), pane: 4, cwd: None, name: "写迁移".into(), last_status: "空闲".into() };
     let rows = pending_rows(&[p]);
     assert_eq!(rows.len(), 1);
     let r = &rows[0];
@@ -279,7 +279,7 @@ fn pending_section_sits_before_the_groups_and_is_not_in_the_switching_order() {
     a.waiting_since = Some(t0);
     let b = session(AgentKind::Claude, "b", Status::Idle, t0);
     let items = [item(&a, "api"), item(&b, "repo")];
-    let p = PendingResume { key: (AgentKind::Claude, "p".into()), pane: 9, cwd: None, name: "".into(), last_status: String::new() };
+    let p = PendingResume { key: gilvt_agent::local_key(AgentKind::Claude, "p"), pane: 9, cwd: None, name: "".into(), last_status: String::new() };
     let m = with_pending(build(&items, &[], &SidebarState::default(), t0, &clock), &[p]);
     let kinds: Vec<_> = m.sections.iter().map(|s| s.kind).collect();
     assert_eq!(kinds, [SectionKind::NeedsYou, SectionKind::Pending, SectionKind::Group, SectionKind::Group]);

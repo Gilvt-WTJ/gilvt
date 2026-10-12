@@ -41,7 +41,7 @@ impl Workspace {
         let registry = agents.registry();
         let model = (!self.sidebar.hidden).then(|| crate::sidebar::view::model_for(self, me, cx));
         let trash: Option<Vec<SessionKey>> =
-            self.ended_confirm.as_ref().map(|c| c.entries.iter().map(|e| (e.agent, e.session_id.clone())).collect());
+            self.ended_confirm.as_ref().map(|c| c.entries.iter().map(|e| gilvt_agent::local_key(e.agent, e.session_id.clone())).collect());
         let mut sidebar = map::sidebar(model.as_ref(), self.sidebar.grouping, self.renaming_key(), &|k| registry.get(k), &rect, trash.as_deref(), &|k| registry.get(k).and_then(|s| agents.git(s)).cloned());
         // The entry's number is the one the sidebar drew in its latest frame.
         sidebar.review_entry = sidebar.visible.then(|| ds::ReviewEntry {

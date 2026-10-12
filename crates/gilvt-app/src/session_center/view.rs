@@ -303,7 +303,7 @@ impl SessionCenterView {
                 .snapshot
                 .entries
                 .iter()
-                .map(|entry| ((entry.agent, entry.session_id.clone()), entry))
+                .map(|entry| (gilvt_agent::local_key(entry.agent, entry.session_id.clone()), entry))
                 .collect();
             for item in &mut inbox {
                 if let Some(entry) = history.get(&item.key) {

@@ -6,7 +6,7 @@ use gilvt_agent::{AgentKind, ReviewState, SessionKey, TurnCursor};
 use super::ReviewStore;
 
 fn key(agent: AgentKind, id: &str) -> SessionKey {
-    (agent, id.to_string())
+    gilvt_agent::local_key(agent, id)
 }
 
 fn claude(id: &str) -> TurnCursor {

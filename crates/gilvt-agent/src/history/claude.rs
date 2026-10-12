@@ -69,7 +69,7 @@ pub(super) fn parse(path: &Path) -> io::Result<Option<ParsedSession>> {
     else {
         return Ok(None);
     };
-    let key = (history.agent, history.session_id.clone());
+    let key = crate::local_key(history.agent, history.session_id.clone());
     let review = review.finish(
         key,
         path.to_path_buf(),
@@ -132,7 +132,7 @@ pub(super) fn parse_appended(
         return Ok(None);
     };
     let review = review.finish(
-        (history.agent, history.session_id.clone()),
+        crate::local_key(history.agent, history.session_id.clone()),
         path.to_path_buf(),
         transcript_size,
         read.scanned_through,

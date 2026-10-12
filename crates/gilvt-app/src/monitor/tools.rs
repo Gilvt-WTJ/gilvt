@@ -453,8 +453,8 @@ mod tests {
     #[gpui::test]
     fn excluded_sessions_do_not_exist_for_any_tool(cx: &mut TestAppContext) {
         let now = Instant::now();
-        let seen = Session::new((AgentKind::Claude, "seen".into()), now);
-        let hidden = Session::new((AgentKind::Claude, "hidden".into()), now);
+        let seen = Session::new(gilvt_agent::local_key(AgentKind::Claude, "seen"), now);
+        let hidden = Session::new(gilvt_agent::local_key(AgentKind::Claude, "hidden"), now);
         let all = wall_cards(&[agent_in(&seen, false), agent_in(&hidden, true)], &[term(9, Vec::new(), true)]);
         assert_eq!(all.len(), 3);
         let cards = visible_cards(all, |_, _| HashSet::new());

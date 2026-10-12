@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "macos")]
 use crate::agent_of_process;
+use crate::host::Host;
 use crate::{AgentKind, SessionKey};
 
 const LEASE_VERSION: u32 = 1;
@@ -122,7 +123,7 @@ pub struct Lease {
 
 impl Lease {
     pub fn key(&self) -> SessionKey {
-        (self.agent, self.session_id.clone())
+        (self.agent, self.session_id.clone(), Host::Local)
     }
 
     pub fn is_live(&self) -> bool {
@@ -189,7 +190,7 @@ impl LeaseStore {
         cwd: Option<PathBuf>,
         event: &str,
     ) -> io::Result<Option<Lease>> {
-        let key = (agent, session_id.clone());
+        let key = crate::local_key(agent, session_id.clone());
         let existing = self.read(&key);
         let runtime =
             runtime_for_hook(agent).or_else(|| existing.as_ref().map(|l| l.runtime.clone()));

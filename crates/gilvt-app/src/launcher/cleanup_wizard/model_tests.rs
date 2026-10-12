@@ -332,7 +332,7 @@ fn turn(id: &str, tools: u32) -> ReviewTurnIndex {
 
 fn index(id: &str, turns: Vec<ReviewTurnIndex>) -> ReviewSessionIndex {
     ReviewSessionIndex {
-        key: (AgentKind::Claude, id.into()),
+        key: gilvt_agent::local_key(AgentKind::Claude, id),
         transcript: PathBuf::new(),
         transcript_size: 0,
         scanned_through: 0,
@@ -362,7 +362,7 @@ fn review_facts_sum_the_tools_and_compare_the_last_turn_with_the_cursor() {
 fn candidates_line_up_with_the_entries() {
     let entries = [entry("a"), entry("b")];
     let reviews: HashMap<_, _> = [(
-        (AgentKind::Claude, "a".to_string()),
+        gilvt_agent::local_key(AgentKind::Claude, "a"),
         index("a", vec![turn("t1", 0)]),
     )]
     .into_iter()
@@ -456,7 +456,7 @@ fn a_new_history_publication_reloads_now_or_once_the_confirm_bar_closes() {
 }
 
 fn key(id: &str) -> SessionKey {
-    (AgentKind::Claude, id.to_string())
+    gilvt_agent::local_key(AgentKind::Claude, id)
 }
 
 fn keys(ids: &[&str]) -> Vec<SessionKey> {

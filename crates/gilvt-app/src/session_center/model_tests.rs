@@ -7,7 +7,7 @@ use super::model::{self, LiveSession, Selection, Tab};
 use crate::review::{ReviewInboxItem, ReviewPriority};
 
 fn key(id: &str) -> gilvt_agent::SessionKey {
-    (AgentKind::Claude, id.into())
+    gilvt_agent::local_key(AgentKind::Claude, id)
 }
 
 fn inbox(id: &str, priority: ReviewPriority) -> ReviewInboxItem {

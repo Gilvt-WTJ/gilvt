@@ -57,8 +57,8 @@ pub use runtime::{
     default_state_dir, interrupt_runtime, runtime_diagnostics, scan_agent_processes, terminate_runtime,
     BindingConfidence, Lease, LeaseStore, ProcessObservation, RuntimeRef, SignalError, TerminalOwner,
 };
-pub use status::{session_name, PaneId, Session, SessionKey, Status, NAME_MAX};
-pub use store::Store;
+pub use status::{local_key, session_name, PaneId, Session, SessionKey, Status, NAME_MAX};
+pub use store::{session_key_id, Store};
 pub use summary::{tool_label, tool_summary, truncate_chars, SUMMARY_MAX};
 pub use tail::Tail;
 pub use title::{

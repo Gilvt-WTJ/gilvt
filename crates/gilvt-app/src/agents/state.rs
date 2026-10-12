@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 
 use gilvt_agent::{
-    hook_meta, parse_hook, AgentKind, Change, Event, HookInput, HookMeta, PaneId, Registry, Session, SessionKey, Status, Store,
+    host::Host, hook_meta, parse_hook, AgentKind, Change, Event, HookInput, HookMeta, PaneId, Registry, Session, SessionKey, Status, Store,
 };
 
 use super::foreground::{Action, Foreground, Tracker};
@@ -21,6 +21,15 @@ pub struct ParsedHook {
     pub events: Vec<Event>,
     /// The payload's `permission_mode` (Claude and Codex send it on most hooks), for the status card.
     pub permission_mode: Option<String>,
+    /// Where the hook ran: this Mac, or the ssh host whose bridge delivered it (R2a §5.2).
+    pub host: Host,
+}
+
+impl ParsedHook {
+    #[allow(dead_code)] // the remote bridge (R2a Task 9+) is its caller
+    pub fn with_host(self, host: Host) -> ParsedHook {
+        ParsedHook { host, ..self }
+    }
 }
 
 /// None for an unknown agent or a payload without a session id.
@@ -30,7 +39,7 @@ pub fn parse_hook_request(pane: Option<u64>, agent: &str, event: &str, payload: 
     let events = parse_hook(&HookInput { agent, event, payload });
     let permission_mode =
         payload.get("permission_mode").and_then(serde_json::Value::as_str).map(str::trim).filter(|m| !m.is_empty()).map(String::from);
-    Some(ParsedHook { pane, agent, meta, events, permission_mode })
+    Some(ParsedHook { pane, agent, meta, events, permission_mode, host: Host::Local })
 }
 
 /// A key the user typed into a terminal pane, as far as answering an approval dialog goes.
@@ -96,13 +105,13 @@ impl Core {
 
     pub fn hook(&mut self, h: &ParsedHook, visible: impl Fn(PaneId) -> bool, now: Instant) -> Vec<Change> {
         let shown = h.pane.is_some_and(&visible);
-        self.registry.apply_hook(h.pane, h.agent, &h.meta, &h.events, shown, now)
+        self.registry.apply_hook(&h.host, h.pane, h.agent, &h.meta, &h.events, shown, now)
     }
 
     /// The session whose timeline takes a hook once [`Core::hook`] applied it: one the registry knows.
     /// Hooks it ignores (a subagent's of an unknown session, a lone SessionEnd) feed no timeline.
     pub fn timeline_key(&self, h: &ParsedHook) -> Option<SessionKey> {
-        let key = (h.agent, h.meta.session_id.clone());
+        let key = (h.agent, h.meta.session_id.clone(), h.host.clone());
         self.registry.get(&key).is_some().then_some(key)
     }
 
@@ -166,7 +175,7 @@ impl Core {
     /// a live session in another pane (two agents in one directory).
     pub fn bind_found(&mut self, d: &Discovery, found: Option<(String, PathBuf)>, now: Instant) -> Vec<Change> {
         let Some((id, transcript)) = found else { return Vec::new() };
-        let key = (d.agent, id);
+        let key = (d.agent, id, Host::Local);
         if self.registry.by_pane(d.pane).is_some() {
             return Vec::new();
         }
@@ -270,7 +279,7 @@ mod tests {
     fn hooks_bind_sessions_to_panes_and_watch_their_transcripts() {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
-        let key: SessionKey = (AgentKind::Claude, "a".into());
+        let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, "a");
         assert_eq!(hook(&mut core, 1, "SessionStart", payload("a"), true, t0), vec![Change::Added(key.clone())]);
         assert_eq!(core.registry.by_pane(1).map(|s| s.key.clone()), Some(key.clone()));
         assert_eq!(core.watch_set(), vec![(key.clone(), PathBuf::from("/t/a.jsonl"))]);
@@ -294,7 +303,7 @@ mod tests {
         let h = parse_hook_request(Some(1), "codex", "SessionStart", &payload("a")).unwrap();
         assert_eq!(core.timeline_key(&h), None, "not applied yet");
         core.hook(&h, |_| true, t0);
-        assert_eq!(core.timeline_key(&h), Some((AgentKind::Codex, "a".into())));
+        assert_eq!(core.timeline_key(&h), Some(gilvt_agent::local_key(AgentKind::Codex, "a")));
         // Same id, other agent: another session.
         let claude = parse_hook_request(Some(1), "claude", "Stop", &payload("a")).unwrap();
         assert_eq!(core.timeline_key(&claude), None);
@@ -307,14 +316,14 @@ mod tests {
         assert_eq!(core.timeline_key(&h), None);
         // Once the session is known, its subagents' hooks go to its timeline.
         hook(&mut core, 2, "SessionStart", payload("b"), true, t0);
-        assert_eq!(core.timeline_key(&h), Some((AgentKind::Claude, "b".into())));
+        assert_eq!(core.timeline_key(&h), Some(gilvt_agent::local_key(AgentKind::Claude, "b")));
     }
 
     #[test]
     fn hooks_remember_the_permission_mode_of_known_sessions() {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
-        let key: SessionKey = (AgentKind::Claude, "a".into());
+        let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, "a");
         let mut p = payload("a");
         p["permission_mode"] = json!("default");
         let h = parse_hook_request(Some(1), "claude", "SessionStart", &p).unwrap();
@@ -347,7 +356,7 @@ mod tests {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
         let d = Discovery { pane: 2, agent: AgentKind::Claude, cwd: "/r".into(), since: SystemTime::UNIX_EPOCH };
-        let key: SessionKey = (AgentKind::Claude, "lite".into());
+        let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, "lite");
         assert_eq!(core.bind_found(&d, Some(("lite".into(), "/t/lite.jsonl".into())), t0), vec![Change::Added(key.clone())]);
         let turn = vec![Event::PromptSubmit { text: "x".into() }, Event::TurnEnd { background_tasks: 0 }];
         core.transcript(&key, &Batch::Catchup { events: turn.clone(), first_prompt: None }, |_| false, t0);
@@ -379,7 +388,7 @@ mod tests {
         let (c, s) = core.poll(&[(1, Foreground::Shell), (2, agent(9))], t0, wall);
         assert!(c.is_empty() && s.is_empty());
         let (c, s) = core.poll(&[(1, Foreground::Shell), (2, agent(9))], t0 + Duration::from_secs(3), wall);
-        assert_eq!(c, vec![Change::Ended((AgentKind::Claude, "a".into()))]);
+        assert_eq!(c, vec![Change::Ended(gilvt_agent::local_key(AgentKind::Claude, "a"))]);
         assert_eq!(s.len(), 1);
         assert_eq!((s[0].pane, s[0].agent), (2, AgentKind::Codex));
         assert!(core.watch_set().is_empty(), "ended sessions are not tailed");
@@ -402,7 +411,7 @@ mod tests {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
         let d = Discovery { pane: 4, agent: AgentKind::Codex, cwd: "/r".into(), since: SystemTime::UNIX_EPOCH };
-        let key: SessionKey = (AgentKind::Codex, "x".into());
+        let key: SessionKey = gilvt_agent::local_key(AgentKind::Codex, "x");
         core.bind_found(&d, Some(("x".into(), "/t/x.jsonl".into())), t0);
         // The text codex 0.145 prints (its command is cut with "...").
         let text = "Approval requested: /bin/bash -lc 'echo hi > hi...";
@@ -421,7 +430,7 @@ mod tests {
     #[test]
     fn osc_approval_only_for_lite_codex() {
         let t0 = Instant::now();
-        let mut s = Session::new((AgentKind::Codex, "x".into()), t0);
+        let mut s = Session::new(gilvt_agent::local_key(AgentKind::Codex, "x"), t0);
         let text = "Approval requested: rm -rf build";
         assert_eq!(osc_approval(&s, text), None, "hooked sessions have PermissionRequest");
         s.lite = true;
@@ -432,7 +441,7 @@ mod tests {
         assert_eq!(osc_approval(&s, "Agent turn complete"), None);
         s.status = Status::Ended;
         assert_eq!(osc_approval(&s, text), None);
-        let mut claude = Session::new((AgentKind::Claude, "c".into()), t0);
+        let mut claude = Session::new(gilvt_agent::local_key(AgentKind::Claude, "c"), t0);
         claude.lite = true;
         assert_eq!(osc_approval(&claude, text), None);
     }
@@ -457,7 +466,7 @@ mod tests {
     fn a_key_answers_only_a_waiting_approval() {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
-        let key: SessionKey = (AgentKind::Claude, "a".into());
+        let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, "a");
         let input = json!({"command": "bash slow.sh"});
         let with = |event: &str, extra: serde_json::Value| {
             let mut p = payload("a");
@@ -480,7 +489,7 @@ mod tests {
     fn amending_text_is_not_an_answer() {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
-        let key: SessionKey = (AgentKind::Claude, "a".into());
+        let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, "a");
         let ask = |core: &mut Core, now: Instant| {
             let mut p = payload("a");
             p["hook_event_name"] = "PermissionRequest".into();

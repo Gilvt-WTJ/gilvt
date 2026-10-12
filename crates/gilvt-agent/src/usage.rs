@@ -24,7 +24,7 @@ mod tests {
     use crate::AgentKind;
 
     fn session() -> Session {
-        Session::new((AgentKind::Claude, "s".into()), Instant::now())
+        Session::new(crate::local_key(AgentKind::Claude, "s"), Instant::now())
     }
 
     #[test]

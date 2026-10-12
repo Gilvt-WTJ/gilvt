@@ -97,7 +97,7 @@ mod tests {
     use super::*;
 
     fn s(status: Status) -> Session {
-        let mut s = Session::new((AgentKind::Claude, "a".into()), Instant::now());
+        let mut s = Session::new(gilvt_agent::local_key(AgentKind::Claude, "a"), Instant::now());
         s.status = status;
         s
     }

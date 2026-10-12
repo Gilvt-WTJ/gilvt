@@ -71,7 +71,7 @@ mod tests {
     use std::time::Instant;
 
     fn key(id: &str) -> SessionKey {
-        (AgentKind::Claude, id.to_string())
+        gilvt_agent::local_key(AgentKind::Claude, id)
     }
 
     fn set(ids: &[&str]) -> HashSet<SessionKey> {

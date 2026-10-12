@@ -9,8 +9,8 @@ use gilvt_agent::{
 
 use super::inbox::{build_inbox, ReviewPriority, ReviewRuntime, ReviewSort};
 
-fn key(n: usize) -> (AgentKind, String) {
-    (AgentKind::Claude, format!("s{n:04}"))
+fn key(n: usize) -> gilvt_agent::SessionKey {
+    gilvt_agent::local_key(AgentKind::Claude, format!("s{n:04}"))
 }
 
 fn cursor(n: usize) -> TurnCursor {

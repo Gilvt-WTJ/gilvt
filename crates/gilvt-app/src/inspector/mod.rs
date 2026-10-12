@@ -259,8 +259,8 @@ mod tests {
 
     #[test]
     fn card_state_is_forgotten_only_when_the_session_changes() {
-        let a: SessionKey = (gilvt_agent::AgentKind::Claude, "a".into());
-        let b: SessionKey = (gilvt_agent::AgentKind::Claude, "b".into());
+        let a: SessionKey = gilvt_agent::local_key(gilvt_agent::AgentKind::Claude, "a");
+        let b: SessionKey = gilvt_agent::local_key(gilvt_agent::AgentKind::Claude, "b");
         let mut session = None;
         assert!(switched(&mut session, &a), "the first session shown");
         assert!(!switched(&mut session, &a), "the same session again keeps the state");
@@ -272,8 +272,8 @@ mod tests {
     fn follow_resets_net_and_quiet_state() {
         // A FocusHandle needs a running gpui App (no `test-support` here), so the reset `follow` does is
         // tested through the part it shares with this test.
-        let a: SessionKey = (gilvt_agent::AgentKind::Claude, "a".into());
-        let b: SessionKey = (gilvt_agent::AgentKind::Claude, "b".into());
+        let a: SessionKey = gilvt_agent::local_key(gilvt_agent::AgentKind::Claude, "a");
+        let b: SessionKey = gilvt_agent::local_key(gilvt_agent::AgentKind::Claude, "b");
         let (mut session, mut net_open, mut open_quiet) = (None, false, HashSet::new());
         follow_folds(&mut session, &a, &mut net_open, &mut open_quiet);
         net_open = true;

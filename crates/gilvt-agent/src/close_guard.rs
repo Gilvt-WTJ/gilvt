@@ -50,7 +50,7 @@ mod tests {
     use std::time::Instant;
 
     fn session(id: &str, pane: Option<PaneId>, status: Status) -> Session {
-        let mut s = Session::new((AgentKind::Claude, id.into()), Instant::now());
+        let mut s = Session::new(crate::local_key(AgentKind::Claude, id), Instant::now());
         s.pane = pane;
         s.status = status;
         s.name = format!("name-{id}");

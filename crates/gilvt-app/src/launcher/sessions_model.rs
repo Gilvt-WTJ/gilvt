@@ -237,7 +237,7 @@ pub fn build(i: &Input) -> List {
     let scope = effective_scope(i.filters, i.current);
     let (mut ours, mut others) = (Vec::new(), Vec::new());
     for (ix, e) in i.entries.iter().enumerate() {
-        let key: SessionKey = (e.agent, e.session_id.clone());
+        let key: SessionKey = gilvt_agent::local_key(e.agent, e.session_id.clone());
         // A running session is never archived (resumed from 已归档 it is back among the others), as the
         // sidebar shows it.
         let archived = !i.live.contains_key(&key) && (i.archived)(e);

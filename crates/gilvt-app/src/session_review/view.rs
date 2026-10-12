@@ -300,7 +300,7 @@ impl SessionCenterView {
                 .snapshot
                 .entries
                 .iter()
-                .find(|e| (e.agent, e.session_id.clone()) == key)
+                .find(|e| gilvt_agent::local_key(e.agent, e.session_id.clone()) == key)
                 .cloned()
             {
                 Some(entry) => Some(entry),

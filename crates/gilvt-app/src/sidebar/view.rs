@@ -167,7 +167,7 @@ pub fn collect<'a>(ws: &'a Workspace, me: AnyWindowHandle, cx: &'a App) -> Colle
                 .iter()
                 .filter_map(|e| {
                     let title = e.custom_title.clone().or_else(|| e.ai_title.clone())?;
-                    Some(((e.agent, e.session_id.clone()), title))
+                    Some((gilvt_agent::local_key(e.agent, e.session_id.clone()), title))
                 })
                 .collect()
         })
@@ -426,7 +426,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
 /// 「1 个会话 · X MB 将移到废纸篓（可从废纸篓还原）」 with the session's title above, ［取消］［移到废纸篓］.
 fn confirm_bar(confirm: &Confirm, k: &Colors, cx: &mut Context<Workspace>) -> AnyElement {
     let title = confirm.entries.first().map(|e| {
-        let saved = cx.global::<Agents>().registry().saved_name(&(e.agent, e.session_id.clone()));
+        let saved = cx.global::<Agents>().registry().saved_name(&gilvt_agent::local_key(e.agent, e.session_id.clone()));
         crate::launcher::history::title(e, saved)
     });
     let button = |id: &'static str, n: usize, label: &'static str| {

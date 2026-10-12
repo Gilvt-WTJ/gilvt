@@ -10,7 +10,7 @@ fn key(generation: u64, revision: u64, minute: u64, live: &[(&str, bool)]) -> Pe
         revision,
         minute,
         live.iter()
-            .map(|(id, needs_you)| ((AgentKind::Claude, id.to_string()), *needs_you))
+            .map(|(id, needs_you)| (gilvt_agent::local_key(AgentKind::Claude, *id), *needs_you))
             .collect(),
     )
 }

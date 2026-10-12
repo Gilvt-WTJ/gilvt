@@ -197,7 +197,7 @@ mod tests {
         std::fs::write(&path, format!("{}\n{}\n", line(10), line(20))).unwrap();
         let (tx, rx) = async_channel::unbounded();
         let tails = Tails::spawn(tx);
-        let key: SessionKey = (AgentKind::Codex, "s".into());
+        let key: SessionKey = gilvt_agent::local_key(AgentKind::Codex, "s");
         tails.watch(vec![(key.clone(), path.clone())]);
         let (k, batch) = next_events(&rx);
         assert_eq!(k, key);
