@@ -1,10 +1,12 @@
-# gilvt：SSH 远程 R2a（ssh shell 里的 Agent 检测）
+# gilvt：SSH 远程 R2a（ssh shell 里的 Agent 检测与远端文件 review）
 
 - 日期：2026-10-12
 - 状态：设计已与用户逐节确认（见对话），待审阅书面 spec 后写实施计划
 - 上位 spec：`docs/design/2026-10-08-gilvt-ssh-remote-design.md`（下称「总 spec」）。本文只写 R2a 新定的内容；没提到的约定（目录、帧格式、安全、hook 不拖累 agent 等）沿用总 spec。
 - 拆分：总 spec 的 R2 拆成两个里程碑。
-  - **R2a（本文）**：直接在 ssh shell 里运行的 claude / codex；远端组件的版本更新询问。
+  - **R2a（本文）**：直接在 ssh shell 里运行的 claude / codex；远端组件的版本更新询问；在终端里 review 远端文件（`gilvt view`、`gilvt diff`、⌘点击 / Quick Look、编辑并保存，§8，从总 spec 的 R3 提前）。
+  - **实施分两份计划**：第一份覆盖 §2–§7（Agent 检测与更新询问），第二份覆盖 §8（远端文件 review）。各自带验收用例，第一份完成后即可单独使用。
+  - 总 spec R3 里剩下的 ⌘P 文件列表、从访达拖入、git 状态显示仍留在 R3。
   - **R2b**：tmux 里的 agent（总 spec §4.2、§4.3）、写盘的事件日志与 spool、daemon 重启/升级交接后的补发（§4.6、§7）、`/proc` lite 模式（§4.4 第 2 条）、远端全局集成（§4.4 第 3 条）、`gilvt-agent` 的 `/proc` 运行时实现。
 
 ## 1. 目标与范围
@@ -17,7 +19,7 @@
 - 关闭正在运行远端 agent 的 pane / tab / 窗口时需要确认；
 - 退出 ssh 后，这个 pane 上的远端会话结束。
 
-另外，gilvt 升级后第一次连接装有旧版远端组件的主机时，询问是否更新（§2）。
+另外，gilvt 升级后第一次连接装有旧版远端组件的主机时，询问是否更新（§2）；在远端 pane 里可以预览、对比、编辑远端文件（§8）。
 
 **不在 R2a 内**（遇到时显示「这项功能暂不支持远端」，或保持现状）：
 
@@ -25,7 +27,7 @@
 - 没经过包装函数启动的 agent（lite 模式）；
 - 远端会话的清理、归档、删除、Review、检查器「产物」页、产物快照；
 - Claude 子 agent 的 transcript（只显示主会话）；
-- 远端会话的 git 显示（R3）；
+- 远端会话的 git 显示、⌘P、从访达拖入（R3）；
 - 对远端 agent 进程的中断 / 终止（本地依赖 lease 和进程身份校验）。
 
 底线不变：远端任何环节出错，都不影响 agent 运行和 ssh 登录；远端 hook 最多 200 ms，总是以 0 退出。
@@ -62,8 +64,8 @@ R1 的做法是：远端只有其他版本时不询问，显示一行「正在�
 
 ### 3.1 代码复用
 
-- 新 crate `crates/gilvt-hook`：把 `gilvt-cli/src/hook/` 里与平台无关的部分移进来，包括 `hook <agent> <Event>` 的读取、截断和转发，`claude-args` / `codex-args` 生成的参数与 settings 文件，以及 `codex-trust` 后台任务和它的缓存。`gilvt-cli` 和 `gilvt-remote` 都依赖它，`gilvt-cli` 的行为不变。
-- 需要随平台变化的值通过参数传入，不在 `gilvt-hook` 里写死：
+- 新 crate `crates/gilvt-client`：把 `gilvt-cli/src/hook/` 里与平台无关的部分移进来，包括 `hook <agent> <Event>` 的读取、截断和转发，`claude-args` / `codex-args` 生成的参数与 settings 文件，以及 `codex-trust` 后台任务和它的缓存。`gilvt-cli` 和 `gilvt-remote` 都依赖它，`gilvt-cli` 的行为不变。
+- 需要随平台变化的值通过参数传入，不在 `gilvt-client` 里写死：
   - state 目录：Mac 上是 `~/Library/Application Support/gilvt/state`，远端是 `~/.gilvt-server/state`；
   - 写进 hook 命令的 gilvt 路径：Mac 上是 `current_exe`，远端是 `~/.gilvt-server/<build-id>/bin/gilvt`；
   - 是否写 lease：只在 Mac 上写。
@@ -82,7 +84,7 @@ R1 的做法是：远端只有其他版本时不询问，显示一行「正在�
 | 变量 | 值 | 作用 |
 |---|---|---|
 | `GILVT_BIN_DIR` | `~/.gilvt-server/<build-id>/bin` | 包装函数据此找到 `gilvt` |
-| `GILVT_SOCKET` | `~/.gilvt-server/run/hook.sock` | 启用包装函数；`gilvt hook` 发往这里 |
+| `GILVT_SOCKET` | `~/.gilvt-server/run/gilvt.sock` | 启用包装函数；`gilvt hook` 发往这里 |
 | `GILVT_SSH` | `0` | 远端 shell 里的 `ssh` 不再交给 `gilvt ssh`（嵌套 ssh 是非目标） |
 
 `GILVT_PANE_ID` 不设置：远端用 `GILVT_LINK` 标识 pane。`GILVT_NO_AGENT_WRAPPERS` 沿用用户自己的设置。
@@ -91,7 +93,7 @@ R1 的做法是：远端只有其他版本时不询问，显示一行「正在�
 
 ### 4.1 hook 入口
 
-- daemon 另外监听 `~/.gilvt-server/run/hook.sock`（0600，用 `SO_PEERCRED` 校验 uid），协议与 app 的 socket 完全相同：一个连接一行 JSON 的 `gilvt_ipc::Request::Hook`。
+- daemon 另外监听 `~/.gilvt-server/run/gilvt.sock`（0600，用 `SO_PEERCRED` 校验 uid），协议与 app 的 socket 完全相同：一个连接一行 JSON 的 `gilvt_ipc::Request::Hook`。
 - `Request::Hook` 新增可选字段 `link: Option<String>`（`#[serde(default, skip_serializing_if = "Option::is_none")]`），远端的 `gilvt hook` 从 `GILVT_LINK` 填入。Mac 上不填，所以本地格式不变。
 - hook 带 `TMUX` 环境变量时也一并上报（新增可选字段 `tmux: bool`），daemon 收到后丢弃（R2b 再处理）。
 - daemon 的归属规则：
@@ -137,7 +139,7 @@ transcript 推送不进入补发缓冲：它只发给发起 `TranscriptFollow` �
 
 ### 4.6 依赖
 
-`gilvt-remote` 新增依赖 `gilvt-hook`、`gilvt-agent`（依赖 §3.1 的 cfg 改动）。仍然是 musl 静态二进制。
+`gilvt-remote` 新增依赖 `gilvt-client`、`gilvt-agent`（依赖 §3.1 的 cfg 改动）。仍然是 musl 静态二进制。
 
 ## 5. app 端
 
@@ -200,7 +202,7 @@ pane 回到本地，或收到 `LinkDown` 时，把这个 pane 上 host 为远端
 
 - `scripts/build-remote.sh` 额外编出 Linux 版 `gilvt-fake-agent`（musl）。`tests/gui/remote.sh up` 把它装进测试容器，作为 `dev` 和 `devz` 用户的 `claude` 与 `codex`（放在 PATH 里，名字与真实 CLI 相同，这样才会被包装函数接管）。
 - fake agent 新增剧本 `remote-approval`：启动后进入需要审批的状态，等待输入，然后结束一轮。纳入现有的防脱节测试。现有剧本照常可在远端使用。
-- 新增 `scripts/remote-test.sh`：在 `rust:alpine` 容器里运行 `cargo test -p gilvt-remote -p gilvt-hook -p gilvt-agent`，覆盖依赖 Linux 的部分（`SO_PEERCRED`、hook socket、transcript 跟踪）。
+- 新增 `scripts/remote-test.sh`：在 `rust:alpine` 容器里运行 `cargo test -p gilvt-remote -p gilvt-client -p gilvt-agent`，覆盖依赖 Linux 的部分（`SO_PEERCRED`、gilvt.sock、transcript 跟踪）。
 
 ### 6.2 cargo test（与平台无关的逻辑）
 
@@ -209,7 +211,7 @@ pane 回到本地，或收到 `LinkDown` 时，把这个 pane 上 host 为远端
 - 补发：同 epoch 补发、epoch 不同、cursor 早于缓冲、缓冲上限。
 - transcript 跟踪：增量、行边界切块、截断后 reset、路径校验。
 - `SessionKey` 的持久化：旧格式的 `sessions.json` 能读，远端 key 的往返序列化。
-- `gilvt-hook` 移出后，`gilvt-cli` 现有的 hook 测试全部原样通过。
+- `gilvt-client` 移出后，`gilvt-cli` 现有的 hook 测试全部原样通过。
 
 ### 6.3 验收（`docs/compat-checklist.md` 的 AC 节末尾追加，每行一个 `tests/gui/cases/AC/<ID>.md`）
 
@@ -240,3 +242,73 @@ R1 的「版本变化后自动更新」那一行改为只在 `remote.install = "
 - **`SessionKey` 加字段的改动面**：它被侧栏、Session Center、review、监控官、持久化大量使用。计划里把它作为单独的一步：先加字段、所有地方传 `Local`、`cargo test` 全绿，再接入远端。
 - **transcript 首次跟踪的体积**：长会话的 transcript 可能有几十 MB，在 270 ms RTT 的链路上首次推送要几秒。R2a 接受这个代价，检查器在收到数据前显示加载中的状态。按需分页属于 R3 / R4。
 - **codex trust 在远端的首次运行**：trust 缓存缺失时，包装函数会以不带 hook 的方式运行 codex，并在后台启动 `codex app-server` 计算 trust。所以远端第一次运行 codex 时侧栏没有这一项，第二次才有，与本地第一次运行时的行为相同。验收用例里先运行一次预热。
+
+## 8. 远端文件 review
+
+在远端 pane 里，`gilvt view`、`gilvt diff`、⌘点击路径 / Quick Look、内置编辑器都作用于远端文件。原则：**每个用户操作只来回一次，等待时显示加载中，不阻塞 UI；绝不回退到本地的同名路径。**
+
+### 8.1 daemon 新增的请求（`gilvt-ipc::remote`，只增不改）
+
+文件内容一律 base64 编码。fingerprint 为 `{ mtime_ns, size, sha256 }`。
+
+| 请求 | 响应 | 用途 |
+|---|---|---|
+| `ReadFile { path, max }` | `FileData { bytes, fingerprint }`，或错误 `TooLarge` / `NotFound` / `Io` | 编辑器打开、「对比磁盘」、Markdown 里的图片 |
+| `ReadForPreview { path, rev }` | `PreviewData { bytes, fingerprint, git_root, base_text }` | 一次取回预览所需的全部内容；`git_root` / `base_text` 在不在仓库里时为空，`rev` 缺省为 `HEAD` |
+| `Stat { paths }` | `Stats { entries: [{ exists, is_file, size, mtime_ns }] }` | 批量：⌘点击前的检查、Markdown 链接是否存在；单次最多 256 个路径 |
+| `WriteFile { path, bytes, expect }` | `Saved { fingerprint }`，或 `Modified { current }` | 写临时文件（同目录）→ fsync → rename，保留原文件权限；`expect` 为空表示新建，目标已存在时返回 `Modified` |
+| `GitChanges { cwd, rev }` | `Changes { root, files: [{ status, path }] }`，不在仓库里时返回错误 | `gilvt diff` 的文件列表，算法与本地 `changed_files` 相同 |
+| `Watch { path }` / `Unwatch { path }` | 推送 `FileChanged { path, fingerprint }`（文件删除时 fingerprint 为空） | 每 500 ms 检查一次被监视文件的 stat；每个 bridge 最多 64 个，超出时返回错误 |
+
+- 路径必须是绝对路径；`~/` 由 app 用 `Welcome.home`（新增字段，远端的 `$HOME`）展开后再发送。daemon 以用户自己的身份运行，权限即用户在远端的权限。
+- 上限：预览 5 MB（与本地相同）；**远端编辑器 10 MB**（本地仍为 64 MB；10 MB 经 base64 后约 13.3 MB，在 16 MB 单帧之内）。超过上限时显示「文件太大，远端暂不支持」。
+- 读写和 git 都在 daemon 的工作线程里执行，不阻塞 hook 和其他请求。
+
+### 8.2 远端的 `gilvt view` / `gilvt diff`
+
+- `gilvt-client` 同时包含 view / diff 的 CLI 端：参数解析、`is_file`、`repo_root`、`is_commit`、`view -` 读取 stdin（上限 10 MB）。`gilvt-cli` 改为调用它，本地行为不变。在远端运行时，检查的就是远端的文件和仓库。
+- 远端 `gilvt` 入口在 `hook` 之外支持 `view`、`diff`。
+- `run/gilvt.sock` 除 `Hook` 外，也接收 `Request::View` / `Request::Diff`（新增可选字段 `link`，从 `GILVT_LINK` 填入）。daemon 立即回复 `Response::Ok`，再推送 `Open { link, request }` 给 app。link 不在登记表里时，回复错误「这个 shell 没有连着 gilvt」，CLI 打印后以 1 退出。
+
+### 8.3 app 端
+
+- **主机抽象**：引入总 spec §6 的 `HostFs` / `HostGit`。本地实现是对现有函数的薄包装（行为不变）；远端实现经 bridge，接口全部是异步的。`Source::File(PathBuf)` 等「文件来源」改为带 host 的 `HostPath`。
+- **预览 / Quick Look**：
+  - 远端文件用一次 `ReadForPreview` 取回，之后与本地共用 `Preview::from_texts` 等纯函数。
+  - Markdown 链接先按「存在」渲染，随后一次批量 `Stat`，把不存在的改为普通文本；图片按需用 `ReadFile`（上限 5 MB）取回，并按 `HostPath` + fingerprint 缓存。
+  - 固定的预览用 `Watch` 实时刷新；Quick Look 与本地一样，只标记为过期。
+- **⌘点击**：
+  - 悬停时照常画下划线，不请求远端（R1 已是如此）。
+  - 点击时发一次 `Stat`：存在时在 Quick Look 里打开远端文件（按 ⇧ 时用编辑器打开）；不存在时提示「devbox 上没有这个文件」。
+  - R1 里 `OpenPath` 的「暂不支持远端」兜底改为上述流程。
+- **`gilvt diff`**：收到远端的 `Diff` 后，用 `GitChanges` 取文件列表；每个文件打开时用 `ReadForPreview { rev }` 取内容；界面沿用本地的 Quick Look 分组。与本地一样，列表只算一次，删除的文件不显示。
+- **编辑器**：
+  - 打开时先显示加载中的状态，`ReadFile` 返回后再建 buffer；fingerprint 记在 buffer 上。
+  - 保存时发 `WriteFile`，带上 fingerprint。返回 `Modified` 时，转成现有的 `EditorError::ModifiedOnDisk`，走现有的「重新加载 / 对比 / 覆盖」条；「覆盖」时 `expect` 用远端返回的 `current`。
+  - 外部修改用 `Watch` 检测，替代本地的 `notify`。
+  - bridge 不在时保存失败，提示「devbox 未连接，未保存」，buffer 保持未保存。「另存为」只允许同一台主机上的路径。
+  - 已经打开的同一个远端文件（同一个 `HostPath`）复用已有的编辑器。
+- **仍显示「这项功能暂不支持远端」**：⌘P、从访达拖入、git 状态显示、在访达中显示。
+
+### 8.4 DebugState（只增不改）
+
+- 预览 / Quick Look / 编辑器的条目增加 `host`（`"local"` 或 `HostId`）和 `loading`（是否在等远端）。
+- `hosts[]` 增加 `watches`（正在监视的文件数）。
+
+### 8.5 测试与验收
+
+- cargo test：fingerprint 与 `expect` 的冲突判定、临时文件 + rename 写入、`Stat` 批量上限、`GitChanges` 与本地 `changed_files` 结果一致（同一个测试仓库）、`HostPath` 的 `~/` 展开、编辑器把 `Modified` 转成 `ModifiedOnDisk`。依赖 Linux 的部分在 `scripts/remote-test.sh` 里跑。
+- AC 节追加（每行一个用例文件）：
+
+| 行 | 用例 |
+|---|---|
+| 远端 `gilvt view a.md` 在 gilvt 里预览；在远端改文件后预览实时刷新 | 自动 |
+| 远端 `echo … \| gilvt view -` 预览 stdin 内容 | 自动 |
+| 远端仓库里 `gilvt diff` 列出改动文件，打开后显示远端的改动 | 自动 |
+| ⌘点击远端路径打开的是远端文件：本地放一个同名的诱饵文件，断言显示的内容来自远端 | 自动 |
+| ⌘点击远端不存在的路径，提示「devbox 上没有这个文件」 | 自动 |
+| 编辑器打开远端文件，修改并保存后远端内容随之变化 | 自动 |
+| 远端文件被外部修改后再保存，出现冲突条 | 自动 |
+| bridge 断开时保存，提示未连接，buffer 保持未保存 | 自动 |
+
+- `CHANGELOG.md` 的 Added 增加一条：「在 ssh 远端 pane 里可以用 gilvt view / gilvt diff / ⌘点击预览远端文件，并用内置编辑器修改保存」。
