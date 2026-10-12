@@ -581,9 +581,9 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC23 | 远端会话等待审批时杀掉 bridge，在 bridge 断开期间按 `y` | bridge 重连后补发断开期间的 hook：会话变为空闲，`hosts[0].gap` 为 false | [AC23](../tests/gui/cases/AC/AC23.md) |
 | AC24 | 远端会话结束后按 `⌘⇧R`：在空闲的远端 pane 里恢复；退出 ssh 后再恢复一次 | 面板列出 `host` 为远端、目录以 `devbox-test ·` 开头的条目；第一次在当前远端 pane 里输入恢复命令；第二次新开一个标签，先 `ssh devbox-test`，出现远端提示符后再恢复 | [AC24](../tests/gui/cases/AC/AC24.md) |
 | AC25 | 远端 agent 在思考时按 `⌘W` 关这个 pane | 出现关闭确认，`items` 列出这个远端会话 | [AC25](../tests/gui/cases/AC/AC25.md) |
-| AC26 | 远端 agent 运行中，在远端结束 agent 后 `exit` 退出 ssh | pane 回到本地，这个 pane 上的远端会话状态为已结束 | [AC26](../tests/gui/cases/AC/AC26.md) |
+| AC26 | 远端 agent 运行中，断开 ssh（行首输入 `~.`，不先结束 agent） | pane 回到本地；退出 ssh 后，这个 pane 上的远端会话结束（状态为已结束） | [AC26](../tests/gui/cases/AC/AC26.md) |
 | AC27 | 远端 shell 里运行 `ssh -V` 和 `echo $GILVT_SSH` | 打印 OpenSSH 的版本、`GILVT_SSH` 为 `0`；没有任何 `gilvt:` 提示，也没有新的 link | [AC27](../tests/gui/cases/AC/AC27.md) |
-| AC28 | 远端 tmux 里运行 `claude @scenario:default` | 侧栏没有远端会话行（R2b 之前的已知限制） | [AC28](../tests/gui/cases/AC/AC28.md) |
+| AC28 | 远端 tmux 里运行 `claude @scenario:default` | 侧栏没有 tmux 里那次的远端会话行（R2b 之前的已知限制）；对照：退出 tmux 后同一远端上普通运行的 claude 有一行 | [AC28](../tests/gui/cases/AC/AC28.md) |
 | AC29 | 真实 claude 在真实远端上运行一轮（含一次审批） | 侧栏、通知、审批跳转、检查器都可用 | [AC29](../tests/gui/cases/AC/AC29.md) 真实 claude（需要真实远端与登录态） |
 
 ## 已知限制（M1）

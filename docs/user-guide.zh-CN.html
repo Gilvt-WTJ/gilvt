@@ -785,7 +785,7 @@ exclude_paths = []        # 这些目录下的会话 / 终端不总结，支持 
     <li><strong>更新</strong>：gilvt 升级后第一次连接装有旧版远端组件的主机时，会先询问是否更新（<code>Y</code> 更新，<code>n</code> 这次普通登录，<code>N</code> 永不安装；<code>[remote] install = "always"</code> 则不询问直接更新）。</li>
     <li><strong>绕过</strong>：输入 <code>command ssh host</code>，或设置 <code>GILVT_SSH=0</code>（如 <code>GILVT_SSH=0 ssh host</code>），gilvt 完全不介入。</li>
     <li><strong>远端目录</strong>：全部在 <code>~/.gilvt-server</code>，并常驻一个小 daemon。手动卸载：<code>pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server</code>。</li>
-    <li><strong>当前限制（R2a）</strong>：只支持 Linux x86_64 / aarch64 主机；<kbd>⌘P</kbd>、预览（Quick Look）、内置编辑器在 ssh pane 里暂不可用（会提示「这项功能暂不支持远端」，不会去读你 Mac 上的同名文件）；不支持 mosh；不支持从远端再跳到别的主机；远端 shell 里直接运行的 claude / codex 会出现在侧栏，通知、审批跳转、检查器、会话历史与恢复都可用；远端 tmux 里的 Agent 暂不检测；远端会话的清理、归档、Review、检查器「产物」页暂不支持。</li>
+    <li><strong>当前限制（R2a）</strong>：只支持 Linux x86_64 / aarch64 主机；<kbd>⌘P</kbd>、预览（Quick Look）、内置编辑器在 ssh pane 里暂不可用（会提示「这项功能暂不支持远端」，不会去读你 Mac 上的同名文件）；不支持 mosh；不支持从远端再跳到别的主机；远端 shell 里直接运行的 claude / codex 会出现在侧栏，通知、审批跳转、检查器、会话历史与恢复都可用；远端 tmux 里的 Agent 暂不检测；远端会话的清理、归档、Review、检查器「配置」页和「产物」页暂不支持。</li>
   </ul>
 </section>
 

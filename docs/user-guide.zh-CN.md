@@ -528,7 +528,7 @@ theme = "My Theme"                                   # 固定
 - **更新**：gilvt 升级后第一次连接装有旧版远端组件的主机时，会先询问是否更新（`Y` 更新，`n` 这次普通登录，`N` 永不安装；`[remote] install = "always"` 则不询问直接更新）。
 - **绕过**：输入 `command ssh host`，或设置 `GILVT_SSH=0`（如 `GILVT_SSH=0 ssh host`），gilvt 完全不介入。
 - **远端目录**：全部在 `~/.gilvt-server`，并常驻一个小 daemon。手动卸载：`pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server`。
-- **当前限制（R2a）**：只支持 Linux x86_64 / aarch64 主机；`⌘P`、预览（Quick Look）、内置编辑器在 ssh pane 里暂不可用（会提示「这项功能暂不支持远端」，不会去读你 Mac 上的同名文件）；不支持 mosh；不支持从远端再跳到别的主机；远端 shell 里直接运行的 claude / codex 会出现在侧栏，通知、审批跳转、检查器、会话历史与恢复都可用；远端 tmux 里的 Agent 暂不检测；远端会话的清理、归档、Review、检查器「产物」页暂不支持。
+- **当前限制（R2a）**：只支持 Linux x86_64 / aarch64 主机；`⌘P`、预览（Quick Look）、内置编辑器在 ssh pane 里暂不可用（会提示「这项功能暂不支持远端」，不会去读你 Mac 上的同名文件）；不支持 mosh；不支持从远端再跳到别的主机；远端 shell 里直接运行的 claude / codex 会出现在侧栏，通知、审批跳转、检查器、会话历史与恢复都可用；远端 tmux 里的 Agent 暂不检测；远端会话的清理、归档、Review、检查器「配置」页和「产物」页暂不支持。
 
 ### 配置
 
