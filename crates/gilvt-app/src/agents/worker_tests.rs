@@ -340,3 +340,34 @@ fn a_resumed_codex_session_is_named_from_its_history() {
     assert!(s.lite);
     assert_eq!((s.name.as_str(), &s.status), (first, &Status::Idle), "history names it but runs no turn");
 }
+
+#[test]
+fn a_remote_source_catches_up_then_goes_live_and_resets() {
+    use gilvt_agent::host::{Host, HostId};
+    let key: SessionKey = (AgentKind::Codex, "r".into(), Host::Remote(HostId("dev@h:22".into())));
+    let usage = |n: u64| format!(r#"{{"timestamp":"2026-01-01T00:00:00Z","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{{"total_tokens":{n}}},"model_context_window":1000}}}}}}"#);
+    let mut w = Worker::default();
+    w.watch(vec![(key.clone(), "/home/dev/r.jsonl".into())]);
+    let mut out = Vec::new();
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(10), usage(20)], history: true });
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(out.is_empty(), "history waits for HistoryDone");
+    w.remote(key.clone(), RemoteFeed::HistoryDone);
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(matches!(&out[..], [(_, Batch::Catchup { events, .. })] if matches!(events.as_slice(), [Event::Usage { context_tokens: 20, .. }])), "{out:?}");
+    out.clear();
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(30)], history: false });
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(matches!(&out[..], [(_, Batch::Live(events))] if matches!(events.as_slice(), [Event::Usage { context_tokens: 30, .. }])));
+    assert!(w.dirs().is_empty(), "no local directory to watch for a remote session");
+    w.remote(key.clone(), RemoteFeed::Reset);
+    assert!(w.publish().iter().any(|(k, _)| k == &key), "the timeline is rebuilt");
+    // After a reset the daemon pushes the file again: what is below the reset's size is catch-up, not live events.
+    out.clear();
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(40)], history: true });
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(out.is_empty(), "history after a reset waits for HistoryDone too");
+    w.remote(key.clone(), RemoteFeed::HistoryDone);
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(matches!(&out[..], [(_, Batch::Catchup { events, .. })] if matches!(events.as_slice(), [Event::Usage { context_tokens: 40, .. }])), "{out:?}");
+}

@@ -45,7 +45,6 @@ struct BridgeHandle {
 pub type Reply = Box<dyn FnOnce(Result<RemoteResponse, RequestError>, &mut App)>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(dead_code)] // callers arrive with transcript follow and history (R2a Task 10+)
 pub enum RequestError {
     /// No bridge up for the host.
     NotConnected,
@@ -57,7 +56,6 @@ pub enum RequestError {
 }
 
 /// Sends `req` on `host`'s bridge; `reply` runs on the main thread exactly once (answer, error, timeout).
-#[allow(dead_code)] // callers arrive with transcript follow and history (R2a Task 10+)
 pub fn request(host: &str, req: RemoteRequest, timeout: Duration, reply: Reply, cx: &mut App) {
     let up = cx.try_global::<RemoteHosts>().and_then(|r| r.hosts.get(host)).is_some_and(|h| h.bridge == BridgeStatus::Up);
     let generation = cx.try_global::<BridgeHandles>().and_then(|g| g.map.get(host)).map(|h| h.generation);
@@ -233,6 +231,7 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
             for (pane, pr) in cx.global_mut::<RemoteHosts>().set_hostname(host, hostname) {
                 super::apply_to_pane(pane, Some(pr), cx);
             }
+            crate::agents::Agents::remote_reconnected(host, cx);
         }
         Some(DaemonMsg::Mismatch { .. }) => {
             set_status(host, BridgeStatus::Mismatch, cx);
@@ -266,7 +265,14 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
                 );
             }
         }
-        Some(_) => {}
+        Some(DaemonMsg::TranscriptAppend { agent, session_id, offset, bytes }) => {
+            if let Ok(bytes) = gilvt_ipc::remote::decode_bytes(&bytes) {
+                crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Append { offset, bytes }, cx);
+            }
+        }
+        Some(DaemonMsg::TranscriptReset { agent, session_id, size }) => {
+            crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Reset { size }, cx);
+        }
         None => {
             if let Some(h) = cx.global_mut::<BridgeHandles>().map.remove(host) {
                 retire(h, cx);

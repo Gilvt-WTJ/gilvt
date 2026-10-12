@@ -7,6 +7,7 @@ mod foreground;
 mod pending;
 mod process;
 mod project;
+mod remote_feed;
 mod recorder;
 mod state;
 mod tails;
@@ -32,6 +33,7 @@ pub use self::project::{fallback_name, project_root};
 pub use self::state::PaneKey;
 use self::foreground::Foreground;
 use self::tails::{Out, Tails};
+use self::worker::RemoteFeed;
 use self::timelines::{anchor_for, HookFeed};
 pub use self::timelines::TimelineView;
 use crate::theme::AppSettings;
@@ -64,6 +66,8 @@ pub struct Agents {
     hook_tx: async_channel::Sender<HookIn>,
     tails: Option<Tails>,
     watching: Vec<(SessionKey, PathBuf)>,
+    /// Remote transcripts followed over the bridges (R2a §5.5).
+    remote_follows: remote_feed::RemoteFollows,
     /// Project names of session directories, resolved in the background.
     projects: HashMap<PathBuf, String>,
     resolving: HashSet<PathBuf>,
@@ -99,6 +103,108 @@ impl Agents {
         }
         let changes = cx.global_mut::<Agents>().core.registry.end_remote_in_pane(pane, Instant::now());
         after_changes(changes, cx);
+    }
+}
+
+/// A transcript push from an ssh host (R2a §4.2).
+pub enum RemoteChunk {
+    Append { offset: u64, bytes: Vec<u8> },
+    /// The file shrank or was replaced; `size` is its length now (history, see `RemoteFollows::reset`).
+    Reset { size: u64 },
+}
+
+impl Agents {
+    /// The inspector shows its loading state: a remote session's history is still on its way.
+    pub fn transcript_loading(&self, key: &SessionKey) -> bool {
+        self.remote_follows.loading(key)
+    }
+
+    /// Transcripts followed on `host` (DebugState `hosts[].follows`).
+    #[allow(dead_code)] // DebugState `hosts[].follows` (R2a Task 13)
+    pub fn remote_follow_count(&self, host: &str) -> usize {
+        self.remote_follows.count(host)
+    }
+
+    pub fn remote_transcript(host: &str, agent: &str, session_id: &str, chunk: RemoteChunk, cx: &mut App) {
+        let Some(agent) = AgentKind::from_name(agent) else { return };
+        let key: SessionKey = (agent, session_id.to_string(), Host::Remote(HostId(host.to_string())));
+        if !cx.has_global::<Agents>() {
+            return;
+        }
+        let agents = cx.global_mut::<Agents>();
+        let feeds = match chunk {
+            RemoteChunk::Reset { size } => match agents.remote_follows.reset(&key, size) {
+                Some(true) => vec![RemoteFeed::Reset, RemoteFeed::HistoryDone],
+                Some(false) => vec![RemoteFeed::Reset],
+                None => vec![],
+            },
+            RemoteChunk::Append { offset, bytes } => match agents.remote_follows.append(&key, offset, &bytes) {
+                Some(a) => {
+                    let mut v = vec![RemoteFeed::Lines { lines: a.lines, history: a.history }];
+                    if a.history_done {
+                        v.push(RemoteFeed::HistoryDone);
+                    }
+                    v
+                }
+                None => vec![],
+            },
+        };
+        if feeds.is_empty() {
+            return;
+        }
+        if let Some(tails) = &agents.tails {
+            feeds.into_iter().for_each(|f| tails.remote(key.clone(), f));
+        }
+        cx.defer(move |cx| workspace::notify_sessions(&[key], cx));
+    }
+
+    /// A bridge to `host` came up again: follow its sessions again from what arrived.
+    pub fn remote_reconnected(host: &str, cx: &mut App) {
+        let Some(agents) = cx.try_global::<Agents>() else { return };
+        let cmds = agents.remote_follows.reconnected(host);
+        run_follow_cmds(cmds, cx);
+    }
+
+    fn remote_following(key: &SessionKey, size: u64, cx: &mut App) {
+        let agents = cx.global_mut::<Agents>();
+        if agents.remote_follows.following(key, size) {
+            if let Some(tails) = &agents.tails {
+                tails.remote(key.clone(), RemoteFeed::HistoryDone);
+            }
+        }
+        let key = key.clone();
+        cx.defer(move |cx| workspace::notify_sessions(&[key], cx));
+    }
+}
+
+/// Sends the follow / unfollow requests. A follow that fails (no bridge yet, timeout) just stops waiting: the
+/// reconnect re-follows from what arrived.
+fn run_follow_cmds(cmds: Vec<remote_feed::FollowCmd>, cx: &mut App) {
+    use gilvt_ipc::remote::{RemoteRequest, RemoteResponse};
+    use remote_feed::{FollowCmd, FOLLOW_TIMEOUT};
+    for cmd in cmds {
+        match cmd {
+            FollowCmd::Follow { host, key, path, from, restart } => {
+                if restart {
+                    if let Some(tails) = &cx.global::<Agents>().tails {
+                        tails.remote(key.clone(), RemoteFeed::Reset);
+                    }
+                }
+                let req = RemoteRequest::TranscriptFollow { agent: key.0.name().into(), session_id: key.1.clone(), path, from };
+                crate::remote::bridge::request(&host, req, FOLLOW_TIMEOUT, Box::new(move |res, cx| match res {
+                    Ok(RemoteResponse::Following { size }) => Agents::remote_following(&key, size, cx),
+                    _ => {
+                        if cx.has_global::<Agents>() {
+                            cx.global_mut::<Agents>().remote_follows.follow_failed(&key);
+                        }
+                    }
+                }), cx);
+            }
+            FollowCmd::Unfollow { host, key } => {
+                let req = RemoteRequest::TranscriptUnfollow { agent: key.0.name().into(), session_id: key.1.clone() };
+                crate::remote::bridge::request(&host, req, FOLLOW_TIMEOUT, Box::new(|_, _| {}), cx);
+            }
+        }
     }
 }
 
@@ -373,6 +479,7 @@ pub fn init(cx: &mut App) -> async_channel::Sender<HookIn> {
         hook_tx: hook_tx.clone(),
         tails: Some(Tails::spawn(batch_tx)),
         watching: Vec::new(),
+        remote_follows: Default::default(),
         projects: HashMap::new(),
         resolving: HashSet::new(),
         git: HashMap::new(),
@@ -532,6 +639,8 @@ async fn poll_loop(cx: &mut AsyncApp) {
                 workspace::notify_all(cx);
             }
             after_changes(changes, cx);
+            let cmds = cx.global_mut::<Agents>().remote_follows.tick(Instant::now());
+            run_follow_cmds(cmds, cx);
             Agents::track_dirs(workspace::terminal_dirs(cx), cx);
             if ticks % GIT_POLLS == 1 {
                 Agents::refresh_git(cx);
@@ -702,6 +811,9 @@ fn after_changes(changes: Vec<Change>, cx: &mut App) {
         }
         agents.watching = set;
     }
+    let remote = agents.core.remote_follow_set();
+    let cmds = agents.remote_follows.sync(&remote, Instant::now());
+    run_follow_cmds(cmds, cx);
     resolve_projects(cx);
     cx.defer(workspace::notify_all);
 }

@@ -250,6 +250,15 @@ impl Core {
             .filter_map(|s| Some((s.key.clone(), s.transcript.clone()?)))
             .collect()
     }
+
+    /// Transcripts of the live remote sessions: the bridges follow them (`watch_set` leaves them out).
+    pub fn remote_follow_set(&self) -> Vec<(SessionKey, PathBuf)> {
+        self.registry
+            .sessions()
+            .filter(|s| s.is_live() && s.key.2.is_remote())
+            .filter_map(|s| Some((s.key.clone(), s.transcript.clone()?)))
+            .collect()
+    }
 }
 
 #[cfg(test)]
