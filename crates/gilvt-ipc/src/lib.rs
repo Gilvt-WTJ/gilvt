@@ -41,7 +41,18 @@ pub enum Request {
     /// Preview every changed file in the repository containing `cwd`, against `rev` (default HEAD).
     Diff { pane: Option<u64>, cwd: PathBuf, rev: Option<String> },
     /// An agent hook payload (`gilvt hook <agent> <event>`). Fire-and-forget: the app never replies.
-    Hook { pane: Option<u64>, agent: String, event: String, payload: serde_json::Value },
+    Hook {
+        pane: Option<u64>,
+        agent: String,
+        event: String,
+        payload: serde_json::Value,
+        /// The ssh link (`GILVT_LINK`) of a hook sent on a remote host (spec R2a §4.1); never set on the Mac.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        link: Option<String>,
+        /// The hook ran inside tmux (`TMUX` set); the remote daemon drops these until R2b.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        tmux: bool,
+    },
     /// A snapshot of the app's UI state for tests (`gilvt debug state`), with the last `tail_lines`
     /// visible lines of each pane. Answered by the app's main thread (see [`Query`]).
     DebugState { tail_lines: u16 },
@@ -170,6 +181,12 @@ fn write_line<T: Serialize>(stream: &mut UnixStream, msg: &T) -> io::Result<()> 
     let mut line = serde_json::to_vec(msg).map_err(io::Error::other)?;
     line.push(b'\n');
     stream.write_all(&line)
+}
+
+/// Reads one request line (what [`send`] / [`send_nowait`] write). For servers other than the app's: the
+/// remote daemon's `run/gilvt.sock` (spec R2a §4.1).
+pub fn read_request(stream: &UnixStream) -> io::Result<Request> {
+    read_line(stream)
 }
 
 fn read_line<T: for<'de> Deserialize<'de>>(stream: &UnixStream) -> io::Result<T> {
@@ -430,7 +447,18 @@ mod tests {
     }
 
     fn hook(pane: Option<u64>, payload: serde_json::Value) -> Request {
-        Request::Hook { pane, agent: "claude".into(), event: "Stop".into(), payload }
+        Request::Hook { pane, agent: "claude".into(), event: "Stop".into(), payload, link: None, tmux: false }
+    }
+
+    #[test]
+    fn a_local_hook_line_is_unchanged_and_a_remote_one_names_its_link() {
+        let local = Request::Hook { pane: Some(1), agent: "claude".into(), event: "Stop".into(), payload: serde_json::json!({}), link: None, tmux: false };
+        assert_eq!(serde_json::to_string(&local).unwrap(), r#"{"type":"hook","pane":1,"agent":"claude","event":"Stop","payload":{}}"#);
+        let old: Request = serde_json::from_str(r#"{"type":"hook","pane":null,"agent":"codex","event":"Stop","payload":{}}"#).unwrap();
+        assert!(matches!(old, Request::Hook { link: None, tmux: false, .. }));
+        let remote = Request::Hook { pane: None, agent: "claude".into(), event: "Stop".into(), payload: serde_json::json!({}), link: Some("i-1".into()), tmux: true };
+        let back: Request = serde_json::from_str(&serde_json::to_string(&remote).unwrap()).unwrap();
+        assert_eq!(back, remote);
     }
 
     #[test]

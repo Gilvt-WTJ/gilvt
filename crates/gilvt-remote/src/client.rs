@@ -37,7 +37,7 @@ pub fn spawn_daemon(exe: &Path) -> io::Result<()> {
 pub fn ensure_daemon(layout: &Layout, exe: &Path, build_id: &str) -> io::Result<()> {
     if let Ok(mut s) = UnixStream::connect(layout.socket()) {
         s.set_read_timeout(Some(Duration::from_secs(2)))?;
-        write_frame(&mut s, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: build_id.into(), app_instance: "probe".into(), cursor: 0 } })?;
+        write_frame(&mut s, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: build_id.into(), app_instance: "probe".into(), cursor: 0, epoch: None } })?;
         if let Ok(Some(DaemonMsg::Welcome { .. })) = read_frame::<DaemonMsg>(&mut s) { return Ok(()); }
     }
     spawn_daemon(exe)?;
@@ -45,7 +45,7 @@ pub fn ensure_daemon(layout: &Layout, exe: &Path, build_id: &str) -> io::Result<
     loop {
         if let Ok(mut s) = UnixStream::connect(layout.socket()) {
             s.set_read_timeout(Some(Duration::from_secs(2)))?;
-            write_frame(&mut s, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: build_id.into(), app_instance: "probe".into(), cursor: 0 } })?;
+            write_frame(&mut s, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: build_id.into(), app_instance: "probe".into(), cursor: 0, epoch: None } })?;
             if let Ok(Some(DaemonMsg::Welcome { .. })) = read_frame::<DaemonMsg>(&mut s) { return Ok(()); }
         }
         if Instant::now() > deadline { return Err(io::Error::other("daemon did not come up")); }

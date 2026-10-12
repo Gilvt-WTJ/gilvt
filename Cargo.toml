@@ -12,6 +12,7 @@ repository = "https://github.com/Gilvt-WTJ/gilvt"
 [workspace.dependencies]
 alacritty_terminal = "=0.26.0"
 async-channel = "2.3"
+base64 = "0.22"
 block2 = "0.6"
 comrak = { version = "0.55", default-features = false }
 objc2 = "0.6"

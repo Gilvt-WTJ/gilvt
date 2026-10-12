@@ -146,7 +146,7 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config) -> io::R
             let (tx, rx) = channel::<DaemonMsg>();
             let id = {
                 let mut s = state.lock().unwrap();
-                let welcome = DaemonMsg::Welcome { build_id: cfg.build_id.clone(), hostname: cfg.hostname.clone(), uname: cfg.uname.clone(), links: s.links.all(), seq: s.seq };
+                let welcome = DaemonMsg::Welcome { build_id: cfg.build_id.clone(), hostname: cfg.hostname.clone(), uname: cfg.uname.clone(), links: s.links.all(), seq: s.seq, epoch: 0, gap: false };
                 tx.send(welcome).ok();
                 s.next_bridge += 1;
                 let id = s.next_bridge;
@@ -164,6 +164,7 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config) -> io::R
                         let resp = match req {
                             RemoteRequest::Ping => RemoteResponse::Pong,
                             RemoteRequest::LinkInfo => RemoteResponse::Links { links: state.lock().unwrap().links.all() },
+                            RemoteRequest::TranscriptFollow { .. } | RemoteRequest::TranscriptUnfollow { .. } | RemoteRequest::History => RemoteResponse::Error { message: "not supported yet".into() },
                         };
                         if tx.send(DaemonMsg::Response { id: rid, resp }).is_err() { break; }
                     }
@@ -200,7 +201,7 @@ mod tests {
     }
     fn bridge(home: &std::path::Path, build: &str) -> UnixStream {
         let mut s = UnixStream::connect(Layout::from_home(home).socket()).unwrap();
-        write_frame(&mut s, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: build.into(), app_instance: "t".into(), cursor: 0 } }).unwrap();
+        write_frame(&mut s, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: build.into(), app_instance: "t".into(), cursor: 0, epoch: None } }).unwrap();
         s
     }
     fn login(home: &std::path::Path, link: &str, pid: u32) {
@@ -257,7 +258,7 @@ mod tests {
         let (mut client, server) = UnixStream::pair().unwrap();
         let st = state.clone();
         let h = std::thread::spawn(move || serve(server, &st, &cfg));
-        write_frame(&mut client, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.1.0-aaaaaaaa".into(), app_instance: "t".into(), cursor: 0 } }).unwrap();
+        write_frame(&mut client, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.1.0-aaaaaaaa".into(), app_instance: "t".into(), cursor: 0, epoch: None } }).unwrap();
         assert!(matches!(read_frame::<DaemonMsg>(&mut client).unwrap(), Some(DaemonMsg::Welcome { .. })));
         assert_eq!(state.lock().unwrap().bridges.len(), 1);
         client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();

@@ -79,6 +79,16 @@ fn print_argv(argv: &[String]) -> ExitCode {
     }
 }
 
+/// The request a hook sends. On an ssh host it names the link (`GILVT_LINK`) and whether it ran in tmux.
+pub fn hook_request(agent: &str, event: &str, payload: serde_json::Value, pane: Option<u64>, remote: bool, env: impl Fn(&str) -> Option<String>) -> Request {
+    let (link, tmux) = if remote {
+        (env("GILVT_LINK").filter(|l| !l.is_empty()), env("TMUX").is_some_and(|t| !t.is_empty()))
+    } else {
+        (None, false)
+    };
+    Request::Hook { pane, agent: agent.into(), event: event.into(), payload, link, tmux }
+}
+
 /// Reads the payload and sends it; every failure is silent.
 fn forward(agent: &str, event: &str, cfg: &HookConfig) {
     let stdin = std::io::stdin();
@@ -103,7 +113,7 @@ fn forward(agent: &str, event: &str, cfg: &HookConfig) {
         }
     }
     let pane = std::env::var(ENV_PANE).ok().and_then(|p| p.parse().ok());
-    let req = Request::Hook { pane, agent: agent.into(), event: event.into(), payload };
+    let req = hook_request(agent, event, payload, pane, cfg.remote, |k| std::env::var(k).ok());
     match std::env::var_os(ENV_SOCKET).filter(|s| !s.is_empty()) {
         Some(socket) => {
             let _ = gilvt_ipc::send_nowait(Path::new(&socket), &req);
@@ -173,6 +183,17 @@ pub fn hook_command(gilvt: &Path, agent: &str, event: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_hooks_name_their_link_and_tmux() {
+        let env = |k: &str| match k { "GILVT_LINK" => Some("i-3".to_string()), "TMUX" => Some("/tmp/tmux-1/default,1,0".to_string()), _ => None };
+        let r = hook_request("claude", "Stop", serde_json::json!({}), None, true, env);
+        assert!(matches!(r, Request::Hook { link: Some(ref l), tmux: true, .. } if l == "i-3"), "{r:?}");
+        let mac = hook_request("claude", "Stop", serde_json::json!({}), Some(2), false, env);
+        assert!(matches!(mac, Request::Hook { link: None, tmux: false, pane: Some(2), .. }), "the Mac never fills them: {mac:?}");
+        let no_tmux = hook_request("claude", "Stop", serde_json::json!({}), None, true, |k| (k == "TMUX").then(String::new));
+        assert!(matches!(no_tmux, Request::Hook { link: None, tmux: false, .. }), "empty TMUX is not tmux");
+    }
 
     #[test]
     fn quotes_hook_commands() {

@@ -106,7 +106,7 @@ pub fn ensure(host: &str, cx: &mut App) {
         g.next_generation
     };
     let (tx, rx) = mpsc::channel::<AppMsg>();
-    let hello = LocalMsg::Bridge { hello: AppMsg::Hello { build_id: spec.build_id.clone(), app_instance: instance, cursor: 0 } };
+    let hello = LocalMsg::Bridge { hello: AppMsg::Hello { build_id: spec.build_id.clone(), app_instance: instance, cursor: 0, epoch: None } };
     std::thread::spawn(move || {
         let mut w = BufWriter::new(stdin);
         if write_frame(&mut w, &hello).is_err() {

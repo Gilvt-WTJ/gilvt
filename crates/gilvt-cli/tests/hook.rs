@@ -96,7 +96,7 @@ fn hook_delivers_payload_and_pane_silently_and_fast() {
     // Waiting for a reply would take the 5 s read timeout; the margin absorbs a loaded machine.
     assert!(took < Duration::from_secs(1), "took {took:?}");
     match rx.recv_blocking().unwrap() {
-        Request::Hook { pane, agent, event, payload } => {
+        Request::Hook { pane, agent, event, payload, .. } => {
             assert_eq!((pane, agent.as_str(), event.as_str()), (Some(42), "claude", "Stop"));
             assert_eq!(payload, serde_json::from_str::<Value>(PAYLOAD).unwrap());
         }

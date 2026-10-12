@@ -372,7 +372,7 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
                         .into_iter()
                         .zip(anchors)
                         .filter_map(|(r, anchor)| match r {
-                            Request::Hook { pane, agent, event, payload } => {
+                            Request::Hook { pane, agent, event, payload, .. } => {
                                 let h = parse_hook_request(pane, &agent, &event, &payload)?;
                                 Some((h, HookFeed { event, payload, anchor, at }))
                             }

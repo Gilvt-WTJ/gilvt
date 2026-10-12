@@ -2291,6 +2291,8 @@ name = "gilvt-ipc"
 version = "0.2.1"
 dependencies = [
  "async-channel 2.5.0",
+ "base64 0.22.1",
+ "gilvt-agent",
  "libc",
  "serde",
  "serde_json",

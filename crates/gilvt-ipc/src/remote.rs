@@ -3,6 +3,7 @@
 //! (over its Unix socket).
 
 use std::io::{self, Read, Write};
+use std::path::PathBuf;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,17 @@ pub fn read_frame<T: DeserializeOwned>(r: &mut impl Read) -> io::Result<Option<T
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
+/// Transcript bytes travel as standard base64 (frames are JSON; transcripts need not be valid UTF-8).
+pub fn encode_bytes(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+pub fn decode_bytes(text: &str) -> io::Result<Vec<u8>> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(text).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
 /// One ssh login the daemon knows about.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkState {
@@ -65,7 +77,11 @@ pub enum AppMsg {
     Hello {
         build_id: String,
         app_instance: String,
+        /// The last `seq` this app received from this host (R2a §4.3).
         cursor: u64,
+        /// The daemon `epoch` of that `seq`; None: the first connection of this app run.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        epoch: Option<u64>,
     },
     Request {
         id: u64,
@@ -78,6 +94,12 @@ pub enum AppMsg {
 pub enum RemoteRequest {
     Ping,
     LinkInfo,
+    /// Start pushing a transcript's bytes from `from` (R2a §4.4). Answered `Following { size }`.
+    TranscriptFollow { agent: String, session_id: String, path: PathBuf, from: u64 },
+    /// Answered `Ok`.
+    TranscriptUnfollow { agent: String, session_id: String },
+    /// Answered `HistoryList` (R2a §4.5).
+    History,
 }
 
 /// Daemon → app.
@@ -90,6 +112,12 @@ pub enum DaemonMsg {
         uname: String,
         links: Vec<LinkState>,
         seq: u64,
+        /// The daemon's start time in ms.
+        #[serde(default)]
+        epoch: u64,
+        /// Hooks were lost since the app's cursor.
+        #[serde(default)]
+        gap: bool,
     },
     /// The app speaks another build; it closes the bridge (spec §5).
     Mismatch {
@@ -103,6 +131,10 @@ pub enum DaemonMsg {
         seq: u64,
         event: RemoteEvent,
     },
+    /// Only to the bridge that followed; not replayed. `bytes`: base64, ends at a line end.
+    TranscriptAppend { agent: String, session_id: String, offset: u64, bytes: String },
+    /// The file shrank or was replaced; pushes restart at offset 0. `size`: its length now: the bytes below it are history, not live.
+    TranscriptReset { agent: String, session_id: String, size: u64 },
 }
 
 /// The answer to a [`RemoteRequest`]. `Links` is a struct variant: serde's internal tag cannot
@@ -111,6 +143,9 @@ pub enum DaemonMsg {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RemoteResponse {
     Pong,
+    Ok,
+    Following { size: u64 },
+    HistoryList { entries: Vec<gilvt_agent::HistoryEntry> },
     Links { links: Vec<LinkState> },
     Error { message: String },
 }
@@ -120,6 +155,7 @@ pub enum RemoteResponse {
 pub enum RemoteEvent {
     LinkUp(LinkState),
     LinkDown { link: String },
+    Hook { link: String, agent: String, event: String, payload: serde_json::Value },
 }
 
 /// The first frame on a connection to the daemon's socket.
@@ -172,6 +208,7 @@ mod tests {
             build_id: "0.1.0-abcd1234".into(),
             app_instance: "i1".into(),
             cursor: 0,
+            epoch: None,
         };
         write_frame(&mut buf, &hello).unwrap();
         write_frame(
@@ -239,6 +276,7 @@ mod tests {
                 build_id: "b".into(),
                 app_instance: "i".into(),
                 cursor: 0,
+                epoch: None,
             },
         };
         let json = serde_json::to_string(&m).unwrap();
@@ -258,5 +296,73 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.starts_with(r#"{"type":"links","links":["#), "{json}");
         assert_eq!(serde_json::from_str::<RemoteResponse>(&json).unwrap(), resp);
+    }
+
+    #[test]
+    fn an_old_hello_without_epoch_still_parses() {
+        let m: AppMsg = serde_json::from_str(r#"{"type":"hello","build_id":"b","app_instance":"i","cursor":3}"#).unwrap();
+        assert_eq!(m, AppMsg::Hello { build_id: "b".into(), app_instance: "i".into(), cursor: 3, epoch: None });
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(!json.contains("epoch"), "absent epoch is not written: {json}");
+    }
+
+    #[test]
+    fn an_old_welcome_without_epoch_or_gap_still_parses() {
+        let m: DaemonMsg = serde_json::from_str(r#"{"type":"welcome","build_id":"b","hostname":"h","uname":"Linux x86_64","links":[],"seq":7}"#).unwrap();
+        let DaemonMsg::Welcome { epoch, gap, seq, .. } = m else { panic!("{m:?}") };
+        assert_eq!((epoch, gap, seq), (0, false, 7));
+    }
+
+    #[test]
+    fn new_frames_round_trip() {
+        let msgs = vec![
+            DaemonMsg::Event { seq: 4, event: RemoteEvent::Hook { link: "i-1".into(), agent: "claude".into(), event: "Stop".into(), payload: serde_json::json!({"session_id": "s"}) } },
+            DaemonMsg::TranscriptAppend { agent: "claude".into(), session_id: "s".into(), offset: 10, bytes: encode_bytes(b"{\"a\":1}\n") },
+            DaemonMsg::TranscriptReset { agent: "codex".into(), session_id: "s".into(), size: 4096 },
+            DaemonMsg::Welcome { build_id: "b".into(), hostname: "h".into(), uname: "u".into(), links: vec![], seq: 9, epoch: 1_760_000_000_000, gap: true },
+            DaemonMsg::Response { id: 2, resp: RemoteResponse::Following { size: 4096 } },
+            DaemonMsg::Response { id: 3, resp: RemoteResponse::Ok },
+        ];
+        for m in msgs {
+            let mut buf = Vec::new();
+            write_frame(&mut buf, &m).unwrap();
+            assert_eq!(read_frame::<DaemonMsg>(&mut &buf[..]).unwrap(), Some(m));
+        }
+        for req in [
+            RemoteRequest::TranscriptFollow { agent: "claude".into(), session_id: "s".into(), path: "/home/u/.claude/projects/p/s.jsonl".into(), from: 0 },
+            RemoteRequest::TranscriptUnfollow { agent: "claude".into(), session_id: "s".into() },
+            RemoteRequest::History,
+        ] {
+            let m = AppMsg::Request { id: 1, req };
+            assert_eq!(serde_json::from_str::<AppMsg>(&serde_json::to_string(&m).unwrap()).unwrap(), m);
+        }
+    }
+
+    #[test]
+    fn history_list_round_trips() {
+        let e = gilvt_agent::HistoryEntry {
+            agent: gilvt_agent::AgentKind::Codex,
+            session_id: "s".into(),
+            cwd: "/home/u/r".into(),
+            transcript: "/home/u/.codex/sessions/2026/10/12/rollout-s.jsonl".into(),
+            first_prompt: "fix it".into(),
+            topic_prompt: String::new(),
+            custom_title: None,
+            ai_title: Some("Fix".into()),
+            started: None,
+            last_active: std::time::UNIX_EPOCH + std::time::Duration::from_secs(5),
+            turns: 2,
+            model: None,
+            size: 100,
+        };
+        let r = RemoteResponse::HistoryList { entries: vec![e] };
+        assert_eq!(serde_json::from_str::<RemoteResponse>(&serde_json::to_string(&r).unwrap()).unwrap(), r);
+    }
+
+    #[test]
+    fn bytes_are_base64() {
+        let raw = b"line one\n\xff\x00 two\n";
+        assert_eq!(decode_bytes(&encode_bytes(raw)).unwrap(), raw);
+        assert!(decode_bytes("not base64!").is_err());
     }
 }

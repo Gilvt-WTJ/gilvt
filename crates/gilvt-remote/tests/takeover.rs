@@ -26,7 +26,7 @@ fn new_build_takes_over_links() {
     let mut b = None;
     for _ in 0..150 {
         if let Ok(mut c) = UnixStream::connect(&sock) {
-            write_frame(&mut c, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.2.0-bbbbbbbb".into(), app_instance: "t".into(), cursor: 0 } }).unwrap();
+            write_frame(&mut c, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.2.0-bbbbbbbb".into(), app_instance: "t".into(), cursor: 0, epoch: None } }).unwrap();
             if let Ok(Some(DaemonMsg::Welcome { links, build_id, .. })) = read_frame::<DaemonMsg>(&mut c) { b = Some((links, build_id)); break; }
         }
         std::thread::sleep(Duration::from_millis(20));
