@@ -2339,6 +2339,9 @@ dependencies = [
 name = "gilvt-remote"
 version = "0.2.1"
 dependencies = [
+ "gilvt-agent",
+ "gilvt-client",
+ "gilvt-i18n",
  "gilvt-ipc",
  "gilvt-shell",
  "libc",
