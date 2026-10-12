@@ -24,9 +24,24 @@ impl Workspace {
         self.ended_confirm.as_ref()
     }
 
+    /// The ended-session actions that read this Mac's files (archive, trash, and for now resume) do not apply to a
+    /// remote session: shows the usual notice and returns true.
+    fn refuse_remote_session(&mut self, key: &SessionKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !key.2.is_remote() {
+            return false;
+        }
+        self.error = Some(crate::remote::not_yet_remote().into());
+        self.focus_active(window, cx);
+        cx.notify();
+        true
+    }
+
     /// Resumes ended session `key` at `location`, from the registry's cwd and id (spec §2.1 locations).
     pub fn resume_ended(&mut self, key: SessionKey, location: Location, window: &mut Window, cx: &mut Context<Self>) {
         self.ended_confirm = None;
+        if self.refuse_remote_session(&key, window, cx) {
+            return;
+        }
         let Some(session) = cx.global::<Agents>().registry().get(&key) else { return };
         let indexed_cwd = cx.try_global::<History>().and_then(|h| h.find(key.0, &key.1)).map(|e| e.cwd.clone());
         let launch = cx.global::<AppSettings>().0.agent.launch(key.0);
@@ -51,6 +66,9 @@ impl Workspace {
     /// 归档 on ended session `key`, as of the turns the history lists (a later turn brings it back). The
     /// session leaves 已结束 on the next frame; the result shows in the banner.
     pub(super) fn archive_ended(&mut self, key: SessionKey, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_remote_session(&key, window, cx) {
+            return;
+        }
         let entry = cx.try_global::<History>().and_then(|h| h.find(key.0, &key.1)).cloned();
         self.error = match entry {
             Some(entry) => archive_sessions(&[entry], cx).toast(),
@@ -62,6 +80,9 @@ impl Workspace {
 
     /// 移到废纸篓… on ended session `key`: shows the confirm bar (the root takes the keyboard for ↩ / Esc).
     pub(super) fn ask_trash_ended(&mut self, key: SessionKey, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_remote_session(&key, window, cx) {
+            return;
+        }
         let Some(session) = cx.global::<Agents>().registry().get(&key) else { return };
         if session.is_live() {
             // It runs again: nothing to move (the final check in `trash_sessions` stays).

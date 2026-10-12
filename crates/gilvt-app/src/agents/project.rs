@@ -21,9 +21,27 @@ pub fn fallback_name(path: &Path) -> String {
     }
 }
 
+/// A remote session's project (R2a §5.4): `<host display> · <last directory of its cwd>`. Never touches the disk.
+pub fn remote_project(display: &str, cwd: Option<&Path>) -> String {
+    match cwd {
+        Some(cwd) => {
+            let last = cwd.file_name().map_or_else(|| cwd.display().to_string(), |n| n.to_string_lossy().into_owned());
+            format!("{display} · {last}")
+        }
+        None => display.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_projects_are_host_dot_last_directory() {
+        assert_eq!(remote_project("devbox", Some(Path::new("/home/dev/myrepo"))), "devbox · myrepo");
+        assert_eq!(remote_project("devbox", Some(Path::new("/"))), "devbox · /");
+        assert_eq!(remote_project("devbox", None), "devbox");
+    }
 
     #[test]
     fn git_root_else_last_component() {

@@ -247,7 +247,7 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
                 RemoteEvent::LinkDown { link } => super::link_ended(&link, cx),
                 RemoteEvent::Hook { link, agent, event, payload } => {
                     if let Some(pane) = cx.global::<RemoteHosts>().pane_of_link(host, &link) {
-                        crate::agents::Agents::remote_hook(host, pane, agent, event, payload, cx);
+                        crate::agents::Agents::remote_hook(host, &link, pane, agent, event, payload, cx);
                     }
                 }
                 RemoteEvent::LinkUp(_) => {}

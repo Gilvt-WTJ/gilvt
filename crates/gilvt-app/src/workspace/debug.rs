@@ -343,7 +343,7 @@ impl Workspace {
         let registry = agents.registry();
         let session = self.focused_pane().and_then(|p| crate::inspector::model::follow(registry.sessions(), p));
         let reachable = |p: PaneId| self.has_pane(p) || workspaces(cx).iter().any(|w| w.read(cx).is_ok_and(|o| o.has_pane(p)));
-        let banner = crate::inspector::model::banner(registry.sessions(), session, reachable, |s| agents.project(s), Instant::now());
+        let banner = crate::inspector::model::banner(registry.sessions(), session, reachable, |s| agents.project(s, cx), Instant::now());
         let entries = session.map_or(&[][..], |s| self.inspector.timeline.entries_for(&s.key));
         ds::Inspector {
             visible: true,

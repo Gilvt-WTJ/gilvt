@@ -110,7 +110,7 @@ pub fn render(ws: &mut Workspace, window: &mut Window, cx: &mut Context<Workspac
     let session = focused.and_then(|p| model::follow(agents.registry().sessions(), p));
     let view = session.and_then(|s| agents.timeline(&s.key));
     let card = session.map(|s| model::card(s, view.as_deref(), agents.permission_mode(&s.key), clock));
-    let banner = model::banner(agents.registry().sessions(), session, reachable(ws, window.window_handle(), cx), |s| agents.project(s), clock.now);
+    let banner = model::banner(agents.registry().sessions(), session, reachable(ws, window.window_handle(), cx), |s| agents.project(s, cx), clock.now);
     let mut tick = model::needs_tick(card.as_ref(), banner.as_ref());
     let plain = focused.map_or(Plain::Shell, |p| ws.plain_kind(p));
     let followed = session.map(|s| (s.key.clone(), s.cwd.clone()));

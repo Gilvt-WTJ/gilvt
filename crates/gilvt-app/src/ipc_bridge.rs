@@ -80,7 +80,7 @@ pub fn start(hooks: async_channel::Sender<crate::agents::HookIn>, cx: &mut App) 
                     let _ = cx.update(|cx| route(pane, diff_request(files, rev), false, cx));
                 }
                 hook @ Request::Hook { .. } => {
-                    let _ = hooks.try_send(crate::agents::HookIn { host: gilvt_agent::host::Host::Local, request: hook });
+                    let _ = hooks.try_send(crate::agents::HookIn { host: gilvt_agent::host::Host::Local, link: None, request: hook });
                 }
                 req @ (Request::RemoteRecord { .. } | Request::RemoteLinked { .. } | Request::RemoteEnd { .. }) => {
                     let _ = cx.update(|cx| crate::remote::handle(req, cx));

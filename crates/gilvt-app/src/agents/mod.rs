@@ -29,7 +29,7 @@ use self::state::{parse_hook_request, Core, Discovery};
 pub use self::foreground::is_shell;
 pub use self::pending::{resume_allowed, PendingResume};
 pub use self::process::describe as describe_process;
-pub use self::project::{fallback_name, project_root};
+pub use self::project::{fallback_name, project_root, remote_project};
 pub use self::state::PaneKey;
 use self::foreground::Foreground;
 use self::tails::{Out, Tails};
@@ -57,7 +57,16 @@ pub fn state_dir() -> Option<PathBuf> {
 /// A hook request and the machine it ran on (this Mac via the IPC socket, or an ssh host via its bridge).
 pub struct HookIn {
     pub host: Host,
+    /// The ssh link a remote hook arrived on (None: a local hook). Re-checked when the hook is applied, because the
+    /// link may have ended in between (a replay burst: Hook then LinkDown).
+    pub link: Option<String>,
     pub request: Request,
+}
+
+/// Whether a queued hook may still be applied: a remote one only while `(host, link)` still resolves to the pane it was
+/// attributed to; otherwise the pane already left the link and the hook would resurrect an ended session.
+fn hook_still_current(src: Option<(&str, &str, PaneId)>, pane_of_link: impl Fn(&str, &str) -> Option<PaneId>) -> bool {
+    src.is_none_or(|(host, link, pane)| pane_of_link(host, link) == Some(pane))
 }
 
 pub struct Agents {
@@ -89,10 +98,10 @@ impl Global for Agents {}
 
 impl Agents {
     /// A hook from an ssh host's bridge, already attributed to `pane` (R2a §5.2): the same pipeline as local ones.
-    pub fn remote_hook(host: &str, pane: PaneId, agent: String, event: String, payload: serde_json::Value, cx: &mut App) {
+    pub fn remote_hook(host: &str, link: &str, pane: PaneId, agent: String, event: String, payload: serde_json::Value, cx: &mut App) {
         let Some(tx) = cx.try_global::<Agents>().map(|a| a.hook_tx.clone()) else { return };
         let request = Request::Hook { pane: Some(pane), agent, event, payload, link: None, tmux: false };
-        let _ = tx.try_send(HookIn { host: Host::Remote(HostId(host.to_string())), request });
+        let _ = tx.try_send(HookIn { host: Host::Remote(HostId(host.to_string())), link: Some(link.to_string()), request });
     }
 
     /// `pane` left its ssh link: its remote sessions end (R2a §5.3).
@@ -285,8 +294,12 @@ impl Agents {
         }
     }
 
-    /// The session's project: git root name, else the cwd's last component.
-    pub fn project(&self, s: &Session) -> String {
+    /// The session's project: git root name, else the cwd's last component; a remote session's is
+    /// `<host display> · <last directory>` (the display name is read from `RemoteHosts`, R2a §5.4).
+    pub fn project(&self, s: &Session, cx: &App) -> String {
+        if let Host::Remote(h) = &s.key.2 {
+            return remote_project(&crate::remote::display_of(&h.0, cx), s.cwd.as_deref());
+        }
         match &s.cwd {
             Some(cwd) => self.project_of_dir(cwd),
             None => crate::i18n::text("其他", "Other").into(),
@@ -303,6 +316,9 @@ impl Agents {
 
     /// The session's repository facts, if its directory is in a git repository and has been looked up.
     pub fn git(&self, s: &Session) -> Option<&GitInfo> {
+        if s.key.2.is_remote() {
+            return None;
+        }
         self.git_of_dir(s.cwd.as_ref()?)
     }
 
@@ -321,7 +337,7 @@ impl Agents {
                 .core
                 .registry
                 .sessions()
-                .filter(|s| s.is_live())
+                .filter(|s| s.is_live() && !s.key.2.is_remote())
                 .filter_map(|s| {
                     let cwd = s.cwd.clone()?;
                     let known = a.git.contains_key(&cwd);
@@ -514,10 +530,14 @@ pub fn init(cx: &mut App) -> async_channel::Sender<HookIn> {
                     requests
                         .into_iter()
                         .zip(anchors)
-                        .filter_map(|(HookIn { host, request }, anchor)| match request {
+                        .filter_map(|(HookIn { host, link, request }, anchor)| match request {
                             Request::Hook { pane, agent, event, payload, .. } => {
+                                let origin = match (&host, link, pane) {
+                                    (Host::Remote(h), Some(link), Some(pane)) => Some((h.0.clone(), link, pane)),
+                                    _ => None,
+                                };
                                 let h = parse_hook_request(pane, &agent, &event, &payload)?.with_host(host);
-                                Some((h, HookFeed { event, payload, anchor, at }))
+                                Some((h, HookFeed { event, payload, anchor, at }, origin))
                             }
                             _ => None,
                         })
@@ -527,6 +547,17 @@ pub fn init(cx: &mut App) -> async_channel::Sender<HookIn> {
             let applied = cx.update(|cx| {
                 let visible = workspace::visible_panes(cx);
                 let now = Instant::now();
+                // A burst can hold a Hook and then the LinkDown that ended its pane's link: that LinkDown already ran.
+                let links = cx.try_global::<crate::remote::RemoteHosts>();
+                let parsed: Vec<_> = parsed
+                    .into_iter()
+                    .filter(|(_, _, origin)| {
+                        hook_still_current(origin.as_ref().map(|(h, l, p)| (h.as_str(), l.as_str(), *p)), |host, link| {
+                            links.and_then(|r| r.pane_of_link(host, link))
+                        })
+                    })
+                    .map(|(h, feed, _)| (h, feed))
+                    .collect();
                 let agents = cx.global_mut::<Agents>();
                 let mut changes: Vec<Change> = Vec::new();
                 let mut modes: Vec<SessionKey> = Vec::new();
@@ -828,6 +859,7 @@ fn resolve_projects(cx: &mut App) {
         .core
         .registry
         .sessions()
+        .filter(|s| !s.key.2.is_remote())
         .filter_map(|s| s.cwd.clone())
         .chain(agents.term_dirs.iter().cloned())
         .filter(|c| !agents.projects.contains_key(c) && !agents.resolving.contains(c))
@@ -895,6 +927,20 @@ mod occupied_tests {
         let mut s = core.registry.sessions().next().unwrap().clone();
         s.pane = None;
         assert!(occupied_panes([&s], &[]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod hook_race_tests {
+    use super::hook_still_current;
+
+    #[test]
+    fn a_queued_remote_hook_is_dropped_once_its_link_left_the_pane() {
+        let live = |_: &str, l: &str| (l == "L1").then_some(7u64);
+        assert!(hook_still_current(None, live), "local hooks carry no link");
+        assert!(hook_still_current(Some(("h", "L1", 7)), live));
+        assert!(!hook_still_current(Some(("h", "L1", 8)), live), "the link moved to another pane");
+        assert!(!hook_still_current(Some(("h", "L2", 7)), live), "the link is gone (LinkDown ran first)");
     }
 }
 

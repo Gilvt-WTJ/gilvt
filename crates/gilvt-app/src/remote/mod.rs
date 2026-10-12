@@ -123,6 +123,11 @@ impl RemoteHosts {
         self.links.get(link).filter(|l| l.host == host).and_then(|l| l.pane)
     }
 
+    /// What the user typed for `host` (`devbox`); the HostId itself when it is not known.
+    pub fn display(&self, host: &str) -> String {
+        self.hosts.get(host).map_or_else(|| host.to_string(), |h| h.display.clone())
+    }
+
     pub fn links_of(&self, host: &str) -> Vec<String> {
         self.links.iter().filter(|(_, e)| e.host == host).map(|(l, _)| l.clone()).collect()
     }
@@ -159,6 +164,15 @@ pub fn answer_begin(q: Query, cx: &mut App) {
 }
 
 /// Applies `r` to `pane` in whichever window has it.
+/// [`RemoteHosts::display`] from anywhere that has the `App` (sidebar, notifications, inspector banner).
+pub fn display_of(host: &str, cx: &App) -> String {
+    cx.try_global::<RemoteHosts>().map_or_else(|| host.to_string(), |r| r.display(host))
+}
+
+pub fn not_yet_remote() -> &'static str {
+    crate::i18n::text(NOT_YET_REMOTE.0, NOT_YET_REMOTE.1)
+}
+
 pub fn apply_to_pane(pane: u64, r: Option<PaneRemote>, cx: &mut App) {
     for w in cx.windows().into_iter().filter_map(|w| w.downcast::<crate::workspace::Workspace>()) {
         let _ = w.update(cx, |ws, _, cx| if ws.has_pane(pane) { ws.set_pane_remote(pane, r.clone(), cx) });
@@ -225,6 +239,14 @@ mod tests {
     use super::*;
 
     fn hosts() -> RemoteHosts { RemoteHosts::new("abcd0123".into(), RemotePrefs::default()) }
+
+    #[test]
+    fn display_is_what_the_user_typed_or_the_host_id() {
+        let mut r = hosts();
+        r.begin(Some(1), "dev@h:22".into(), "devbox".into());
+        assert_eq!(r.display("dev@h:22"), "devbox");
+        assert_eq!(r.display("dev@x:22"), "dev@x:22", "unknown host: its id");
+    }
 
     #[test]
     fn begin_linked_end() {

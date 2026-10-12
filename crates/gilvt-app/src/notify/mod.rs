@@ -115,7 +115,7 @@ pub fn on_changes(changes: &[Change], cx: &mut App) {
                 cx.global_mut::<Notifier>().chain.ended(&key);
                 continue;
             };
-            let project = agents.project(s);
+            let project = agents.project(s, cx);
             let at = Seen { frontmost: front, visible: s.pane.is_some_and(|p| visible.contains(&p)) };
             let s = s.clone();
             if let Some(p) = cx.global_mut::<Notifier>().chain.observe(&s, &project, at, now) {
@@ -216,7 +216,7 @@ fn osc_after_hold(key: &SessionKey, n: &Notification, received: Instant, cx: &mu
     if osc_route(Some(&s), false, seen, None, Instant::now()) == OscRoute::Drop {
         return;
     }
-    let project = cx.global::<Agents>().project(&s);
+    let project = cx.global::<Agents>().project(&s, cx);
     let notifier = cx.global_mut::<Notifier>();
     if !notifier.chain.osc_allowed(key, received) {
         return;
