@@ -487,7 +487,9 @@ impl TerminalView {
     /// A launcher command still waits for this pane's first prompt.
     /// An ssh pane at the remote shell's prompt with nothing queued to type (R2a §5.6).
     pub fn remote_idle(&self) -> bool {
-        self.remote.as_ref().is_some_and(|r| r.at_prompt()) && !self.launch_pending()
+        let fg = self.session.foreground_name();
+        let at_prompt = self.remote.as_ref().is_some_and(|r| r.at_prompt());
+        crate::remote::resume::safe_to_type_remote(fg.as_deref(), at_prompt) && !self.launch_pending()
     }
 
     pub fn launch_pending(&self) -> bool {

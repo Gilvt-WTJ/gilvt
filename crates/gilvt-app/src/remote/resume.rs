@@ -51,6 +51,13 @@ pub fn wait_step(host: &str, pane: Option<&PaneState>, started: Instant, now: In
     }
 }
 
+/// Whether typing into an ssh pane now reaches the remote shell: its prompt marks say so AND the local
+/// foreground process is the login (`ssh` / `gilvt`). Read synchronously at typing time: after `exit` the local
+/// shell prints its own prompt marks before any link-end poll, and typing then would run on this Mac.
+pub fn safe_to_type_remote(foreground: Option<&str>, at_prompt: bool) -> bool {
+    at_prompt && matches!(foreground, Some("ssh" | "gilvt"))
+}
+
 pub fn gave_up_text(display: &str) -> String {
     if crate::i18n::current() == crate::i18n::Language::English {
         format!("No prompt from {display}; the session was not resumed")
@@ -77,6 +84,15 @@ mod tests {
         assert_eq!(resume_target(h, Some(1), &busy), ResumeTarget::NewTab);
         let plain = [PaneState { pane: 1, host: Some(h.into()), enhanced: false, idle: true }];
         assert_eq!(resume_target(h, Some(1), &plain), ResumeTarget::NewTab, "a plain login has no gilvt on the remote");
+    }
+
+    #[test]
+    fn local_prompt_marks_with_the_local_shell_in_front_are_not_safe() {
+        assert!(safe_to_type_remote(Some("ssh"), true));
+        assert!(safe_to_type_remote(Some("gilvt"), true));
+        assert!(!safe_to_type_remote(Some("zsh"), true), "ssh just exited: the prompt is the Mac's");
+        assert!(!safe_to_type_remote(None, true));
+        assert!(!safe_to_type_remote(Some("ssh"), false));
     }
 
     #[test]
