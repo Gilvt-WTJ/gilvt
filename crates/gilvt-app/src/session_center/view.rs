@@ -230,7 +230,8 @@ impl SessionCenterView {
     pub(crate) fn row_dir(row: &model::Row, cx: &App) -> model::RowDir {
         let history = cx.try_global::<History>();
         let agents = cx.try_global::<Agents>();
-        model::row_dir(
+        model::row_dir_of(
+            &row.key,
             &row.cwd,
             crate::launcher::label_home(),
             |p| history.is_none_or(|h| h.dir_exists(p)),

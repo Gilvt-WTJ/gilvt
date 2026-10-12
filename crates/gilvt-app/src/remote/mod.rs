@@ -163,7 +163,6 @@ pub fn answer_begin(q: Query, cx: &mut App) {
     q.respond(Response::RemoteBegin { link, install, installed: cached.installed, arch: cached.arch, hostname: cached.hostname });
 }
 
-/// Applies `r` to `pane` in whichever window has it.
 /// [`RemoteHosts::display`] from anywhere that has the `App` (sidebar, notifications, inspector banner).
 pub fn display_of(host: &str, cx: &App) -> String {
     cx.try_global::<RemoteHosts>().map_or_else(|| host.to_string(), |r| r.display(host))
@@ -173,6 +172,7 @@ pub fn not_yet_remote() -> &'static str {
     crate::i18n::text(NOT_YET_REMOTE.0, NOT_YET_REMOTE.1)
 }
 
+/// Applies `r` to `pane` in whichever window has it.
 pub fn apply_to_pane(pane: u64, r: Option<PaneRemote>, cx: &mut App) {
     for w in cx.windows().into_iter().filter_map(|w| w.downcast::<crate::workspace::Workspace>()) {
         let _ = w.update(cx, |ws, _, cx| if ws.has_pane(pane) { ws.set_pane_remote(pane, r.clone(), cx) });

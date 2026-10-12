@@ -170,6 +170,21 @@ pub fn row_dir(
     }
 }
 
+/// [`row_dir`] for a row of session `key`: a remote session's directory is on another machine, so it is shown as
+/// typed, with no branch (git cache) and no 「目录已不存在」 (history scan) -- both read this Mac's disk.
+pub fn row_dir_of(
+    key: &SessionKey,
+    cwd: &Path,
+    home: Option<&Path>,
+    exists: impl Fn(&Path) -> bool,
+    branch: impl Fn(&Path) -> Option<String>,
+) -> RowDir {
+    if key.2.is_remote() {
+        return RowDir { dir: cwd.display().to_string(), branch: None, missing: false };
+    }
+    row_dir(cwd, home, exists, branch)
+}
+
 /// The review header's grey line: 「<目录>[ · <分支>] · <agent>」.
 pub fn header_subtitle(row: &Row, dir: &RowDir) -> String {
     let mut parts: Vec<String> = Vec::new();

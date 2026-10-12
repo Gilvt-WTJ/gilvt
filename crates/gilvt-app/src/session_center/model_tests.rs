@@ -244,6 +244,21 @@ fn a_queue_row_shows_its_directory_as_the_palette_does() {
 }
 
 #[test]
+fn a_remote_row_shows_its_cwd_without_local_git_or_missing_flag() {
+    use gilvt_agent::host::{Host, HostId};
+    let key: gilvt_agent::SessionKey = (gilvt_agent::AgentKind::Claude, "s".into(), Host::Remote(HostId("dev@h:22".into())));
+    let cwd = std::path::Path::new("/home/dev/repo");
+    let dir = model::row_dir_of(&key, cwd, None, |_| false, |_| Some("local-branch".into()));
+    assert_eq!(dir.dir, "/home/dev/repo");
+    assert_eq!(dir.branch, None);
+    assert!(!dir.missing);
+    let local = gilvt_agent::local_key(gilvt_agent::AgentKind::Claude, "s".to_string());
+    let dir = model::row_dir_of(&local, cwd, None, |_| false, |_| Some("b".into()));
+    assert_eq!(dir.branch.as_deref(), Some("b"));
+    assert!(dir.missing);
+}
+
+#[test]
 fn a_queue_row_whose_directory_is_gone_is_flagged_and_an_unknown_cwd_shows_none() {
     let gone = model::row_dir(
         std::path::Path::new("/Users/u/work/gone"),
