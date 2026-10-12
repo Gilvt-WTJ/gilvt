@@ -16,7 +16,7 @@ pub const ENV_SCENARIOS_DIR: &str = "GILVT_FAKE_SCENARIOS_DIR";
 pub const SCENARIO_PREFIX: &str = "@scenario:";
 
 /// The built-in scenarios (`crates/gilvt-fake-agent/scenarios/*.toml`), by name.
-pub const BUILTIN: [(&str, &str); 27] = [
+pub const BUILTIN: [(&str, &str); 28] = [
     ("default", include_str!("../scenarios/default.toml")),
     ("ask-question", include_str!("../scenarios/ask-question.toml")),
     ("approve-bash", include_str!("../scenarios/approve-bash.toml")),
@@ -50,6 +50,8 @@ pub const BUILTIN: [(&str, &str); 27] = [
     ("think-long", include_str!("../scenarios/think-long.toml")),
     // GUI acceptance cases Q5 / Q6 (sidebar overflow).
     ("long-title", include_str!("../scenarios/long-title.toml")),
+    // GUI acceptance cases AC21 / AC23 (agents in an ssh shell).
+    ("remote-approval", include_str!("../scenarios/remote-approval.toml")),
 ];
 
 #[derive(Clone, Debug, PartialEq)]

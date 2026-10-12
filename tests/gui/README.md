@@ -103,6 +103,7 @@ tests/gui/run.sh --list all                                              # 只�
   `$TMPDIR` 下只有自己可读的临时文件里），`down` 之后用 `tools/keys clip-restore <文件>` 放回；`up` 失败、Ctrl-C / TERM 中断时
   也会放回。保存失败的用例不运行（`FAIL(clipboard save)`）。`run.sh` 自己编译 `tools/keys.swift`（与 `up` 共用缓存）。
 - `requires: remote`：用例需要测试远端（`remote.sh`，见下）。`run.sh` 在跑这类用例之前 `remote.sh up`（已经是 up 就沿用，也不会在结束时拆掉；自己启动的，结束或中断时 `remote.sh down`），每个用例前 `remote.sh reset`，并用 `sandbox.sh up --remote`。起不来（没有 docker / colima）时 `SKIP(remote-unavailable)`。`remote` 用例不并行。
+  R2a 起 `remote.sh up` 还会把 Linux 版 fake agent 装成 devbox 上的 `claude` / `codex`：先 `scripts/build-remote.sh --fake`（或用 `GILVT_REMOTE_FAKE` 指定）；没有它时 `up` 只警告，用到远端 agent 的 AC 用例会失败。
 - `requires: real-claude` / `real-codex` 没有 `--real` 时 `SKIP(real-…)`；`manual` 总是 `SKIP(manual)`（要人来做）。
 - `--out DIR`：evidence bundle 的目录，必须不存在或为空；默认 `~/gilvt-lab/reports/run-<UTC 时间>-<提交>-<pid>`。
 - `--jobs N`：按 case 并行运行隔离安全的沙盒用例。每个 worker 有自己的 `TMPDIR`、session、HOME 和 app 进程；S0（若在选择中）

@@ -6,6 +6,7 @@
 #   status  "up <state dir>" (exit 0) or "down" (exit 2)
 #   reset   wipe ~/.gilvt-server for dev and devz on devbox and stop gilvt-remote there
 #   exec    run a command on devbox (default user dev)
+# `up` also installs the Linux fake agent (scripts/build-remote.sh --fake, or $GILVT_REMOTE_FAKE) as claude and codex on devbox.
 # Exit: 0 ok, 1 command failed, 2 docker unavailable / not up / usage.
 # Touches only $state (${GILVT_GUI_REMOTE_STATE:-${TMPDIR}/gilvt-gui-remote}), the image gilvt-gui-remote, the network
 # gilvt-gui-remote-net and the containers gilvt-gui-remote-{jump,devbox}; ports 127.0.0.1:2201 / 2202.
@@ -18,7 +19,7 @@ case "$state" in /*) ;; *) echo "remote.sh: refusing state dir $state" >&2; exit
 case "/$state/" in */../*) echo "remote.sh: refusing state dir $state" >&2; exit 2 ;; esac
 _s="${state%/}"; [ "${_s##*/}" = gilvt-gui-remote ] || { echo "remote.sh: refusing state dir $state" >&2; exit 2; }
 net=gilvt-gui-remote-net image=gilvt-gui-remote jump=gilvt-gui-remote-jump box=gilvt-gui-remote-devbox
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 need_docker() { docker info >/dev/null 2>&1 || { echo "remote.sh: docker is not running (colima start)" >&2; exit 2; }; }
 running() { [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ]; }
 is_up() { running "$box" && running "$jump" && [ -f "$state/ssh_config" ]; }
@@ -52,6 +53,18 @@ cmd_up() {
     sleep 0.2
   done
   [ -n "$ok" ] || { echo "remote.sh: sshd did not come up" >&2; exit 1; }
+  # The Linux fake agent as claude and codex on devbox (spec R2a 6.1): in PATH, real names, so the shell wrappers
+  # take them over. Copies, not links (argv[0] picks the persona either way; copies match the local sandbox).
+  local arch fake
+  arch="$(docker exec "$box" uname -m)"; [ "$arch" = arm64 ] && arch=aarch64
+  fake="${GILVT_REMOTE_FAKE:-${CARGO_TARGET_DIR:-$here/../../target}/remote-dist/fake/$arch/gilvt-fake-agent}"
+  if [ -x "$fake" ]; then
+    docker cp "$fake" "$box:/usr/local/bin/claude"
+    docker cp "$fake" "$box:/usr/local/bin/codex"
+    docker exec "$box" chmod 755 /usr/local/bin/claude /usr/local/bin/codex
+  else
+    echo "remote.sh: no Linux fake agent at $fake (scripts/build-remote.sh --fake); devbox has no claude / codex" >&2
+  fi
   { ssh-keyscan -p 2201 127.0.0.1; ssh-keyscan -p 2202 127.0.0.1; docker exec "$jump" ssh-keyscan devbox; } >"$state/known_hosts" 2>/dev/null
   cat >"$state/ssh_config" <<CFG
 Host devbox-test

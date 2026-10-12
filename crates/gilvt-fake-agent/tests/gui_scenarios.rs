@@ -316,3 +316,14 @@ fn one_source_of_truth_for_scenarios() {
         assert_eq!(target, Path::new("../../../crates/gilvt-fake-agent/scenarios").join(format!("{name}.toml")));
     }
 }
+
+#[test]
+fn remote_approval_waits_for_an_answer_then_ends_the_turn() {
+    let r = run(&builtin("remote-approval"), common::keys([Key::Char('y')]), Opts::default());
+    let s = r.statuses();
+    assert!(s.contains(&"approval:Bash(make -C /tmp check)".to_string()), "{s:?}");
+    ends_idle(&r);
+    assert_eq!(r.timeline().turns()[0].outcome, TurnOutcome::Done);
+    let no = run(&builtin("remote-approval"), common::keys([Key::Esc]), Opts::default());
+    assert_eq!(no.timeline().turns()[0].outcome, TurnOutcome::Interrupted);
+}
