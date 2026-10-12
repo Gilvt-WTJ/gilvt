@@ -75,7 +75,7 @@ R1 的做法是：远端只有其他版本时不询问，显示一行「正在�
 
 - 上传脚本多建一个 symlink：`~/.gilvt-server/<build-id>/bin/gilvt -> ../gilvt-remote`。
 - `login` 写出 shell 集成时如果发现这个 symlink 不存在，也补建一次。这样即使远端是 R1 时代装好的同一个 build，也不会缺少入口。
-- `gilvt-remote` 以 `gilvt` 的名字被调用时，只支持 `hook …`（包括 `claude-args`、`codex-args`、`codex-trust`），其他子命令一律静默以 0 退出。
+- `gilvt-remote` 以 `gilvt` 的名字被调用时，支持 `hook …`（包括 `claude-args`、`codex-args`、`codex-trust`），以及 `view`、`diff`（§8.2，属于第二份计划）；其他子命令打印「远端不支持这个命令」并以 1 退出（`hook` 的未知用法仍按本地规则静默以 0 退出）。
 
 ### 3.3 login 设置的环境变量
 
