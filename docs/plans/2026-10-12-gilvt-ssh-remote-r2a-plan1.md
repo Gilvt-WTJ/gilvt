@@ -19,7 +19,7 @@
 ## 与 spec 的差异和裁决（最后一个任务把它们写回 spec，新增 §9「实施偏差与裁决」）
 
 1. **`SessionKey = (AgentKind, String, Host)`**：host 放在最后而不是最前，`key.0` / `key.1` 的含义不变（全仓库有 79 处直接用 `.0` / `.1`），只有构造和解构 key 的地方要改。新增 `gilvt_agent::local_key(agent, id)`。
-2. **transcript 推送是 `DaemonMsg` 的变体**（`TranscriptAppend` / `TranscriptReset`），不是 `RemoteEvent`：它们不带 `seq`、不进补发缓冲（spec §4.2 末段）。`TranscriptFollow` 的响应定为 `Following { size }`（follow 那一刻文件的字节数），`TranscriptUnfollow` 的响应为 `Ok`。app 把 `[from, size)` 当作历史（交给 registry 的是 `Batch::Catchup`），之后的才是 `Batch::Live`，否则长会话的历史会被当成实时事件改写状态。daemon 在持有跟踪表锁的同时插入跟踪并发出响应，保证 `Following` 总在第一块 `TranscriptAppend` 之前。
+2. **transcript 推送是 `DaemonMsg` 的变体**（`TranscriptAppend` / `TranscriptReset`），不是 `RemoteEvent`：它们不带 `seq`、不进补发缓冲（spec §4.2 末段）。`TranscriptFollow` 的响应定为 `Following { size }`（follow 那一刻文件的字节数），`TranscriptUnfollow` 的响应为 `Ok`。app 把 `[from, size)` 当作历史（交给 registry 的是 `Batch::Catchup`），之后的才是 `Batch::Live`，否则长会话的历史会被当成实时事件改写状态（`TranscriptReset` 之后同理，见差异 15）。daemon 在持有跟踪表锁的同时插入跟踪并发出响应，保证 `Following` 总在第一块 `TranscriptAppend` 之前。
 3. **超过 256 KB 的单行**：spec 要求「每块最多 256 KB，只在行边界切块」，两条不能同时满足（Claude 的一条 tool 结果常常超过 256 KB）。裁决：块在 256 KB 内的最后一个换行处切；256 KB 内没有换行时，把这一整行作为一块发出（上限 8 MB，base64 后约 10.7 MB，低于 16 MB 单帧）；超过 8 MB 的行跳过，下一块的 `offset` 跳过它，app 接受这种跳跃。
 4. **`Hello.epoch` 为空**（这个 app 进程第一次连接这台主机）时，从缓冲开头全部补发，`gap` 为 `false`；只有「epoch 不同」或「cursor 早于缓冲里最早的那条」才标记 `gap: true`。
 5. **`HistoryList` 按最后活动时间保留最新的条目，序列化后不超过 8 MB**：超过 16 MB 的帧会让 bridge 的写线程退出，这台主机的 hook 也会一起断掉。
@@ -32,6 +32,8 @@
 12. **远端恢复只在发起操作的窗口里选 pane**（§5.6 第 1、2 步）：往别的窗口的 pane 里打字需要先切窗口，第 3 步（新开 tab）同样在当前窗口。
 13. **不扩展 `scripts/remote-smoke.sh`**：Linux 侧的端到端（真实 `gilvt hook` → `run/gilvt.sock` → daemon → bridge 帧）由 `crates/gilvt-remote/tests/hook_bridge.rs` 覆盖，在 `scripts/remote-test.sh` 里跑；带 GUI 的链路由 AC 用例覆盖。smoke 脚本没有 app 端 bridge，扩展它要在 shell 里重写帧协议，收益小。
 14. **`crates/gilvt-cli/tests/hook.rs:99` 的穷尽模式要加 `..`**：spec §6.2 说「`gilvt-cli` 现有的 hook 测试全部原样通过」，但给 `Request::Hook` 加字段后这一处模式匹配编译不过。断言不变，只加 `..`（Task 4）。
+15. **`TranscriptReset` 带 `size`**：spec §4.2 的 `TranscriptReset` 只有 `agent` / `session_id`。文件变短或被替换时 daemon 从 0 把整份文件重推一遍，如果 app 把这些字节全当实时事件，registry 里的状态会被历史改写，与差异 2 要避免的是同一件事。裁决：`TranscriptReset` 增加 `size: u64`（重置那一刻文件的字节数；Task 4 定义，Task 7 的 daemon 填，是新变体里的新字段，没有兼容问题）；app（Task 10）把重置之后 `[0, size)` 的字节当作历史（交给 registry 的是 `Batch::Catchup`，检查器重新显示「正在读取…」直到它们到齐），`size` 之后的才是实时事件。`size` 为 0（替换成空文件）时没有要追的历史，立即完成。
+16. **`run/gilvt.sock` 的连接在 accept 循环里内联处理**：spec §4.1 没有规定并发方式。每个连接起一个线程时，同一个 agent 的相邻两个 hook（比如 `PreToolUse` 和 `Stop`）会由两个线程去抢 `State` 的锁，到达 app 的顺序不再等于发出的顺序，状态会错乱，daemon 测试的断言顺序也不确定。裁决：daemon 在 accept 循环里一次处理一个连接，读一行（读超时 **200 ms**，与 `gilvt hook` 自己的 200 ms 上限一致），按到达顺序归属并广播。代价：一个连上却不发数据的客户端最多拖慢后面的 hook 200 ms，可以接受；`gilvt hook` 总是连上就写，几乎不会这样。重连补发的测试因此是确定的：先后发出的 hook 的 `seq` 就是先后顺序，等待它们被处理用轮询 Welcome 的 `seq`，不用固定 sleep（Task 6）。
 
 ## Global Constraints
 
@@ -66,7 +68,7 @@
 - `gilvt-remote` 新增依赖 `gilvt-client`、`gilvt-agent`，仍然是 musl 静态二进制。
 - 持久化：`sessions.json` 本地会话的 key 保持 `<agent>:<id>`；远端会话写成 `<HostId>|<agent>:<id>`；旧文件不迁移。`AgentSnap` 增加可选字段 `host`（`HostId` 字符串），缺省为本地；恢复布局时远端的 `AgentSnap` 不生成 `PendingResume`。
 - 远端会话不参与 lease、外部进程扫描、lite 模式的 Tracker；不进 recorder（产物快照）。
-- pane 回到本地或收到 `LinkDown` 时，这个 pane 上 host 为远端的会话标记为结束（效果同 `pane_exited`），同一 pane 上的本地会话不受影响。
+- pane 回到本地或收到 `LinkDown` 时，这个 pane 上 host 为远端的会话标记为结束（效果同 `pane_exited`），同一 pane 上的本地会话不受影响。只在这个 pane 当前仍属于结束的那个 link 时才结束（pane 已经换了新 link 时，旧 link 迟到的结束不能带走新 link 的会话，Task 9）。
 - 远端会话的「项目」名：`<主机显示名> · <cwd 最后一级>`，如 `devbox · myrepo`。远端会话不读本地文件系统（不做 git、不检查 cwd 是否存在）。
 - 检查器：会话结束 **60 秒**后发 `TranscriptUnfollow`；bridge 重连后对仍在跟踪的远端会话重新 follow，`from` 为已收到的字节数；收到数据前显示加载中。
 - 未支持的功能统一提示：`这项功能暂不支持远端`（英文 `Not available for remote panes yet`，即现有的 `crate::remote::NOT_YET_REMOTE`）。适用于：远端会话的清理、归档、删除、Review、检查器「产物」页（以及差异 10 的「配置」页）、打开文件。
@@ -74,7 +76,7 @@
 - 远端恢复选 pane：① 当前聚焦的 pane（连着这台主机、空闲在 shell 提示符）；② 这台主机上其他连着、空闲的远端 pane；③ 新开一个 tab，在本地 shell 里输入 `ssh <display>`，等这个 pane 登记了这台主机的 link 并出现第一次 OSC 133 提示符再输入恢复命令；**30 秒**内没等到就放弃，提示「没有等到 devbox 的提示符，未恢复会话」。
 - 远端 hook 最多 200 ms，总是以 0 退出；远端任何环节出错都不影响 agent 运行和 ssh 登录。
 - DebugState 字段只增不改，`VERSION` 保持 1；新字段写进 `docs/debug-state.md`。
-- `CHANGELOG.md` 的 `## [Unreleased]`：Added「ssh 远端 shell 里运行的 claude / codex 出现在侧栏，通知、检查器、历史与恢复可用」；Changed「gilvt 升级后连接装有旧版远端组件的主机时，先询问再更新」。（CHANGELOG 正文是英文，写英文版本，意思不变。）
+- `CHANGELOG.md` 的 `## [Unreleased]`：Changed「gilvt 升级后连接装有旧版远端组件的主机时，先询问再更新」；Added「ssh 远端 shell 里运行的 claude / codex 出现在侧栏，通知、检查器、历史与恢复可用」。（CHANGELOG 正文是英文，写英文版本，意思不变。）**按项目规则，条目和改变用户可感知行为的代码在同一个提交里**：Changed 在 Task 3 的提交，Added 在 Task 9 的提交（从那里起远端会话出现在侧栏）；Task 15 只在需要时调整措辞，使 Added 覆盖整个功能，不新增重复条目。
 - 本系列属于基础设施改动，合入前运行 `tests/gui/selftest.sh --repeat 20`（第一次失败即停止，保留失败轮次）。
 - 清理：`tests/gui/remote.sh down`，删除编译用的 docker 卷（`gilvt-remote-target`、`gilvt-remote-cargo`、`gilvt-remote-rustup-<arch>`）与本轮的 `CARGO_TARGET_DIR`，`df -h ~` 写进交付说明。
 - 每个提交信息以这两行结尾：
@@ -117,7 +119,7 @@
 - `crates/gilvt-ipc/Cargo.toml`、`src/lib.rs`、`src/remote.rs`。
 - `crates/gilvt-cli/Cargo.toml`、`src/hook/mod.rs`、`src/ssh/{plan,mod}.rs`、`tests/hook.rs`（只加 `..`）。
 - `crates/gilvt-remote/Cargo.toml`、`src/{main,paths,login,links,daemon,client}.rs`、`tests/{login_bridge,takeover}.rs`。
-- `crates/gilvt-app/src/agents/{mod,state,tails,worker,worker_tests,pending,project}.rs`、`persist/snapshot.rs`、`remote/{mod,bridge,pane,prefs}.rs`、`ipc_bridge.rs`、`terminal_view.rs`、`workspace.rs`、`workspace/{inspector,ended,history,debug,sessions}.rs`、`sidebar/view.rs`、`launcher/{sessions_model,sessions_view}.rs`、`session_center/view.rs`、`inspector/view.rs`、`review/store.rs`、`debug_state/{mod,map}.rs` 及其测试，以及 `SessionKey` 重构波及的文件（Task 8 用编译器找）。
+- `crates/gilvt-app/src/agents/{mod,state,tails,worker,worker_tests,pending,project}.rs`、`persist/snapshot.rs`、`remote/{mod,bridge,pane,prefs}.rs`、`ipc_bridge.rs`、`terminal_view.rs`、`workspace.rs`、`workspace/{inspector,ended,history,debug,sessions}.rs`、`sidebar/view.rs`、`notify/mod.rs`、`launcher/{sessions_model,sessions_view}.rs`、`session_review/view.rs`、`inspector/view.rs`、`review/store.rs`、`debug_state/{mod,map}.rs` 及其测试，以及 `SessionKey` 重构波及的文件（Task 8 用编译器找）。
 - `crates/gilvt-fake-agent/src/scenario.rs`、`tests/gui_scenarios.rs`、`tests/common/mod.rs`。
 - `scripts/build-remote.sh`、`tests/gui/remote.sh`、`tests/gui/README.md`、`tests/gui/cases/AC/AC3.md`。
 - `docs/compat-checklist.md`、`docs/debug-state.md`、`docs/user-guide{,.zh-CN}.{md,html}`、`CHANGELOG.md`、`HACKING.md`、`docs/design/2026-10-12-gilvt-ssh-remote-r2a-design.md`。
@@ -163,8 +165,10 @@ args=("$@")
 docker run --rm --platform "$platform" -v "$root":/src:ro \
   -v gilvt-remote-target:/target -v gilvt-remote-cargo:/usr/local/cargo/registry -v "gilvt-remote-rustup-$a":/usr/local/rustup \
   -e CARGO_TARGET_DIR="/target/test-$a" -w /src rust:1.95-alpine \
-  sh -c 'apk add -q musl-dev >/dev/null && cargo test --locked "$@"' remote-test "${args[@]}"
+  sh -c 'apk add -q musl-dev git >/dev/null && cargo test --locked "$@"' remote-test "${args[@]}"
 ```
+
+（`git`：`gilvt-agent` 的 `git.rs` 测试要启动 `git`，`rust:alpine` 里没有，所以和 `musl-dev` 一起装。）
 
 - [ ] **Step 2: 运行，确认在 Linux 上编译失败**
 
@@ -239,8 +243,8 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
     - `gilvt`：写进 hook 命令的路径；`state_dir`：放 `codex-trust.json` / `codex-trust.lock`（`lease` 为真时也放 `leases/`）；`lease`：每个 hook 写 lease（只有 Mac）；`remote`：远端模式（Task 4 起填 `link` / `tmux`；没有 `GILVT_SOCKET` 时不广播给本机的 app socket）。
   - `pub fn run(args: &[String], cfg: &HookConfig) -> ExitCode`（`args` 是 `hook` 之后的参数，与现在的 `gilvt_cli::hook::run` 相同）。
   - 原样导出：`pub mod claude; pub mod codex; pub mod codex_flags; pub mod trust;`、`pub fn shell_quote(&str) -> String`、`pub fn hook_command(&Path, &str, &str) -> String`、`pub fn reduced_payload(&[u8]) -> Option<Value>`、`pub const MAX_PAYLOAD_BYTES: usize`。
-  - 签名变化：`trust::lookup(gilvt: &Path, state_dir: Option<&Path>) -> Lookup`、`trust::run_job(gilvt: &Path, state_dir: Option<&Path>)`、`codex::args_for(gilvt: &Path, state_dir: Option<&Path>, user: &[String]) -> Vec<String>`；`trust::state_dir()` 删除（移到 gilvt-cli，见下）。
-- Produces（`gilvt_cli::hook`，保持 `integrate.rs`、`ssh/plan.rs` 的调用不变）：`pub use gilvt_client::hook::{claude, codex, codex_flags, trust, hook_command, reduced_payload, shell_quote, HookConfig, MAX_PAYLOAD_BYTES};`、`pub fn gilvt_path() -> PathBuf`、`pub fn mac_state_dir() -> Option<PathBuf>`、`pub fn config() -> HookConfig`、`pub fn run(args: &[String]) -> ExitCode`。
+  - 签名变化：`trust::lookup(gilvt: &Path, state_dir: Option<&Path>) -> Lookup`、`trust::run_job(gilvt: &Path, state_dir: Option<&Path>)`、`codex::args_for(gilvt: &Path, state_dir: Option<&Path>, user: &[String]) -> Vec<String>`；`trust::state_dir()` 删除（Mac 上的值由 `gilvt_agent::default_state_dir()` 提供，两者原来就是同一个路径）。
+- Produces（`gilvt_cli::hook`，保持 `integrate.rs`、`ssh/plan.rs` 的调用不变）：`pub use gilvt_client::hook::{claude, codex, codex_flags, trust, hook_command, reduced_payload, shell_quote, HookConfig, MAX_PAYLOAD_BYTES};`、`pub fn gilvt_path() -> PathBuf`、`pub fn config() -> HookConfig`（`state_dir` 取 `gilvt_agent::default_state_dir()`）、`pub fn run(args: &[String]) -> ExitCode`。
 
 - [ ] **Step 1: 建 crate 骨架并移动文件**
 
@@ -293,15 +297,27 @@ pub mod hook;
         assert_eq!(codex::args_for(Path::new("/x/gilvt"), None, &user), user, "no trust cache: no hooks, no job");
     }
 
-    #[test]
-    fn mac_config_is_not_remote() {
-        let cfg = HookConfig { gilvt: "/a/gilvt".into(), state_dir: None, lease: true, remote: false };
-        assert!(cfg.lease && !cfg.remote);
-    }
 ```
 
-Run: `cargo test -p gilvt-client 2>&1 | tail -5`
-Expected: FAIL（`HookConfig` 未定义、`args_for` 参数个数不对）。
+再在 `crates/gilvt-cli/src/hook/mod.rs` 末尾加（真正走 `gilvt_cli::hook::config()`，不是断言一个刚写的结构体字面量）：
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_mac_config_writes_leases_and_is_not_remote() {
+        let cfg = config();
+        assert!(cfg.lease && !cfg.remote);
+        assert_eq!(cfg.state_dir, gilvt_agent::default_state_dir(), "the app's state directory");
+        assert!(cfg.gilvt.is_absolute(), "{:?}", cfg.gilvt);
+    }
+}
+```
+
+Run: `cargo test -p gilvt-client -p gilvt-cli 2>&1 | tail -5`
+Expected: FAIL（`HookConfig` / `config` 未定义、`args_for` 参数个数不对）。
 
 - [ ] **Step 3: 参数化 `gilvt-client` 的 hook 模块**
 
@@ -409,19 +425,20 @@ pub fn gilvt_path() -> PathBuf {
     exe.canonicalize().unwrap_or(exe)
 }
 
-/// `~/Library/Application Support/gilvt/state`.
-pub fn mac_state_dir() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").filter(|h| !h.is_empty())?;
-    Some(PathBuf::from(home).join("Library/Application Support/gilvt/state"))
-}
-
+/// The Mac's values: this binary, `~/Library/Application Support/gilvt/state` (the app's, via
+/// `gilvt_agent::default_state_dir`), leases on.
 pub fn config() -> HookConfig {
-    HookConfig { gilvt: gilvt_path(), state_dir: mac_state_dir(), lease: true, remote: false }
+    HookConfig { gilvt: gilvt_path(), state_dir: gilvt_agent::default_state_dir(), lease: true, remote: false }
 }
 
 /// Entry point for `gilvt hook <args>`.
 pub fn run(args: &[String]) -> ExitCode {
     gilvt_client::hook::run(args, &config())
+}
+
+#[cfg(test)]
+mod tests {
+    // … the test from Step 2 …
 }
 ```
 
@@ -452,10 +469,12 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 ### Task 3: 远端组件的版本更新询问（spec §2）
 
 **Files:**
-- Modify: `crates/gilvt-cli/src/ssh/plan.rs:28-41, 70-80, 90-95, 121-128` 与测试
-- Modify: `crates/gilvt-cli/src/ssh/mod.rs:207-245, 225-235（ask 调用）, 237-251（fn ask）`
-- Modify: `crates/gilvt-app/src/remote/prefs.rs:47-54` 与测试
-- Modify: `crates/gilvt-ipc/src/lib.rs`（`Response::RemoteBegin` 的文档注释）
+- Modify: `crates/gilvt-cli/src/ssh/plan.rs`（`Probe` / `parse_probe`、`Decision` / `decide`、`probe_command`、`upload_command`、提示文案函数）与测试
+- Modify: `crates/gilvt-cli/src/ssh/mod.rs`（`fn ask` 和调用 `plan::decide` 的那段 match；按名字找，不依赖行号）
+- Modify: `crates/gilvt-app/src/remote/prefs.rs`（`RemotePrefs::policy`）与测试
+- Modify: `crates/gilvt-ipc/src/lib.rs`（`Response::RemoteBegin` 的文档注释）、`crates/gilvt-ipc/src/remote.rs`（`is_build_id`，只此一份）
+- Modify: `crates/gilvt-remote/src/paths.rs`（`is_build_id` 改为 `pub use gilvt_ipc::remote::is_build_id;`，其余不变）
+- Modify: `CHANGELOG.md`（`## [Unreleased]` 下的 Changed）
 
 **Interfaces:**
 - Produces（`gilvt_cli::ssh::plan`）：
@@ -465,11 +484,12 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   - `pub fn shown_versions(old: &str, new: &str) -> (String, String)`。
   - `pub fn not_updating_reason() -> &'static str`（「这次不更新远端组件」/ `not updating the remote helper this time`）。
   - `Probe.installed`：build-id 形状的目录名，最新的在前。
+- Produces（`gilvt_ipc::remote`）：`pub fn is_build_id(name: &str) -> bool`（`<x.y.z>-<8 位小写十六进制>`；`gilvt-cli` 的探测和 `gilvt-remote` 的 `paths` 共用这一份）。
 - Produces（`RemotePrefs::policy`）：返回 `"never" | "always" | "allowed" | "ask"`。
 
 - [ ] **Step 1: 写决策表与文案的失败测试**
 
-在 `plan.rs` 的 `mod tests` 里，把 `decisions()` 中 `"upgrades do not ask"` 那一行改为新的期望，并加：
+在 `plan.rs` 的 `mod tests` 里**删除**旧的 `decisions()` 测试（它的 `Decision::Ask { upgrade: false }` 在新签名下编译不过，`"upgrades do not ask"` 那一行的期望也变了；下面的 `decision_table` 取代它，它里面「不支持的系统 / 架构 / 没有打包」的中文原因断言搬到 `decision_table` 末尾），辅助函数 `probe()` 保留。加：
 
 ```rust
     #[test]
@@ -496,6 +516,10 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
         for (policy, p, want) in cases {
             assert_eq!(decide(policy, p, id), want, "{policy} {:?}", p.installed);
         }
+        // The plain reasons (moved from the old `decisions()`; the English ones are tested above).
+        assert_eq!(decide("ask", &probe("Darwin", "arm64", &[]), id), Decision::Plain("远端不是 Linux（Darwin），暂不支持".into()));
+        assert_eq!(decide("ask", &probe("Linux", "riscv64", &[]), id), Decision::Plain("远端架构 riscv64 暂不支持".into()));
+        assert_eq!(decide("ask", &none, None), Decision::Plain("这个 gilvt 构建没有包含远端组件".into()));
     }
 
     #[test]
@@ -533,28 +557,33 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 ```
 
 
+在 `crates/gilvt-ipc/src/remote.rs` 的 `mod tests` 里加：
+
+```rust
+    #[test]
+    fn build_ids_are_a_version_and_eight_hex_digits() {
+        for ok in ["0.1.0-1a2b3c4d", "0.0.1-00000000", "12.30.4-ffffffff"] {
+            assert!(is_build_id(ok), "{ok}");
+        }
+        for bad in ["bin", "run", "state", "0.1.0", "0.1-1a2b3c4d", "0.1.0-1A2B3C4D", "0.1.0-1a2b3c4", "0.1.x-1a2b3c4d", "-1a2b3c4d", ".1.0-1a2b3c4d"] {
+            assert!(!is_build_id(bad), "{bad}");
+        }
+    }
+```
+
 Run: `cargo test -p gilvt-cli ssh::plan 2>&1 | tail -5`
 Expected: FAIL（编译错误：`Decision::Ask` 没有 `old`，`upgrade_prompt` 等未定义）。
 
-- [ ] **Step 2: 实现 `plan.rs`**
+- [ ] **Step 2: 实现 `is_build_id`（一份）与 `plan.rs`**
 
-```rust
-/// `<x.y.z>-<8 lower-case hex>` (as `gilvt-remote`'s `paths::is_build_id`).
-fn is_build_id(name: &str) -> bool {
-    let Some((ver, sha)) = name.rsplit_once('-') else { return false };
-    sha.len() == 8
-        && sha.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
-        && ver.split('.').count() == 3
-        && ver.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
-}
-```
+把 `crates/gilvt-remote/src/paths.rs` 里现有的 `is_build_id`（连同它的文档注释）原样移到 `crates/gilvt-ipc/src/remote.rs` 并保持 `pub`；`paths.rs` 里原处换成 `pub use gilvt_ipc::remote::is_build_id;`（`build_id_of` 和它的测试照旧）。`plan.rs` 不再自己写一份，直接用它。
 
 `parse_probe` 的 `installed` 收集改为只保留 build-id：
 
 ```rust
     let installed = lines
         .filter_map(|l| Path::new(l.trim().trim_end_matches('/')).file_name()?.to_str().map(str::to_string))
-        .filter(|n| is_build_id(n))
+        .filter(|n| gilvt_ipc::remote::is_build_id(n))
         .collect();
 ```
 
@@ -677,13 +706,23 @@ pub fn not_updating_reason() -> &'static str {
 
 - [ ] **Step 5: 跑测试**
 
-Run: `cargo test -p gilvt-cli 2>&1 | grep -E "^test result|FAILED" && cargo test -p gilvt-app remote::prefs 2>&1 | tail -3`
-Expected: 全部 PASS（含 `tests/ssh.rs`）。
+Run: `cargo test -p gilvt-cli -p gilvt-ipc -p gilvt-remote 2>&1 | grep -E "^test result|FAILED" && cargo test -p gilvt-app remote::prefs 2>&1 | tail -3`
+Expected: 全部 PASS（含 `tests/ssh.rs`、`paths` 里原有的 `is_build_id` / `build_id_of` 测试）。
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: CHANGELOG 与提交**
+
+这一步改变了用户能感知的行为，CHANGELOG 在同一个提交里更新（项目规则）。在 `CHANGELOG.md` 的 `## [Unreleased]` 下加（其下现在是空的，英文）：
+
+```markdown
+### Changed
+
+- SSH: after gilvt is upgraded, the first connection to a host that has an older remote helper installed now asks
+  before updating it (it used to update silently); answer `n` to log in plain this time, `N` to never install
+  on that host. `[remote] install = "always"` still updates without asking.
+```
 
 ```bash
-git add crates/gilvt-cli/src/ssh crates/gilvt-app/src/remote/prefs.rs crates/gilvt-ipc/src/lib.rs
+git add crates/gilvt-cli/src/ssh crates/gilvt-app/src/remote/prefs.rs crates/gilvt-ipc/src/lib.rs crates/gilvt-ipc/src/remote.rs crates/gilvt-remote/src/paths.rs CHANGELOG.md
 git commit -m "ssh: ask before updating an older remote helper; upload links bin/gilvt
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -710,7 +749,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   - `AppMsg::Hello { build_id, app_instance, cursor: u64, epoch: Option<u64> }`（`#[serde(default, skip_serializing_if = "Option::is_none")]`）
   - `RemoteRequest::{TranscriptFollow { agent: String, session_id: String, path: PathBuf, from: u64 }, TranscriptUnfollow { agent: String, session_id: String }, History}`
   - `DaemonMsg::Welcome { …, seq, epoch: u64, gap: bool }`（新字段 `#[serde(default)]`）
-  - `DaemonMsg::{TranscriptAppend { agent: String, session_id: String, offset: u64, bytes: String }, TranscriptReset { agent: String, session_id: String }}`
+  - `DaemonMsg::{TranscriptAppend { agent: String, session_id: String, offset: u64, bytes: String }, TranscriptReset { agent: String, session_id: String, size: u64 }}`（`size`：重置那一刻文件的字节数；重置后从 0 重推，其中 `size` 以下的字节对 app 是历史，不是实时事件，见差异 15）
   - `RemoteResponse::{Ok, Following { size: u64 }, HistoryList { entries: Vec<gilvt_agent::HistoryEntry> }}`
   - `RemoteEvent::Hook { link: String, agent: String, event: String, payload: Value }`
   - `pub fn encode_bytes(bytes: &[u8]) -> String`、`pub fn decode_bytes(text: &str) -> io::Result<Vec<u8>>`（标准 base64）
@@ -741,7 +780,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
         let msgs = vec![
             DaemonMsg::Event { seq: 4, event: RemoteEvent::Hook { link: "i-1".into(), agent: "claude".into(), event: "Stop".into(), payload: serde_json::json!({"session_id": "s"}) } },
             DaemonMsg::TranscriptAppend { agent: "claude".into(), session_id: "s".into(), offset: 10, bytes: encode_bytes(b"{\"a\":1}\n") },
-            DaemonMsg::TranscriptReset { agent: "codex".into(), session_id: "s".into() },
+            DaemonMsg::TranscriptReset { agent: "codex".into(), session_id: "s".into(), size: 4096 },
             DaemonMsg::Welcome { build_id: "b".into(), hostname: "h".into(), uname: "u".into(), links: vec![], seq: 9, epoch: 1_760_000_000_000, gap: true },
             DaemonMsg::Response { id: 2, resp: RemoteResponse::Following { size: 4096 } },
             DaemonMsg::Response { id: 3, resp: RemoteResponse::Ok },
@@ -886,7 +925,7 @@ pub enum RemoteRequest {
 }
 ```
 
-`DaemonMsg::Welcome` 加 `#[serde(default)] epoch: u64` 和 `#[serde(default)] gap: bool`（注释：「`epoch`: the daemon's start time in ms; `gap`: hooks were lost since the app's cursor」），`DaemonMsg` 加 `TranscriptAppend`（注释：「Only to the bridge that followed; not replayed. `bytes`: base64, ends at a line end」）和 `TranscriptReset`；`RemoteResponse` 加 `Ok`、`Following { size: u64 }`、`HistoryList { entries: Vec<gilvt_agent::HistoryEntry> }`；`RemoteEvent` 加 `Hook { link: String, agent: String, event: String, payload: serde_json::Value }`。所有派生保持不变（`HistoryEntry` 已有 `Eq`）。
+`DaemonMsg::Welcome` 加 `#[serde(default)] epoch: u64` 和 `#[serde(default)] gap: bool`（注释：「`epoch`: the daemon's start time in ms; `gap`: hooks were lost since the app's cursor」），`DaemonMsg` 加 `TranscriptAppend`（注释：「Only to the bridge that followed; not replayed. `bytes`: base64, ends at a line end」）和 `TranscriptReset { agent, session_id, size }`（注释：「The file shrank or was replaced; pushes restart at offset 0. `size`: its length now: the bytes below it are history, not live」）；`RemoteResponse` 加 `Ok`、`Following { size: u64 }`、`HistoryList { entries: Vec<gilvt_agent::HistoryEntry> }`；`RemoteEvent` 加 `Hook { link: String, agent: String, event: String, payload: serde_json::Value }`。所有派生保持不变（`HistoryEntry` 已有 `Eq`）。
 
 - [ ] **Step 5: `hook_request` 与 `forward`**
 
@@ -908,7 +947,13 @@ pub fn hook_request(agent: &str, event: &str, payload: serde_json::Value, pane: 
 
 - [ ] **Step 6: 修好其他构造点**
 
-逐个改（编译器会列出全部）：`AppMsg::Hello { … cursor: 0 }` 加 `epoch: None`（`crates/gilvt-remote/src/client.rs:40,48`、`daemon.rs` 测试 `:203,:260`、`tests/login_bridge.rs:37`、`tests/takeover.rs:29`、`crates/gilvt-app/src/remote/bridge.rs:109`）；`daemon.rs:149` 的 `DaemonMsg::Welcome { … seq: s.seq }` 加 `epoch: 0, gap: false`（Task 6 换成真值）；`crates/gilvt-app/src/agents/mod.rs:375` 的模式改为 `Request::Hook { pane, agent, event, payload, .. }`；`crates/gilvt-cli/tests/hook.rs:99` 的模式改为 `Request::Hook { pane, agent, event, payload, .. }`（只加 `..`，见差异 14）。app 的 `remote/bridge.rs` 里 `Some(_) => {}` 已经覆盖新的 `DaemonMsg` 变体。
+逐个改（编译器会列出全部）：`AppMsg::Hello { … cursor: 0 }` 加 `epoch: None`（`crates/gilvt-remote/src/client.rs:40,48`、`daemon.rs` 测试 `:203,:260`、`tests/login_bridge.rs:37`、`tests/takeover.rs:29`、`crates/gilvt-app/src/remote/bridge.rs:109`）；`daemon.rs:149` 的 `DaemonMsg::Welcome { … seq: s.seq }` 加 `epoch: 0, gap: false`（Task 6 换成真值）；`crates/gilvt-app/src/agents/mod.rs:375` 的模式改为 `Request::Hook { pane, agent, event, payload, .. }`；`crates/gilvt-cli/tests/hook.rs:99` 的模式改为 `Request::Hook { pane, agent, event, payload, .. }`（只加 `..`，见差异 14）。app 的 `remote/bridge.rs` 里 `Some(_) => {}` 已经覆盖新的 `DaemonMsg` 变体。`crates/gilvt-remote/src/daemon.rs` 读循环里穷尽的 `match req`（`Ping` / `LinkInfo` 两个分支）要在**这一步**加占位分支，否则 `gilvt-remote` 在 Task 4、5 结束时编译不过（Task 7 Step 4 换成真实现）：
+
+```rust
+                            RemoteRequest::TranscriptFollow { .. } | RemoteRequest::TranscriptUnfollow { .. } | RemoteRequest::History => RemoteResponse::Error { message: "not supported yet".into() },
+```
+
+（按 `daemon.rs` 里现有分支的写法调整：现有分支产出的是 `RemoteResponse`，占位分支同样。）
 
 Run: `cargo build --workspace --all-targets 2>&1 | grep -E "^error" | head`
 Expected: 没有输出。
@@ -942,7 +987,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 
 **Interfaces:**
 - Produces（`paths::Layout`）：`pub fn home(&self) -> PathBuf`（`root` 的上一级）、`pub fn state_dir(&self) -> PathBuf`（`root/state`）、`pub fn hook_socket(&self) -> PathBuf`（`root/run/gilvt.sock`）、`pub fn bin_dir(&self, build_id: &str) -> PathBuf`（`root/<build>/bin`）、`pub fn gilvt_link(&self, build_id: &str) -> PathBuf`（`root/<build>/bin/gilvt`）、`pub fn ensure_gilvt_link(&self, build_id: &str) -> io::Result<PathBuf>`。
-- Produces（`entry`）：`pub fn run(args: &[String]) -> ExitCode`（`args` 是 `gilvt` 之后的参数）、`pub fn hook_config(layout: &Layout, build_id: &str) -> HookConfig`、`pub fn unsupported() -> &'static str`（「远端不支持这个命令」/ `this command is not available on the remote host`）。第二份计划在 `run` 的 match 里加 `view` / `diff` 两个分支。
+- Produces（`entry`）：`pub fn run(args: &[String]) -> ExitCode`（`args` 是 `gilvt` 之后的参数；先按 `GILVT_LANGUAGE` 设置界面语言，build id 取自 `canonicalize` 之后的 `current_exe()`）、`pub fn hook_config(layout: &Layout, build_id: &str) -> HookConfig`、`pub fn unsupported() -> &'static str`（「远端不支持这个命令」/ `this command is not available on the remote host`）。第二份计划在 `run` 的 match 里加 `view` / `diff` 两个分支。
 - Produces（`login`）：`pub fn gilvt_env(layout: &Layout, build: Option<&str>, link: Option<&str>, bin: Option<&Path>) -> Vec<(&'static str, Option<String>)>`（`None` 值表示从环境里移除）。
 
 - [ ] **Step 1: 写失败的测试**
@@ -992,8 +1037,26 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 //! The `gilvt` name of gilvt-remote (spec R2a §3.2): `hook` forwards to $GILVT_SOCKET with the link, other
 //! commands are refused with exit 1, unknown hook usage stays silent.
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+/// `accept` with a deadline: a regression must fail the test, not hang `cargo test`.
+fn accept_within(listener: &UnixListener, within: Duration) -> UnixStream {
+    listener.set_nonblocking(true).unwrap();
+    let end = Instant::now() + within;
+    loop {
+        match listener.accept() {
+            Ok((conn, _)) => {
+                conn.set_nonblocking(false).unwrap(); // the accepted socket inherits it on macOS
+                conn.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                return conn;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < end => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => panic!("no hook arrived within {within:?}: {e}"),
+        }
+    }
+}
 
 fn install(home: &std::path::Path) -> std::path::PathBuf {
     let dir = home.join(".gilvt-server/0.1.0-aaaaaaaa");
@@ -1020,7 +1083,7 @@ fn hook_forwards_with_the_link_and_exits_0() {
         .spawn()
         .unwrap();
     child.stdin.take().unwrap().write_all(br#"{"session_id":"s1","hook_event_name":"Stop"}"#).unwrap();
-    let (conn, _) = listener.accept().unwrap();
+    let conn = accept_within(&listener, Duration::from_secs(10));
     let mut line = String::new();
     BufReader::new(conn).read_line(&mut line).unwrap();
     let req: gilvt_ipc::Request = serde_json::from_str(&line).unwrap();
@@ -1111,9 +1174,16 @@ pub fn hook_config(layout: &Layout, build_id: &str) -> HookConfig {
 }
 
 pub fn run(args: &[String]) -> ExitCode {
+    // The login shell carries the window's language (`GILVT_LANGUAGE`, as for the Mac's `gilvt`).
+    if let Some(language) = gilvt_i18n::language_from_env() {
+        gilvt_i18n::set_current(language);
+    }
     match args.first().map(String::as_str) {
         Some("hook") => {
-            let build = std::env::current_exe().ok().and_then(|e| paths::build_id_of(&e));
+            // Resolve the `bin/gilvt` link: on macOS (where these tests also run) `current_exe()` is the link's own
+            // path, whose parent is `bin/`, not the build directory; on Linux it is already resolved.
+            let exe = std::env::current_exe().ok().map(|e| e.canonicalize().unwrap_or(e));
+            let build = exe.as_deref().and_then(paths::build_id_of);
             match (build, Layout::current()) {
                 (Some(build), Some(layout)) => gilvt_client::hook::run(&args[1..], &hook_config(&layout, &build)),
                 // Not installed the usual way: still silent, still 0 (a hook must never disturb the agent).
@@ -1128,7 +1198,7 @@ pub fn run(args: &[String]) -> ExitCode {
 }
 ```
 
-（Linux 上 `current_exe()` 读 `/proc/self/exe`，已解析 symlink，得到 `<build>/gilvt-remote`，`build_id_of` 照常工作。）
+（`canonicalize` 之后得到 `<build>/gilvt-remote`，`build_id_of` 在两个平台上都工作；`gilvt_entry.rs` 的 `accept_within` 保证回归时测试失败而不是永远卡在 `accept()`。）
 
 `main.rs`：模块列表加 `mod entry;`，注释第 2–3 行改为「Called as `gilvt` (the `<build>/bin/gilvt` link) it answers `gilvt hook …` (R2a; `view` / `diff` come with R2a's second plan).」；`main` 开头加：
 
@@ -1384,6 +1454,21 @@ Expected: PASS。
         line.push(b'\n');
         std::io::Write::write_all(&mut s, &line).unwrap();
     }
+    /// Until the daemon has handled events up to `want` (looked at through short-lived bridges: no fixed sleeps).
+    fn wait_for_seq(home: &std::path::Path, build: &str, want: u64) {
+        let end = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut probe = bridge(home, build);
+            probe.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            if let Some(DaemonMsg::Welcome { seq, .. }) = read_frame::<DaemonMsg>(&mut probe).unwrap() {
+                if seq >= want {
+                    return;
+                }
+            }
+            assert!(Instant::now() < end, "the daemon never handled the hooks (wanted seq {want})");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
     fn next_hook(b: &mut UnixStream) -> (u64, String) {
         loop {
             match read_frame::<DaemonMsg>(b).unwrap().unwrap() {
@@ -1427,9 +1512,11 @@ Expected: PASS。
         b.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
         let (seen, _) = next_hook(&mut b);
         drop(b);
+        // `send_hook` returns once its line is written, and the daemon takes connections in accept order, so Two is
+        // always seq+1 and Three seq+2; wait for them by polling the Welcome's seq instead of sleeping.
         send_hook(home.path(), Some("t-1"), false, "Two");
         send_hook(home.path(), Some("t-1"), false, "Three");
-        std::thread::sleep(Duration::from_millis(200));
+        wait_for_seq(home.path(), "0.1.0-aaaaaaaa", seen + 2);
         let mut b = bridge_at(home.path(), "0.1.0-aaaaaaaa", seen, Some(epoch));
         b.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
         let Some(DaemonMsg::Welcome { gap, .. }) = read_frame::<DaemonMsg>(&mut b).unwrap() else { panic!() };
@@ -1500,8 +1587,16 @@ impl State {
 ```
 
 ```rust
+/// How long one connection may take to deliver its request line. A real `gilvt hook` writes the line right after
+/// connecting and gives up itself after 200 ms (`send_nowait`), so waiting longer gains nothing.
+const HOOK_READ_TIMEOUT: Duration = Duration::from_millis(200);
+
 /// `run/gilvt.sock`: one request line per connection, like the app's socket (R2a §4.1). Hooks are attributed to a
 /// link and broadcast; anything else is ignored (R2a's second plan adds View / Diff here).
+///
+/// Connections are handled one at a time, inline, in the order they were accepted (no thread per connection): hooks
+/// reach the app in the order they were sent, and a stuck client delays the others by at most `HOOK_READ_TIMEOUT`
+/// (R2a plan deviation 16).
 fn serve_gilvt_sock(listener: UnixListener, state: &Arc<Mutex<State>>) {
     let me = unsafe { libc::getuid() };
     for conn in listener.incoming() {
@@ -1509,19 +1604,14 @@ fn serve_gilvt_sock(listener: UnixListener, state: &Arc<Mutex<State>>) {
         if peer_uid(&conn).ok() != Some(me) {
             continue;
         }
-        let state = state.clone();
-        std::thread::spawn(move || {
-            let _ = conn.set_read_timeout(Some(Duration::from_secs(5)));
-            match gilvt_ipc::read_request(&conn) {
-                Ok(gilvt_ipc::Request::Hook { agent, event, payload, link, tmux, .. }) => {
-                    let mut s = state.lock().unwrap();
-                    if let Some(link) = attribute(&s.links, link.as_deref(), tmux) {
-                        s.broadcast(RemoteEvent::Hook { link, agent, event, payload });
-                    }
-                }
-                _ => {}
+        let _ = conn.set_read_timeout(Some(HOOK_READ_TIMEOUT));
+        // A client that connects and then says nothing fails the read at the timeout and is dropped.
+        if let Ok(gilvt_ipc::Request::Hook { agent, event, payload, link, tmux, .. }) = gilvt_ipc::read_request(&conn) {
+            let mut s = state.lock().unwrap();
+            if let Some(link) = attribute(&s.links, link.as_deref(), tmux) {
+                s.broadcast(RemoteEvent::Hook { link, agent, event, payload });
             }
-        });
+        }
     }
 }
 ```
@@ -1552,7 +1642,7 @@ fn serve_gilvt_sock(listener: UnixListener, state: &Arc<Mutex<State>>) {
             // … unchanged …
 ```
 
-读循环里的 `match req` 给新请求先加一个占位分支，Task 7 再实现：`RemoteRequest::TranscriptFollow { .. } | RemoteRequest::TranscriptUnfollow { .. } | RemoteRequest::History => RemoteResponse::Error { message: "not supported yet".into() },`。
+读循环里 `match req` 的占位分支已在 Task 4 Step 6 加好，Task 7 换成真实现。
 
 - [ ] **Step 5: 二进制级测试 `tests/hook_bridge.rs`**
 
@@ -1601,6 +1691,7 @@ fn a_hook_in_the_login_shell_reaches_the_bridge() {
         .args(["login", "--link", "t-1", "--exec", r#"printf '{"session_id":"s1","hook_event_name":"Stop"}' | "$GILVT_BIN_DIR/gilvt" hook claude Stop"#])
         .env("HOME", home.path())
         .env("SHELL", "/bin/sh")
+        .env_remove("TMUX") // a developer running the tests inside tmux would make the daemon drop the hook
         .status()
         .unwrap();
     assert!(status.success());
@@ -1643,7 +1734,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 
 **Interfaces:**
 - Consumes: Task 4 的 `RemoteRequest::{TranscriptFollow, TranscriptUnfollow, History}`、`RemoteResponse::{Ok, Following, HistoryList}`、`DaemonMsg::{TranscriptAppend, TranscriptReset}`、`encode_bytes`；Task 5 的 `Layout::{state_dir, home}`。
-- Produces（`follow`）：`pub const FOLLOW_POLL: Duration`（250 ms）、`pub const MAX_CHUNK: usize`（256 KB）、`pub const MAX_LINE: usize`（8 MB）、`pub const MAX_FOLLOWS: usize`（32）、`pub enum Push { Append { offset: u64, bytes: Vec<u8> }, Reset }`、`pub enum Chunk { Send(usize), Wait, Skip }`、`pub fn split_chunk(buf: &[u8], max: usize, limit: usize) -> Chunk`、`pub fn check_path(path: &Path, home: &Path) -> Result<PathBuf, String>`、`pub struct Follower`（`new(path: PathBuf, from: u64)`、`poll(&mut self) -> io::Result<Vec<Push>>`、`size(&self) -> u64`）。
+- Produces（`follow`）：`pub const FOLLOW_POLL: Duration`（250 ms）、`pub const MAX_CHUNK: usize`（256 KB）、`pub const MAX_LINE: usize`（8 MB）、`pub const MAX_FOLLOWS: usize`（32）、`pub enum Push { Append { offset: u64, bytes: Vec<u8> }, Reset { size: u64 } }`、`pub enum Chunk { Send(usize), Wait, Skip }`、`pub fn split_chunk(buf: &[u8], max: usize, limit: usize) -> Chunk`、`pub fn check_path(path: &Path, home: &Path) -> Result<PathBuf, String>`、`pub struct Follower`（`new(path: PathBuf, from: u64)`、`poll(&mut self) -> io::Result<Vec<Push>>`、`size(&self) -> u64`：文件现在的字节数，不是跟踪位置）。
 - Produces（`history`）：`pub type Scan = Arc<dyn Fn() -> Result<Vec<HistoryEntry>, String> + Send + Sync>`、`pub fn scanner(state_dir: PathBuf, home: PathBuf) -> Scan`、`pub struct HistoryWorker`（`new(scan: Scan)`、`request(&self, reply: impl FnOnce(Result<Arc<Vec<HistoryEntry>>, String>) + Send + 'static)`）、`pub const HISTORY_BYTES: usize`（8 MB）、`pub fn fit_entries(entries: Vec<HistoryEntry>, max: usize) -> Vec<HistoryEntry>`。
 
 - [ ] **Step 1: `follow.rs` 的失败测试**
@@ -1693,19 +1784,20 @@ mod tests {
         let path = dir.path().join("s.jsonl");
         std::fs::write(&path, "one\ntw").unwrap();
         let mut fl = Follower::new(path.clone(), 0);
-        assert_eq!(fl.size(), 0);
+        assert_eq!(fl.size(), 6, "size() is the file's length now (what Following reports), not the follow position");
         assert_eq!(appends(&fl.poll().unwrap()), vec![(0, "one\n".to_string())]);
+        assert_eq!(fl.size(), 6, "still the file length after a poll");
         std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"o\n").unwrap();
         assert_eq!(appends(&fl.poll().unwrap()), vec![(4, "two\n".to_string())]);
         std::fs::write(&path, "x\n").unwrap();
         let p = fl.poll().unwrap();
-        assert!(matches!(p[0], Push::Reset), "shorter: reset");
+        assert_eq!(p[0], Push::Reset { size: 2 }, "shorter: reset, carrying the new length (the app treats those bytes as history)");
         assert_eq!(appends(&p), vec![(0, "x\n".to_string())]);
         let other = dir.path().join("t.jsonl");
         std::fs::write(&other, "x\ny\n").unwrap();
         std::fs::rename(&other, &path).unwrap();
         let p = fl.poll().unwrap();
-        assert!(matches!(p[0], Push::Reset), "another inode: reset");
+        assert_eq!(p[0], Push::Reset { size: 4 }, "another inode: reset");
         assert_eq!(appends(&p), vec![(0, "x\ny\n".to_string())]);
     }
 
@@ -1761,8 +1853,9 @@ pub const MAX_FOLLOWS: usize = 32;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Push {
     Append { offset: u64, bytes: Vec<u8> },
-    /// The file shrank or was replaced: the app starts over from offset 0.
-    Reset,
+    /// The file shrank or was replaced: the app starts over from offset 0. `size` is the file's length now: what
+    /// is pushed again below it is history for the app, not live events (R2a plan deviation 15).
+    Reset { size: u64 },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1836,7 +1929,7 @@ impl Follower {
         let id = (meta.dev(), meta.ino());
         let mut out = Vec::new();
         if meta.len() < self.offset || self.id.is_some_and(|known| known != id) {
-            out.push(Push::Reset);
+            out.push(Push::Reset { size: meta.len() });
             self.offset = 0;
             self.skipping = false;
         }
@@ -2074,7 +2167,7 @@ Expected: 先写测试时 FAIL，写完实现后 PASS。
                         for push in fl.poll().unwrap_or_default() {
                             let msg = match push {
                                 Push::Append { offset, bytes } => DaemonMsg::TranscriptAppend { agent: agent.clone(), session_id: session_id.clone(), offset, bytes: encode_bytes(&bytes) },
-                                Push::Reset => DaemonMsg::TranscriptReset { agent: agent.clone(), session_id: session_id.clone() },
+                                Push::Reset { size } => DaemonMsg::TranscriptReset { agent: agent.clone(), session_id: session_id.clone(), size },
                             };
                             if tx.send(msg).is_err() {
                                 return;
@@ -2411,11 +2504,12 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 
 **Files:**
 - Create: `crates/gilvt-app/src/remote/requests.rs`
-- Modify: `crates/gilvt-app/src/remote/mod.rs`（`HostEntry` 新字段与方法、`pane_of_link`、`link_ended`、`answer_begin` 里记主机名）
+- Modify: `crates/gilvt-app/src/remote/mod.rs`（`HostEntry` 新字段与方法、`pane_of_link`、`link_ended`、`clear_pane_if_link`）
 - Modify: `crates/gilvt-app/src/remote/bridge.rs`（`BridgeHandle`、`request`、`expire`、`on_message`、Hello 带 cursor / epoch）
 - Modify: `crates/gilvt-app/src/agents/mod.rs`（`HookIn`、hook 通道、`hook_tx` 字段、`remote_hook`、`remote_link_ended`、recorder 跳过远端）
 - Modify: `crates/gilvt-app/src/ipc_bridge.rs:47,82`（通道类型）
 - Modify: `crates/gilvt-agent/src/registry.rs`（`end_remote_in_pane`）
+- Modify: `CHANGELOG.md`（`## [Unreleased]` 下的 Added）
 
 **Interfaces:**
 - Consumes: Task 4 的帧；Task 8 的 `SessionKey`、`ParsedHook::with_host`、`Registry::apply_hook(&Host, …)`。
@@ -2648,7 +2742,38 @@ recorder 只记本地：`if h.meta.agent_id.is_none() && !h.host.is_remote() { �
 
 （`use gilvt_agent::host::{Host, HostId};`。）`ipc_bridge.rs`：`start(hooks: async_channel::Sender<crate::agents::HookIn>, …)`，分支改为 `hook @ Request::Hook { .. } => { let _ = hooks.try_send(crate::agents::HookIn { host: gilvt_agent::host::Host::Local, request: hook }); }`。
 
-`remote/mod.rs` 的 `link_ended`：在 `clear_pane_if_link` 之前调用 `crate::agents::Agents::remote_link_ended(p, cx);`。
+`remote/mod.rs` 的 `link_ended`：只在这个 pane 当前仍然属于结束的 link 时才结束它上面的远端会话。pane 已经换了新 link 的情形（被替换的旧 link 在新 link 开始之后才结束，`gilvt ssh` 在同一个 pane 里重连时会这样）不能误结束新 link 的会话。把 `clear_pane_if_link` 改成返回 `bool`（pane 确实还在这个 link 上并已清除，包括 pane 已回到本地、没有 remote 的情形），再用它决定：
+
+```rust
+/// Clears `pane`'s remote state when it is still on `link`. True when it was (the caller then ends the pane's remote
+/// sessions); false when the pane is gone or already on another link.
+fn clear_pane_if_link(pane: u64, link: &str, cx: &mut App) -> bool {
+    let mut cleared = false;
+    for w in cx.windows().into_iter().filter_map(|w| w.downcast::<crate::workspace::Workspace>()) {
+        let _ = w.update(cx, |ws, _, cx| {
+            if ws.has_pane(pane) && ws.pane_remote(pane, cx).is_none_or(|r| r.link == link) {
+                ws.set_pane_remote(pane, None, cx);
+                cleared = true;
+            }
+        });
+    }
+    cleared
+}
+
+pub fn link_ended(link: &str, cx: &mut App) {
+    let pane = cx.global_mut::<RemoteHosts>().end(link);
+    if let Some(p) = pane {
+        // Not when the pane has already moved on to another link (a replaced link ends after its successor began):
+        // the successor's sessions stay.
+        if clear_pane_if_link(p, link, cx) {
+            crate::agents::Agents::remote_link_ended(p, cx);
+        }
+    }
+    bridge::link_count_changed(cx); // closes an idle bridge after the grace period
+}
+```
+
+（`gilvt-app` 里这段需要 gpui 窗口，没有纯逻辑的单测；AC26 覆盖「退出 ssh 后会话结束」，Review Focus 5 的「同一个 pane 换了新 link」靠上面的条件保证。）
 
 - [ ] **Step 4: bridge 的请求 / 响应与消息处理**
 
@@ -2752,10 +2877,20 @@ pub fn request(host: &str, req: RemoteRequest, timeout: Duration, reply: Reply, 
 Run: `cargo build -p gilvt-app 2>&1 | grep -E "^error" | head; cargo test -p gilvt-app remote:: agents:: 2>&1 | grep -E "^test result|FAILED"`
 Expected: 无编译错误，测试 PASS。
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 6: CHANGELOG 与提交**
+
+从这个提交起远端会话出现在侧栏（用户能感知），CHANGELOG 在同一个提交里更新。`## [Unreleased]` 下加 `### Added`（放在 Task 3 加的 `### Changed` 之前；英文）：
+
+```markdown
+### Added
+
+- SSH: `claude` and `codex` running in the remote shell of a gilvt ssh pane now appear in the sidebar and drive the
+  tab status dot and notifications, like local ones. The inspector timeline, session history and resume for them
+  arrive in the same release.
+```
 
 ```bash
-git add crates/gilvt-app crates/gilvt-agent/src/registry.rs
+git add crates/gilvt-app crates/gilvt-agent/src/registry.rs CHANGELOG.md
 git commit -m "app: bridge requests with ids and timeouts; remote hooks feed the registry; link end ends remote sessions
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2781,9 +2916,9 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   - `pub const UNFOLLOW_AFTER: Duration = Duration::from_secs(60);`、`pub const FOLLOW_TIMEOUT: Duration = Duration::from_secs(10);`
   - `pub enum FollowCmd { Follow { host: String, key: SessionKey, path: PathBuf, from: u64, restart: bool }, Unfollow { host: String, key: SessionKey } }`
   - `pub struct Appended { pub lines: Vec<String>, pub history: bool, pub history_done: bool }`
-  - `pub struct RemoteFollows`：`sync(&mut self, live: &[(SessionKey, PathBuf)], now: Instant) -> Vec<FollowCmd>`、`tick(&mut self, now: Instant) -> Vec<FollowCmd>`、`reconnected(&self, host: &str) -> Vec<FollowCmd>`、`following(&mut self, key: &SessionKey, size: u64) -> bool`、`append(&mut self, key: &SessionKey, offset: u64, bytes: &[u8]) -> Option<Appended>`、`reset(&mut self, key: &SessionKey) -> bool`、`loading(&self, key: &SessionKey) -> bool`、`count(&self, host: &str) -> usize`
+  - `pub struct RemoteFollows`：`sync(&mut self, live: &[(SessionKey, PathBuf)], now: Instant) -> Vec<FollowCmd>`、`tick(&mut self, now: Instant) -> Vec<FollowCmd>`、`reconnected(&self, host: &str) -> Vec<FollowCmd>`、`following(&mut self, key: &SessionKey, size: u64) -> bool`、`append(&mut self, key: &SessionKey, offset: u64, bytes: &[u8]) -> Option<Appended>`、`reset(&mut self, key: &SessionKey, size: u64) -> Option<bool>`（`TranscriptReset { size }`：`None` 没有在跟踪；`Some(true)` 即 `size == 0`，没有要追的历史）、`loading(&self, key: &SessionKey) -> bool`、`count(&self, host: &str) -> usize`
 - Produces（`agents::worker`）：`pub enum TranscriptSource { Local(Tail), Remote(RemoteQueue) }`、`#[derive(Default)] pub struct RemoteQueue`、`pub enum RemoteFeed { Lines { lines: Vec<String>, history: bool }, HistoryDone, Reset }`、`Worker::remote(&mut self, key: SessionKey, feed: RemoteFeed)`。
-- Produces（`agents::Agents`）：`pub fn transcript_loading(&self, key: &SessionKey) -> bool`、`pub fn remote_follow_count(&self, host: &str) -> usize`、`pub fn remote_transcript(host: &str, agent: &str, session_id: &str, chunk: RemoteChunk, cx: &mut App)`（`pub enum RemoteChunk { Append { offset: u64, bytes: Vec<u8> }, Reset }`）、`pub fn remote_reconnected(host: &str, cx: &mut App)`。
+- Produces（`agents::Agents`）：`pub fn transcript_loading(&self, key: &SessionKey) -> bool`、`pub fn remote_follow_count(&self, host: &str) -> usize`、`pub fn remote_transcript(host: &str, agent: &str, session_id: &str, chunk: RemoteChunk, cx: &mut App)`（`pub enum RemoteChunk { Append { offset: u64, bytes: Vec<u8> }, Reset { size: u64 } }`）、`pub fn remote_reconnected(host: &str, cx: &mut App)`。
 
 - [ ] **Step 1: `remote_feed.rs` 的失败测试**
 
@@ -2843,15 +2978,32 @@ mod tests {
     }
 
     #[test]
-    fn a_reset_starts_over_live_and_local_keys_are_ignored() {
+    fn local_keys_are_ignored() {
         let (t0, k) = (Instant::now(), key("s"));
         let mut f = RemoteFollows::default();
         f.sync(&[(k.clone(), "/home/dev/s.jsonl".into()), (gilvt_agent::local_key(AgentKind::Codex, "l"), "/l.jsonl".into())], t0);
         assert_eq!(f.count("dev@h:22"), 1);
-        f.following(&k, 100);
-        assert!(f.reset(&k));
-        let a = f.append(&k, 0, b"x\n").unwrap();
-        assert!(!a.history, "after a reset the lines are live");
+    }
+
+    #[test]
+    fn after_a_reset_the_bytes_below_its_size_are_history_again_and_later_ones_are_live() {
+        let (t0, k) = (Instant::now(), key("s"));
+        let mut f = RemoteFollows::default();
+        f.sync(&[(k.clone(), "/home/dev/s.jsonl".into())], t0);
+        f.following(&k, 8);
+        assert!(f.append(&k, 0, b"{\"a\":1}\n").unwrap().history_done);
+        // The file was replaced by one of 4 bytes: the daemon pushes it from 0 again.
+        assert_eq!(f.reset(&k, 4), Some(false));
+        assert!(f.loading(&k), "the history is on its way again");
+        let a = f.append(&k, 0, b"x\ny\n").unwrap();
+        assert_eq!((a.lines.len(), a.history, a.history_done), (2, true, true), "below the reset's size: catch-up, not live events");
+        let b = f.append(&k, 4, b"z\n").unwrap();
+        assert_eq!((b.history, b.history_done), (false, false), "after it: live");
+        // An empty replacement has nothing to catch up on.
+        assert_eq!(f.reset(&k, 0), Some(true));
+        assert!(!f.loading(&k));
+        assert!(!f.append(&k, 0, b"w\n").unwrap().history);
+        assert_eq!(f.reset(&key("other"), 0), None, "not followed");
     }
 }
 ```
@@ -3000,13 +3152,16 @@ impl RemoteFollows {
         Some(Appended { lines, history, history_done })
     }
 
-    /// `TranscriptReset`: the daemon starts over from 0; what follows is live.
-    pub fn reset(&mut self, key: &SessionKey) -> bool {
-        let Some(f) = self.map.get_mut(key) else { return false };
+    /// `TranscriptReset { size }`: the file shrank or was replaced and the daemon pushes it again from 0. Its `size`
+    /// bytes are history again (catch-up for the registry: replaying them as live events would rewrite the
+    /// session's status); what is appended after them is live. None: not followed. Some(true): `size` is 0.
+    pub fn reset(&mut self, key: &SessionKey, size: u64) -> Option<bool> {
+        let f = self.map.get_mut(key)?;
         f.received = 0;
         f.partial.clear();
-        f.history_done = true;
-        true
+        f.history_until = Some(size);
+        f.history_done = size == 0;
+        Some(f.history_done)
     }
 
     /// Followed and the history has not all arrived: the inspector shows its loading state.
@@ -3049,6 +3204,14 @@ fn a_remote_source_catches_up_then_goes_live_and_resets() {
     assert!(w.dirs().is_empty(), "no local directory to watch for a remote session");
     w.remote(key.clone(), RemoteFeed::Reset);
     assert!(w.publish().iter().any(|(k, _)| k == &key), "the timeline is rebuilt");
+    // After a reset the daemon pushes the file again: what is below the reset's size is catch-up, not live events.
+    out.clear();
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(40)], history: true });
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(out.is_empty(), "history after a reset waits for HistoryDone too");
+    w.remote(key.clone(), RemoteFeed::HistoryDone);
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(matches!(&out[..], [(_, Batch::Catchup { events, .. })] if matches!(events.as_slice(), [Event::Usage { context_tokens: 40, .. }])), "{out:?}");
 }
 ```
 
@@ -3100,7 +3263,9 @@ pub enum RemoteFeed {
             RemoteFeed::Lines { lines, history } => q.pending.push((lines, history)),
             RemoteFeed::HistoryDone => q.done = true,
             RemoteFeed::Reset => {
-                *q = RemoteQueue { done: true, caught_up: true, ..RemoteQueue::default() };
+                // Back to the catch-up state: the lines that follow are history until `HistoryDone` (the main thread
+                // sends it at once when there is nothing to catch up on).
+                *q = RemoteQueue::default();
                 e.fed = Fed::new(key.0);
                 e.fed.dirty = true;
             }
@@ -3163,7 +3328,8 @@ Expected: PASS。
 /// A transcript push from an ssh host (R2a §4.2).
 pub enum RemoteChunk {
     Append { offset: u64, bytes: Vec<u8> },
-    Reset,
+    /// The file shrank or was replaced; `size` is its length now (history, see `RemoteFollows::reset`).
+    Reset { size: u64 },
 }
 
 impl Agents {
@@ -3185,7 +3351,10 @@ impl Agents {
         }
         let agents = cx.global_mut::<Agents>();
         let feeds = match chunk {
-            RemoteChunk::Reset => if agents.remote_follows.reset(&key) { vec![RemoteFeed::Reset] } else { vec![] },
+            RemoteChunk::Reset { size } => match agents.remote_follows.reset(&key, size) {
+                Some(done) => if done { vec![RemoteFeed::Reset, RemoteFeed::HistoryDone] } else { vec![RemoteFeed::Reset] },
+                None => vec![],
+            },
             RemoteChunk::Append { offset, bytes } => match agents.remote_follows.append(&key, offset, &bytes) {
                 Some(a) => {
                     let mut v = vec![RemoteFeed::Lines { lines: a.lines, history: a.history }];
@@ -3266,18 +3435,28 @@ fn run_follow_cmds(cmds: Vec<remote_feed::FollowCmd>, cx: &mut App) {
                 crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Append { offset, bytes }, cx);
             }
         }
-        Some(DaemonMsg::TranscriptReset { agent, session_id }) => {
-            crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Reset, cx);
+        Some(DaemonMsg::TranscriptReset { agent, session_id, size }) => {
+            crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Reset { size }, cx);
         }
 ```
 
 - [ ] **Step 6: 检查器的远端处理**
 
-`workspace/inspector.rs` 的 `choose_inspector_tab` 开头（`hidden` 处理之后）加：
+`workspace/inspector.rs` 先加一个判断「检查器跟随的会话是不是远端的」的辅助函数（这个表达式在下面的 `choose_inspector_tab`、`inspector_follow_remote` 里要用，Task 13 的 `debug_inspector` 也用它，只写这一份）：
 
 ```rust
-        let remote = self.focused_pane().and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p)).is_some_and(|s| s.key.2.is_remote());
-        if remote && tab != InspectorTab::Process {
+    /// Is the session the inspector follows (the focused pane's) on an ssh host?
+    pub(crate) fn focused_session_is_remote(&self, cx: &App) -> bool {
+        self.focused_pane()
+            .and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p))
+            .is_some_and(|s| s.key.2.is_remote())
+    }
+```
+
+然后 `choose_inspector_tab` 开头（`hidden` 处理之后）加：
+
+```rust
+        if self.focused_session_is_remote(cx) && tab != InspectorTab::Process {
             // Artifacts and configuration read this Mac's files (R2a §5.5).
             self.inspector_note(crate::i18n::text(crate::remote::NOT_YET_REMOTE.0, crate::remote::NOT_YET_REMOTE.1), cx);
             return;
@@ -3289,8 +3468,7 @@ fn run_follow_cmds(cmds: Vec<remote_feed::FollowCmd>, cx: &mut App) {
 ```rust
     /// The followed session is remote: only 「过程」 applies (called at the top of `inspector::view::render`).
     pub fn inspector_follow_remote(&mut self, cx: &mut Context<Self>) {
-        let remote = self.focused_pane().and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p)).is_some_and(|s| s.key.2.is_remote());
-        if remote && self.inspector.tab != InspectorTab::Process {
+        if self.focused_session_is_remote(cx) && self.inspector.tab != InspectorTab::Process {
             self.inspector.tab = InspectorTab::Process;
         }
     }
@@ -3321,14 +3499,15 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 
 **Files:**
 - Modify: `crates/gilvt-app/src/agents/project.rs`（`remote_project`）
-- Modify: `crates/gilvt-app/src/agents/mod.rs:150-210, 676-700`（`host_labels`、`note_host`、`project`、`git`、`refresh_git`、`resolve_projects`）
-- Modify: `crates/gilvt-app/src/remote/mod.rs:121-133`（`answer_begin` 调 `Agents::note_host`）
+- Modify: `crates/gilvt-app/src/agents/mod.rs:150-210, 676-700`（`project` 加 `cx` 参数并处理远端、`git`、`refresh_git`、`resolve_projects`）
+- Modify: `crates/gilvt-app/src/remote/mod.rs`（`RemoteHosts::display`、`display_of`、`not_yet_remote`；主机显示名只有这一个来源）
+- Modify（`Agents::project` 的调用方，补上 `cx`）: `crates/gilvt-app/src/sidebar/view.rs`、`notify/mod.rs`（两处）、`inspector/view.rs`、`workspace/debug.rs`
 - Modify: `crates/gilvt-app/src/sidebar/view.rs:160-185`（远端会话不查本地历史与归档）
-- Modify: `crates/gilvt-app/src/workspace/ended.rs:28-90`（远端会话的恢复暂时拒绝、归档 / 废纸篓拒绝）
-- Modify: `crates/gilvt-app/src/session_center/view.rs`（`open_review` 对远端拒绝）
+- Modify: `crates/gilvt-app/src/workspace/ended.rs:28-90`（`refuse_remote`；远端会话的恢复暂时拒绝、归档 / 废纸篓拒绝）
+- Modify: `crates/gilvt-app/src/session_review/view.rs`（`open_review` 对远端拒绝；`open_review` 定义在这里的 `impl SessionCenterView` 里，`session_center/view.rs` 只是调用它）
 
 **Interfaces:**
-- Produces：`pub fn remote_project(display: &str, cwd: Option<&Path>) -> String`（`agents::project`，从 `agents` 导出）；`Agents::note_host(host: &str, display: &str, cx: &mut App)`；`pub fn not_yet_remote() -> &'static str`（`remote` 模块，等于 `crate::i18n::text(NOT_YET_REMOTE.0, NOT_YET_REMOTE.1)`）。
+- Produces：`pub fn remote_project(display: &str, cwd: Option<&Path>) -> String`（`agents::project`，从 `agents` 导出）；`Agents::project(&self, s: &Session, cx: &App) -> String`（新增 `cx`：远端会话的主机显示名从 `RemoteHosts` global 读，`Agents` 不再存一份）；`RemoteHosts::display(&self, host: &str) -> String`、`remote::display_of(host: &str, cx: &App) -> String`（用户输入的名字，未知时是 HostId 本身；Task 12 的会话面板和远端恢复也用它）；`pub fn not_yet_remote() -> &'static str`（`remote` 模块，等于 `crate::i18n::text(NOT_YET_REMOTE.0, NOT_YET_REMOTE.1)`）；`Workspace::refuse_remote(&mut self, key: &SessionKey, window, cx) -> bool`（`workspace/ended.rs`）。
 
 - [ ] **Step 1: 失败测试**
 
@@ -3343,7 +3522,19 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
     }
 ```
 
-Run: `cargo test -p gilvt-app agents::project 2>&1 | tail -3`
+`remote/mod.rs` 的测试（`hosts()` 是 Task 9 用到的那个测试辅助函数）：
+
+```rust
+    #[test]
+    fn display_is_what_the_user_typed_or_the_host_id() {
+        let mut r = hosts();
+        r.begin(Some(1), "dev@h:22".into(), "devbox".into());
+        assert_eq!(r.display("dev@h:22"), "devbox");
+        assert_eq!(r.display("dev@x:22"), "dev@x:22", "unknown host: its id");
+    }
+```
+
+Run: `cargo test -p gilvt-app agents::project remote:: 2>&1 | tail -3`
 Expected: FAIL。
 
 - [ ] **Step 2: 实现**
@@ -3363,44 +3554,73 @@ pub fn remote_project(display: &str, cwd: Option<&Path>) -> String {
 }
 ```
 
-`agents/mod.rs`：导出 `pub use self::project::remote_project;`；`Agents` 加 `host_labels: HashMap<String, String>`；
+`remote/mod.rs`：主机的显示名只有 `RemoteHosts.hosts[host].display` 这一个来源（`answer_begin` 里 `begin` 记下的），不在 `Agents` 里再存一份：
 
 ```rust
-    /// The name the user typed for an ssh host (`devbox`), for remote sessions' project names.
-    pub fn note_host(host: &str, display: &str, cx: &mut App) {
-        if cx.has_global::<Agents>() {
-            cx.global_mut::<Agents>().host_labels.insert(host.to_string(), display.to_string());
+impl RemoteHosts {
+    /// What the user typed for `host` (`devbox`); the HostId itself when it is not known.
+    pub fn display(&self, host: &str) -> String {
+        self.hosts.get(host).map_or_else(|| host.to_string(), |h| h.display.clone())
+    }
+}
+
+/// [`RemoteHosts::display`] from anywhere that has the `App` (sidebar, notifications, inspector banner).
+pub fn display_of(host: &str, cx: &App) -> String {
+    cx.try_global::<RemoteHosts>().map_or_else(|| host.to_string(), |r| r.display(host))
+}
+
+pub fn not_yet_remote() -> &'static str {
+    crate::i18n::text(NOT_YET_REMOTE.0, NOT_YET_REMOTE.1)
+}
+```
+
+`agents/mod.rs`：导出 `pub use self::project::remote_project;`。`Agents::project` 的所有调用方都在拿得到 `cx` 的地方（`sidebar/view.rs` 的 `collect(…, cx: &App)`、`notify/mod.rs` 两处、`inspector/view.rs` 的 `render`、`workspace/debug.rs` 的 `debug_inspector`），所以直接给它加一个只读的 `cx: &App` 参数，不用另存名字：
+
+```rust
+    /// The session's project: git root name, else the cwd's last component; a remote session's is
+    /// `<host display> · <last directory>` (the display name is read from `RemoteHosts`, R2a §5.4).
+    pub fn project(&self, s: &Session, cx: &App) -> String {
+        if let Host::Remote(h) = &s.key.2 {
+            return remote_project(&crate::remote::display_of(&h.0, cx), s.cwd.as_deref());
+        }
+        match &s.cwd {
+            Some(cwd) => self.project_of_dir(cwd),
+            None => crate::i18n::text("其他", "Other").into(),
         }
     }
 ```
 
-`project(&self, s)` 开头加：
-
-```rust
-        if let Host::Remote(h) = &s.key.2 {
-            let display = self.host_labels.get(&h.0).map_or(h.0.as_str(), String::as_str);
-            return remote_project(display, s.cwd.as_deref());
-        }
-```
+调用处逐个补参数：`sidebar/view.rs` 的 `project: agents.project(s, cx)`；`notify/mod.rs` 的 `let project = agents.project(s, cx);`（`defer` 闭包里，`cx` 以只读重借用传入）和 `cx.global::<Agents>().project(&s, cx)`；`inspector/view.rs` 与 `workspace/debug.rs` 的 `|s| agents.project(s, cx)`。
 
 `git(&self, s)` 开头加 `if s.key.2.is_remote() { return None; }`；`refresh_git` 的 `.filter(|s| s.is_live())` 改为 `.filter(|s| s.is_live() && !s.key.2.is_remote())`；`resolve_projects` 里 `.sessions().filter_map(|s| s.cwd.clone())` 改为 `.sessions().filter(|s| !s.key.2.is_remote()).filter_map(|s| s.cwd.clone())`。
 
-`remote/mod.rs`：`answer_begin` 在 `r.begin(…)` 之后（借用结束后）调用 `crate::agents::Agents::note_host(&host, &display, cx);`（`host` / `display` 先 clone 一份）；加 `pub fn not_yet_remote() -> &'static str { crate::i18n::text(NOT_YET_REMOTE.0, NOT_YET_REMOTE.1) }`。
-
 `sidebar/view.rs`：`indexed_cwd` 闭包开头加 `if s.key.2.is_remote() { return None; }`；`archived` 闭包开头加 `if key.2.is_remote() { return false; }`（远端会话没有本地历史，也不参与归档）。
 
-`workspace/ended.rs`：`resume_ended`、`archive_ended`、`ask_trash_ended` 开头加：
+`workspace/ended.rs`：三个入口共用一个辅助函数，不各自复制一遍：
+
+```rust
+    /// The ended-session actions that read this Mac's files (archive, trash, and for now resume) do not apply to a
+    /// remote session: shows the usual notice and returns true.
+    fn refuse_remote(&mut self, key: &SessionKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !key.2.is_remote() {
+            return false;
+        }
+        self.error = Some(crate::remote::not_yet_remote().into());
+        self.focus_active(window, cx);
+        cx.notify();
+        true
+    }
+```
+
+`resume_ended`、`archive_ended`、`ask_trash_ended` 开头各加 `if self.refuse_remote(&key, window, cx) { return; }`（`resume_ended` 的这一行在 Task 12 换成远端恢复）。`session_review/view.rs` 的 `open_review` 取到 `key` 之后加（`notice` 是该视图已有的提示条）：
 
 ```rust
         if key.2.is_remote() {
-            self.error = Some(crate::remote::not_yet_remote().into());
-            self.focus_active(window, cx);
+            self.notice = Some(crate::remote::not_yet_remote().into());
             cx.notify();
             return;
         }
 ```
-
-（`resume_ended` 的这段在 Task 12 换成远端恢复。）`session_center/view.rs` 的 `open_review`：选中行的 key 若是远端，显示同样的提示（该视图已有的 banner / toast 机制）并返回。
 
 - [ ] **Step 3: 测试**
 
@@ -3424,7 +3644,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 **Files:**
 - Create: `crates/gilvt-app/src/remote/history.rs`、`crates/gilvt-app/src/remote/resume.rs`、`crates/gilvt-app/src/workspace/remote_resume.rs`
 - Modify: `crates/gilvt-app/src/remote/pane.rs`（`RemoteCwd` 记录提示符状态）、`crates/gilvt-app/src/terminal_view.rs:389-393`（把 OSC 133 标记交给 `RemoteCwd`）与新方法 `remote_idle`
-- Modify: `crates/gilvt-app/src/launcher/sessions_model.rs`（`Input.hosts`、`Input.host_label`、`Row.host`、`Line::Notice`）、`sessions_model_tests.rs`（3 处 `Input` 构造补字段）
+- Modify: `crates/gilvt-app/src/launcher/sessions_model.rs`（`Input.hosts`、`Input.host_label`、`Line::Notice`；行的主机就是 `Row.key.2`，不另加字段）、`sessions_model_tests.rs`（3 处 `Input` 构造补字段）
 - Modify: `crates/gilvt-app/src/launcher/sessions_view.rs:57-70（SessionsEvent）, 202（entries）, 293-345（sync）, 470-525（resume / archive / trash / reveal）` 与它画 `Line::Header` 的地方
 - Modify: `crates/gilvt-app/src/workspace/history.rs:19-40`（`RemoteHistory::refresh`、`RunRemote`）、`workspace/ended.rs`（`resume_ended` 的远端分支）、`workspace.rs`（`mod remote_resume;`）
 
@@ -3434,7 +3654,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 - Produces（`remote::resume`）：`pub const RESUME_WAIT: Duration`（30 s）、`#[derive(Clone, Debug, PartialEq, Eq)] pub struct PaneState { pub pane: u64, pub host: Option<String>, pub enhanced: bool, pub idle: bool }`、`pub enum ResumeTarget { Pane(u64), NewTab }`、`pub fn resume_target(host: &str, focused: Option<u64>, panes: &[PaneState]) -> ResumeTarget`、`pub enum Wait { Waiting, Ready, GaveUp }`、`pub fn wait_step(host: &str, pane: Option<&PaneState>, started: Instant, now: Instant) -> Wait`、`pub fn gave_up_text(display: &str) -> String`。
 - Produces（`RemoteCwd`）：`pub fn observe_mark(&mut self, mark: PromptMark)`、`pub fn at_prompt(&self) -> bool`；`TerminalView::remote_idle(&self) -> bool`。
 - Produces（`SessionsEvent`）：`RunRemote { host: String, command: String }`；`Workspace::resume_remote(&mut self, host: String, command: String, window: &mut Window, cx: &mut Context<Self>)`。
-- Produces（`sessions_model`）：`Input { …, pub hosts: &'a [Host], pub host_label: &'a dyn Fn(&Host) -> Option<String> }`（`hosts` 为空表示全是本地）、`Row { …, pub host: Host }`、`Line::Notice(String)`。
+- Produces（`sessions_model`）：`Input { …, pub hosts: &'a [Host], pub host_label: &'a dyn Fn(&Host) -> Option<String> }`（`hosts` 为空表示全是本地）、`Line::Notice(String)`。`Row` 不加字段：行在哪台主机上就是 `Row.key.2`。
 
 - [ ] **Step 1: 纯逻辑的失败测试**
 
@@ -3729,7 +3949,7 @@ Expected: PASS。
     pub host_label: &'a dyn Fn(&Host) -> Option<String>,
 ```
 
-`Row` 加 `pub host: Host`；`Line` 加 `/// 「devbox：历史读取失败」. Not a row. Notice(String),`。`build` 的循环开头改为：
+`Line` 加 `/// 「devbox：历史读取失败」. Not a row. Notice(String),`。`build` 的循环开头改为：
 
 ```rust
         let host = i.hosts.get(ix).cloned().unwrap_or(Host::Local);
@@ -3740,7 +3960,7 @@ Expected: PASS。
         };
 ```
 
-后面：`project` 对远端为 `Project { root: PathBuf::from(format!("{}|{}", host.id_str(), e.cwd.display())), name: crate::agents::remote_project(label.as_deref().unwrap_or_default(), Some(&e.cwd)) }`，本地照旧 `(i.project)(&e.cwd)`；`archived` 对远端为 `false`；`dir` 对远端为 `format!("{} · {}", label.unwrap_or_default(), shorten_dir(&e.cwd, None, DIR_MAX_CHARS))`；`dir_missing` 与 `branch` 只对本地计算（远端为 `false` / `None`）；`Row { …, host }`。`sessions_model_tests.rs` 的 3 处 `Input { … }` 补 `hosts: &[], host_label: &|_| None,`。
+后面：`project` 对远端为 `Project { root: PathBuf::from(format!("{}|{}", host.id_str(), e.cwd.display())), name: crate::agents::remote_project(label.as_deref().unwrap_or_default(), Some(&e.cwd)) }`，本地照旧 `(i.project)(&e.cwd)`；`archived` 对远端为 `false`；`dir` 对远端为 `format!("{} · {}", label.unwrap_or_default(), shorten_dir(&e.cwd, None, DIR_MAX_CHARS))`；`dir_missing` 与 `branch` 只对本地计算（远端为 `false` / `None`）；`Row { key, … }` 的 `key` 就是上面带主机的那个，不再单独存一个 `host`。`sessions_model_tests.rs` 的 3 处 `Input { … }` 补 `hosts: &[], host_label: &|_| None,`。
 
 - [ ] **Step 4: 面板接入远端历史与远端恢复**
 
@@ -3758,16 +3978,16 @@ Expected: PASS。
             self.entries = Arc::new(entries);
             self.hosts = Arc::new(hosts);
         }
-        let display = |h: &str| cx.try_global::<crate::remote::RemoteHosts>().and_then(|r| r.hosts.get(h)).map_or_else(|| h.to_string(), |e| e.display.clone());
-        self.notices = remote.map(|r| r.failed()).unwrap_or_default().iter().map(|h| crate::remote::history::failure_text(&display(h))).collect();
+        // Host names come from the one place that knows them (`RemoteHosts`, via `remote::display_of`).
+        self.notices = remote.map(|r| r.failed()).unwrap_or_default().iter().map(|h| crate::remote::history::failure_text(&crate::remote::display_of(h, cx))).collect();
 ```
 
-`Projects::resolve` 只传本地条目的目录：`self.entries.iter().zip(self.hosts_iter()).filter(|(_, h)| !h.is_remote())…`（`hosts_iter` 在 `hosts` 为空时产出无限个 `Host::Local`，可写成 `(0..).map(|i| self.hosts.get(i).cloned().unwrap_or(Host::Local))`）。`Stamp` 加 `remote: u64`（`remote.map_or(0, |r| r.generation())`）。`review_states` 与 `archived` 闭包里的 key 用条目自己的主机。`model::build(&Input { …, hosts: &self.hosts, host_label: &|h| match h { Host::Remote(id) => Some(display(&id.0)), Host::Local => None } })` 之后，追加 `for n in &self.notices { self.list.lines.push(Line::Notice(n.clone())); }`。画 `Line::Header` 的 match 加 `Line::Notice(text)` 分支，样式同 Header、文字用错误色（与 `banner` 相同的主题色）；`line_of` 等只认 `Line::Row` 的地方不用改。
+`Projects::resolve` 只传本地条目的目录：`self.entries.iter().zip(self.hosts_iter()).filter(|(_, h)| !h.is_remote())…`（`hosts_iter` 在 `hosts` 为空时产出无限个 `Host::Local`，可写成 `(0..).map(|i| self.hosts.get(i).cloned().unwrap_or(Host::Local))`）。`Stamp` 加 `remote: u64`（`remote.map_or(0, |r| r.generation())`）。`review_states` 与 `archived` 闭包里的 key 用条目自己的主机。`model::build(&Input { …, hosts: &self.hosts, host_label: &|h| match h { Host::Remote(id) => Some(crate::remote::display_of(&id.0, cx)), Host::Local => None } })` 之后，追加 `for n in &self.notices { self.list.lines.push(Line::Notice(n.clone())); }`。画 `Line::Header` 的 match 加 `Line::Notice(text)` 分支，样式同 Header、文字用错误色（与 `banner` 相同的主题色）；`line_of` 等只认 `Line::Row` 的地方不用改。
 
 `resume`：取到 `e` 与 `r` 之后：
 
 ```rust
-        if let Host::Remote(h) = &r.host {
+        if let Host::Remote(h) = &r.key.2 {
             if let Some(LiveAt { pane: Some(p), .. }) = &r.live {
                 cx.emit(SessionsEvent::Focus(*p));
                 return;
@@ -3822,7 +4042,7 @@ impl Workspace {
                 self.focus_pane(pane, window, cx);
             }
             ResumeTarget::NewTab => {
-                let display = cx.global::<crate::remote::RemoteHosts>().hosts.get(&host).map_or_else(|| host.clone(), |h| h.display.clone());
+                let display = crate::remote::display_of(&host, cx);
                 let Some(pane) = self.open_tab(None, window, cx) else { return };
                 let wait = prompt_wait(marks_expected(&cx.global::<AppSettings>().0, cx.global::<ShellEnv>()));
                 if let Some(PaneView::Terminal(t)) = self.panes.get(&pane) {
@@ -3938,9 +4158,9 @@ Expected: FAIL（字段不存在）。
 
 - `HostState` 加 `pub cursor: u64, pub epoch: Option<u64>, pub gap: bool, pub follows: usize`；`host_states(r)` 改为 `host_states(r: &RemoteHosts, follows: &dyn Fn(&str) -> usize)`，填 `cursor: h.cursor, epoch: h.epoch, gap: h.gap, follows: follows(id)`；调用处传 `&|h| cx.try_global::<Agents>().map_or(0, |a| a.remote_follow_count(h))`。
 - `Row` 加 `/// "local" or the HostId of an agent row's session; null for terminal rows. pub host: Option<String>,`，`map.rs:249` 处从行的 key 取：`host: r.key.as_ref().map(|k| k.2.id_str().to_string())`。
-- `SessionsRow` 加 `pub host: String`，`map.rs:333` 处 `host: r.host.id_str().to_string()`。
+- `SessionsRow` 加 `pub host: String`，`map.rs:333` 处 `host: r.key.2.id_str().to_string()`（行的主机就是 `Row.key.2`）。
 - `Overlay::Sessions` 加 `/// 「devbox：历史读取失败」 rows, in order. host_errors: Vec<String>,`，`sessions_view.rs:249` 构造处填 `self.notices.clone()`。
-- `Inspector` 加 `pub source: Option<&'static str>, pub loading: bool`；`debug_inspector` 的 `hidden` 填 `source: None, loading: false`，可见时 `source: session.map(|s| if s.key.2.is_remote() { "remote" } else { "local" })`、`loading: session.is_some_and(|s| agents.transcript_loading(&s.key))`。
+- `Inspector` 加 `pub source: Option<&'static str>, pub loading: bool`；`debug_inspector` 的 `hidden` 填 `source: None, loading: false`，可见时 `source: session.map(|s| if s.key.2.is_remote() { "remote" } else { "local" })`（这里 `session` 已经取到了，不要再调 `focused_session_is_remote` 查一遍）、`loading: session.is_some_and(|s| agents.transcript_loading(&s.key))`。
 - 其余构造这些结构体的测试辅助补字段（编译器列出）。
 
 - [ ] **Step 3: 文档**
@@ -4113,7 +4333,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 - Modify: `docs/compat-checklist.md`（AC 节标题、导语、AC3 行、追加 AC19–AC29）
 - Modify: `tests/gui/cases/AC/AC3.md`
 - Create: `tests/gui/cases/AC/AC19.md` … `AC29.md`
-- Modify: `CHANGELOG.md`、`docs/user-guide.md`、`docs/user-guide.zh-CN.md`、`docs/user-guide.html`、`docs/user-guide.zh-CN.html`、`HACKING.md`
+- Modify: `CHANGELOG.md`（只调整措辞，条目已在 Task 3、Task 9 加入）、`docs/user-guide.md`、`docs/user-guide.zh-CN.md`、`docs/user-guide.html`、`docs/user-guide.zh-CN.html`、`HACKING.md`
 - Modify: `docs/design/2026-10-12-gilvt-ssh-remote-r2a-design.md`（新增 §9）
 
 **Interfaces:**
@@ -4155,7 +4375,7 @@ type   'Y\n'
 wait   windows[0].tabs[0].panes[0].remote.enhanced == true && hosts[0].bridge == "up" timeout=60s
 ```
 
-`tests/gui/cases/AC/AC3.md`：头部说明改为「在 `remote.install = "always"` 下……（R2a 起默认的 ask 会询问更新，见 AC19）」；steps 第一行之前加 `restart --set 'remote.install="always"'`，删去「出现安装询问 / `type 'Y\n'`」两行（always 不询问），其余不变，最后的 `assert hosts[0].install == "allowed"` 删除（always 下不写主机选择）。
+`tests/gui/cases/AC/AC3.md`：头部说明改为「在 `remote.install = "always"` 下……（R2a 起默认的 ask 会询问更新，见 AC19）」；steps 第一行之前加 `restart --set 'remote.install="always"'`，删去「出现安装询问 / `type 'Y\n'`」两行（always 不询问），其余不变，最后的 `assert hosts[0].install == "allowed"` 删除（always 下不写主机选择）。用例的最后一行（最后那个 `wait … remote == null` 之后）加 `restart --set 'remote.install="ask"'` 改回默认值（`tests/gui/README.md`：改配置的用例先 `restart --set …`，最后再改回默认值，否则同节后面的 AC19–AC29 会在 `always` 下运行，AC19 的更新询问不会出现）。
 
 `AC19.md`：
 
@@ -4536,7 +4756,7 @@ Expected: PASS（每一行都有用例，条件都能解析，`rect(…)` 路径
 
 - [ ] **Step 4: CHANGELOG 与文档**
 
-`CHANGELOG.md` 的 `## [Unreleased]`：
+`CHANGELOG.md` 的 `## [Unreleased]` 里，Changed 条目已在 Task 3 的提交里、Added 条目已在 Task 9 的提交里加好（项目规则：条目与行为改变同一个提交）。这一步只检查它们读起来对不对，并在需要时把 Added 的措辞改成覆盖整个功能（不要新增重复条目）：
 
 ```markdown
 ### Added
@@ -4556,7 +4776,7 @@ Expected: PASS（每一行都有用例，条件都能解析，`rect(…)` 路径
 
 - [ ] **Step 5: spec 回写**
 
-在 `docs/design/2026-10-12-gilvt-ssh-remote-r2a-design.md` 末尾（§8 之后）新增 `## 9. 实施偏差与裁决（第一份计划）`，把本计划开头「与 spec 的差异和裁决」的 14 条原样写进去，再加实施过程中新出现的裁决（逐条，带原因）。
+在 `docs/design/2026-10-12-gilvt-ssh-remote-r2a-design.md` 末尾（§8 之后）新增 `## 9. 实施偏差与裁决（第一份计划）`，把本计划开头「与 spec 的差异和裁决」的 16 条原样写进去，再加实施过程中新出现的裁决（逐条，带原因）。
 
 - [ ] **Step 6: 跑验收（先征得用户同意抢前台）**
 
