@@ -6,6 +6,8 @@ mod bridge;
 mod client;
 mod daemon;
 mod entry;
+mod follow;
+mod history;
 mod hooklog;
 mod links;
 mod login;

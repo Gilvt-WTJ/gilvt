@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 
 use gilvt_ipc::remote::*;
 
+use crate::follow::{check_path, Follower, Push, FOLLOW_POLL, MAX_FOLLOWS};
+use crate::history::{self, fit_entries, HistoryWorker, HISTORY_BYTES};
 use crate::hooklog::{attribute, HookLog, HOOK_LOG_MAX};
 use crate::links::Links;
 use crate::paths::Layout;
@@ -34,12 +36,14 @@ struct State {
     /// This daemon's start time in ms (R2a §4.3).
     epoch: u64,
     hooks: HookLog,
+    /// Transcripts being followed, over all bridges.
+    follows: usize,
 }
 
 impl State {
     fn new(links: Links) -> State {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_millis() as u64);
-        State { links, seq: 0, next_bridge: 0, bridges: Vec::new(), last_activity: Instant::now(), epoch, hooks: HookLog::new(HOOK_LOG_MAX) }
+        State { links, seq: 0, next_bridge: 0, bridges: Vec::new(), last_activity: Instant::now(), epoch, hooks: HookLog::new(HOOK_LOG_MAX), follows: 0 }
     }
 
     fn broadcast(&mut self, event: RemoteEvent) {
@@ -85,6 +89,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     for l in inherited { links.up(l); }
     let state = Arc::new(Mutex::new(State::new(links)));
     let cfg = Arc::new(cfg);
+    let history = Arc::new(HistoryWorker::new(history::scanner(cfg.layout.state_dir(), cfg.layout.home())));
 
     {
         let state = state.clone();
@@ -109,8 +114,8 @@ pub fn run(cfg: Config) -> io::Result<()> {
     for conn in listener.incoming() {
         let Ok(conn) = conn else { continue };
         if peer_uid(&conn).ok() != Some(me) { continue; }
-        let (state, cfg) = (state.clone(), cfg.clone());
-        std::thread::spawn(move || { let _ = serve(conn, &state, &cfg); });
+        let (state, cfg, history) = (state.clone(), cfg.clone(), history.clone());
+        std::thread::spawn(move || { let _ = serve(conn, &state, &cfg, &history); });
     }
     Ok(())
 }
@@ -173,7 +178,7 @@ fn pid_alive(pid: u32) -> bool {
     ok || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config) -> io::Result<()> {
+fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history: &Arc<HistoryWorker>) -> io::Result<()> {
     match read_frame::<LocalMsg>(&mut conn)? {
         Some(LocalMsg::Login { link, .. }) => {
             let mut s = state.lock().unwrap();
@@ -212,23 +217,94 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config) -> io::R
             };
             let mut writer = conn.try_clone()?;
             std::thread::spawn(move || { for msg in rx { if write_frame(&mut writer, &msg).is_err() { break; } } });
+            type Follows = Arc<Mutex<std::collections::HashMap<(String, String), Follower>>>;
+            let follows: Follows = Arc::default();
+            let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            {
+                let (follows, closed, tx) = (follows.clone(), closed.clone(), tx.clone());
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(FOLLOW_POLL);
+                    if closed.load(std::sync::atomic::Ordering::Relaxed) {
+                        return;
+                    }
+                    let mut f = follows.lock().unwrap();
+                    for ((agent, session_id), fl) in f.iter_mut() {
+                        for push in fl.poll().unwrap_or_default() {
+                            let msg = match push {
+                                Push::Append { offset, bytes } => DaemonMsg::TranscriptAppend { agent: agent.clone(), session_id: session_id.clone(), offset, bytes: encode_bytes(&bytes) },
+                                Push::Reset { size } => DaemonMsg::TranscriptReset { agent: agent.clone(), session_id: session_id.clone(), size },
+                            };
+                            if tx.send(msg).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                });
+            }
             // However the read loop ends (EOF, garbage, reset), the bridge must be deregistered and the
             // connection shut down, or its writer thread and the idle-exit check would hang on it forever.
             let result = (|| -> io::Result<()> {
                 while let Some(msg) = read_frame::<AppMsg>(&mut conn)? {
                     if let AppMsg::Request { id: rid, req } = msg {
                         let resp = match req {
-                            RemoteRequest::Ping => RemoteResponse::Pong,
-                            RemoteRequest::LinkInfo => RemoteResponse::Links { links: state.lock().unwrap().links.all() },
-                            RemoteRequest::TranscriptFollow { .. } | RemoteRequest::TranscriptUnfollow { .. } | RemoteRequest::History => RemoteResponse::Error { message: "not supported yet".into() },
+                            RemoteRequest::Ping => Some(RemoteResponse::Pong),
+                            RemoteRequest::LinkInfo => Some(RemoteResponse::Links { links: state.lock().unwrap().links.all() }),
+                            RemoteRequest::TranscriptFollow { agent, session_id, path, from } => {
+                                match check_path(&path, &cfg.layout.home()) {
+                                    Err(message) => Some(RemoteResponse::Error { message }),
+                                    Ok(path) => {
+                                        // Insert and answer under the follows lock: `Following` precedes the first push.
+                                        let mut f = follows.lock().unwrap();
+                                        let key = (agent, session_id);
+                                        let mut s = state.lock().unwrap();
+                                        if !f.contains_key(&key) && s.follows >= MAX_FOLLOWS {
+                                            Some(RemoteResponse::Error { message: format!("already following {MAX_FOLLOWS} transcripts") })
+                                        } else {
+                                            if !f.contains_key(&key) {
+                                                s.follows += 1;
+                                            }
+                                            drop(s);
+                                            let fl = Follower::new(path, from);
+                                            let size = fl.size();
+                                            f.insert(key, fl);
+                                            if tx.send(DaemonMsg::Response { id: rid, resp: RemoteResponse::Following { size } }).is_err() {
+                                                break;
+                                            }
+                                            None
+                                        }
+                                    }
+                                }
+                            }
+                            RemoteRequest::TranscriptUnfollow { agent, session_id } => {
+                                if follows.lock().unwrap().remove(&(agent, session_id)).is_some() {
+                                    state.lock().unwrap().follows -= 1;
+                                }
+                                Some(RemoteResponse::Ok)
+                            }
+                            RemoteRequest::History => {
+                                let tx = tx.clone();
+                                history.request(move |r| {
+                                    let resp = match r {
+                                        Ok(entries) => RemoteResponse::HistoryList { entries: fit_entries((*entries).clone(), HISTORY_BYTES) },
+                                        Err(message) => RemoteResponse::Error { message },
+                                    };
+                                    let _ = tx.send(DaemonMsg::Response { id: rid, resp });
+                                });
+                                None
+                            }
                         };
-                        if tx.send(DaemonMsg::Response { id: rid, resp }).is_err() { break; }
+                        if let Some(resp) = resp {
+                            if tx.send(DaemonMsg::Response { id: rid, resp }).is_err() { break; }
+                        }
                     }
                 }
                 Ok(())
             })();
+            closed.store(true, std::sync::atomic::Ordering::Relaxed);
             {
+                let n = follows.lock().unwrap().len();
                 let mut s = state.lock().unwrap();
+                s.follows -= n;
                 s.bridges.retain(|(b, _)| *b != id);
                 s.last_activity = Instant::now();
             }
@@ -242,6 +318,7 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config) -> io::R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
@@ -393,7 +470,7 @@ mod tests {
         let state = Arc::new(Mutex::new(State::new(Links::default())));
         let (mut client, server) = UnixStream::pair().unwrap();
         let st = state.clone();
-        let h = std::thread::spawn(move || serve(server, &st, &cfg));
+        let h = std::thread::spawn(move || serve(server, &st, &cfg, &Arc::new(HistoryWorker::new(Arc::new(|| Ok(Vec::new()))))));
         write_frame(&mut client, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.1.0-aaaaaaaa".into(), app_instance: "t".into(), cursor: 0, epoch: None } }).unwrap();
         assert!(matches!(read_frame::<DaemonMsg>(&mut client).unwrap(), Some(DaemonMsg::Welcome { .. })));
         assert_eq!(state.lock().unwrap().bridges.len(), 1);
@@ -420,5 +497,41 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let _d = start(home.path(), "0.1.0-aaaaaaaa");
         assert!(run(cfg(home.path(), "0.1.0-aaaaaaaa")).is_ok());
+    }
+
+    #[test]
+    fn follow_streams_appends_only_to_its_bridge_and_unfollow_stops() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        let t = home.path().join(".claude/projects/p/s.jsonl");
+        std::fs::create_dir_all(t.parent().unwrap()).unwrap();
+        std::fs::write(&t, "{\"n\":1}\n").unwrap();
+        let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+        b.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        read_frame::<DaemonMsg>(&mut b).unwrap(); // welcome
+        write_frame(&mut b, &AppMsg::Request { id: 1, req: RemoteRequest::TranscriptFollow { agent: "claude".into(), session_id: "s".into(), path: t.clone(), from: 0 } }).unwrap();
+        assert_eq!(read_frame::<DaemonMsg>(&mut b).unwrap(), Some(DaemonMsg::Response { id: 1, resp: RemoteResponse::Following { size: 8 } }), "the answer comes before any push");
+        match read_frame::<DaemonMsg>(&mut b).unwrap().unwrap() {
+            DaemonMsg::TranscriptAppend { offset: 0, bytes, .. } => assert_eq!(decode_bytes(&bytes).unwrap(), b"{\"n\":1}\n"),
+            other => panic!("{other:?}"),
+        }
+        write_frame(&mut b, &AppMsg::Request { id: 2, req: RemoteRequest::TranscriptFollow { agent: "claude".into(), session_id: "x".into(), path: "/etc/passwd".into(), from: 0 } }).unwrap();
+        assert!(matches!(read_frame::<DaemonMsg>(&mut b).unwrap(), Some(DaemonMsg::Response { id: 2, resp: RemoteResponse::Error { .. } })));
+        write_frame(&mut b, &AppMsg::Request { id: 3, req: RemoteRequest::TranscriptUnfollow { agent: "claude".into(), session_id: "s".into() } }).unwrap();
+        assert_eq!(read_frame::<DaemonMsg>(&mut b).unwrap(), Some(DaemonMsg::Response { id: 3, resp: RemoteResponse::Ok }));
+        std::fs::OpenOptions::new().append(true).open(&t).unwrap().write_all(b"{\"n\":2}\n").unwrap();
+        b.set_read_timeout(Some(Duration::from_millis(800))).unwrap();
+        assert!(read_frame::<DaemonMsg>(&mut b).is_err(), "nothing more after unfollow");
+    }
+
+    #[test]
+    fn history_answers_a_list() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+        b.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        read_frame::<DaemonMsg>(&mut b).unwrap();
+        write_frame(&mut b, &AppMsg::Request { id: 5, req: RemoteRequest::History }).unwrap();
+        assert!(matches!(read_frame::<DaemonMsg>(&mut b).unwrap(), Some(DaemonMsg::Response { id: 5, resp: RemoteResponse::HistoryList { .. } })));
     }
 }
