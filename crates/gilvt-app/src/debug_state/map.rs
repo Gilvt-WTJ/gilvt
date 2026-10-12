@@ -15,9 +15,9 @@ use crate::launcher::sessions_model;
 use crate::sidebar::model::{self, Grouping, Model, SectionKind};
 use crate::workspace::marks::{Edge, EdgeColor, Mark};
 
-/// "claude:<session id>".
+/// "claude:<session id>"; a remote session is "<HostId>|claude:<session id>".
 pub fn session_id(key: &SessionKey) -> String {
-    format!("{}:{}", key.0.name(), key.1)
+    gilvt_agent::session_key_id(key)
 }
 
 /// The editor pane's bar as `editors[].bar` names it.

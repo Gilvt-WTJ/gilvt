@@ -251,7 +251,10 @@ fn capitalized(what: &str) -> String {
 }
 
 fn thread(s: &Session) -> String {
-    format!("gilvt.{}.{}", s.agent().name(), s.session_id())
+    match &s.key.2 {
+        gilvt_agent::host::Host::Local => format!("gilvt.{}.{}", s.agent().name(), s.session_id()),
+        gilvt_agent::host::Host::Remote(h) => format!("gilvt.{}.{}.{}", h.0, s.agent().name(), s.session_id()),
+    }
 }
 
 /// Copy per m3a-part3: title 「Claude 等待审批 · <project>」, body the detail, subtitle the session name.

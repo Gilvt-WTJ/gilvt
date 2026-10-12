@@ -274,3 +274,13 @@ fn a_result_for_a_key_excluded_meanwhile_is_not_kept() {
     s.store(done(Ok("目标：新\n近期：做完了".into())), false);
     assert_eq!(s.views[key].state, SumState::Ready);
 }
+
+#[test]
+fn agent_key_keeps_local_strings_and_tells_hosts_apart() {
+    use gilvt_agent::host::{Host, HostId};
+    use gilvt_agent::{local_key, AgentKind};
+    assert_eq!(agent_key(&local_key(AgentKind::Claude, "a")), "agent:claude:a");
+    let remote = (AgentKind::Claude, "a".to_string(), Host::Remote(HostId("dev@h:22".into())));
+    assert_eq!(agent_key(&remote), "agent:dev@h:22|claude:a");
+    assert_ne!(agent_key(&remote), agent_key(&local_key(AgentKind::Claude, "a")));
+}

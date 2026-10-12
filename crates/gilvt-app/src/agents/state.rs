@@ -26,7 +26,7 @@ pub struct ParsedHook {
 }
 
 impl ParsedHook {
-    #[allow(dead_code)] // the remote bridge (R2a Task 9+) is its caller
+    #[allow(dead_code)] // the remote bridge (R2a Task 9+) is its caller; tests use it now
     pub fn with_host(self, host: Host) -> ParsedHook {
         ParsedHook { host, ..self }
     }
@@ -265,6 +265,22 @@ mod tests {
     fn hook(core: &mut Core, pane: u64, event: &str, p: serde_json::Value, visible: bool, now: Instant) -> Vec<Change> {
         let h = parse_hook_request(Some(pane), "claude", event, &p).unwrap();
         core.hook(&h, |_| visible, now)
+    }
+
+    #[test]
+    fn a_hook_keeps_the_host_it_ran_on() {
+        use gilvt_agent::host::HostId;
+        let t0 = Instant::now();
+        let mut core = Core::new(Store::in_memory());
+        let remote = Host::Remote(HostId("dev@h:22".into()));
+        let h = parse_hook_request(Some(1), "claude", "SessionStart", &payload("a")).unwrap().with_host(remote.clone());
+        let key = (AgentKind::Claude, "a".to_string(), remote.clone());
+        assert_eq!(core.hook(&h, |_| true, t0), vec![Change::Added(key.clone())]);
+        assert_eq!(core.timeline_key(&h), Some(key));
+        // The same id from this Mac is another session.
+        let local = parse_hook_request(Some(2), "claude", "SessionStart", &payload("a")).unwrap();
+        assert_eq!(core.timeline_key(&local), None);
+        assert_eq!(core.registry.by_pane(1).unwrap().key.2, remote);
     }
 
     #[test]

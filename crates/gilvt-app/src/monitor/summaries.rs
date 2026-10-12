@@ -108,7 +108,10 @@ pub struct Summaries {
 impl Global for Summaries {}
 
 pub fn agent_key(k: &SessionKey) -> String {
-    format!("agent:{}:{}", k.0.name(), k.1)
+    match k.2 {
+        gilvt_agent::host::Host::Local => format!("agent:{}:{}", k.0.name(), k.1),
+        gilvt_agent::host::Host::Remote(_) => format!("agent:{}", gilvt_agent::session_key_id(k)),
+    }
 }
 
 pub fn pane_key(p: PaneId) -> String {

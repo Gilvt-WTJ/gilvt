@@ -379,3 +379,11 @@ fn editor_bar_names() {
     assert_eq!(editor_bar(&Bar::Deleted), "deleted");
     assert_eq!(editor_bar(&Bar::Confirm(crate::editor::view::ReopenIntent(Default::default()))), "confirm");
 }
+
+#[test]
+fn session_id_keeps_local_strings_and_prefixes_remote_hosts() {
+    use gilvt_agent::host::{Host, HostId};
+    assert_eq!(session_id(&gilvt_agent::local_key(AgentKind::Claude, "a")), "claude:a");
+    let remote = (AgentKind::Claude, "a".to_string(), Host::Remote(HostId("dev@h:22".into())));
+    assert_eq!(session_id(&remote), "dev@h:22|claude:a");
+}

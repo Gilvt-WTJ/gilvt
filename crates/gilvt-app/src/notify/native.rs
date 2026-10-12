@@ -4,6 +4,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use block2::RcBlock;
+use gilvt_agent::host::{Host, HostId};
 use gilvt_agent::{AgentKind, PaneId, SessionKey};
 use objc2::rc::Retained;
 use objc2::runtime::{Bool, NSObject, NSObjectProtocol, ProtocolObject};
@@ -20,6 +21,25 @@ use super::decide::Post;
 const PANE_KEY: &str = "pane";
 const AGENT_KEY: &str = "agent";
 const SESSION_KEY: &str = "session";
+/// Absent: the session is on this Mac.
+const HOST_KEY: &str = "host";
+
+/// The userInfo entries (besides the pane) that name a session.
+fn session_info((agent, id, host): &SessionKey) -> Vec<(&'static str, String)> {
+    let mut v = vec![(AGENT_KEY, agent.name().to_string()), (SESSION_KEY, id.clone())];
+    if let Host::Remote(h) = host {
+        v.push((HOST_KEY, h.0.clone()));
+    }
+    v
+}
+
+/// Inverse of [`session_info`].
+fn session_from_info(get: impl Fn(&str) -> Option<String>) -> Option<SessionKey> {
+    let agent = get(AGENT_KEY).and_then(|a| AgentKind::from_name(&a))?;
+    let id = get(SESSION_KEY)?;
+    let host = get(HOST_KEY).map_or(Host::Local, |h| Host::Remote(HostId(h)));
+    Some((agent, id, host))
+}
 
 /// A clicked notification: its pane and, for an agent's, the session it was about.
 pub type Click = (PaneId, Option<SessionKey>);
@@ -84,7 +104,7 @@ define_class!(
                 info.objectForKey(&NSString::from_str(key)).and_then(|v| v.downcast::<NSString>().ok()).map(|s| s.to_string())
             };
             let pane = get(PANE_KEY).and_then(|s| s.parse::<PaneId>().ok());
-            let session = get(AGENT_KEY).and_then(|a| AgentKind::from_name(&a)).zip(get(SESSION_KEY)).map(|(a, s)| gilvt_agent::local_key(a, s));
+            let session = session_from_info(get);
             if let (Some(pane), Some(tx)) = (pane, CLICKS.get()) {
                 let _ = tx.try_send((pane, session));
             }
@@ -153,9 +173,11 @@ fn add(p: &Post) {
         keys.push(NSString::from_str(PANE_KEY));
         values.push(NSString::from_str(&pane.to_string()));
     }
-    if let Some((agent, id, _)) = &p.session {
-        keys.extend([NSString::from_str(AGENT_KEY), NSString::from_str(SESSION_KEY)]);
-        values.extend([NSString::from_str(agent.name()), NSString::from_str(id)]);
+    if let Some(key) = &p.session {
+        for (k, v) in session_info(key) {
+            keys.push(NSString::from_str(k));
+            values.push(NSString::from_str(&v));
+        }
     }
     let keys: Vec<&NSString> = keys.iter().map(|k| &**k).collect();
     let values: Vec<&NSString> = values.iter().map(|v| &**v).collect();
@@ -168,7 +190,20 @@ fn add(p: &Post) {
 
 #[cfg(test)]
 mod tests {
-    use super::is_app_bundle;
+    use super::*;
+
+    #[test]
+    fn a_session_survives_the_user_info_round_trip_with_its_host() {
+        let round = |key: SessionKey| {
+            let info: std::collections::HashMap<_, _> = session_info(&key).into_iter().collect();
+            session_from_info(|k| info.get(k).cloned())
+        };
+        let local = gilvt_agent::local_key(AgentKind::Claude, "a");
+        assert_eq!(round(local.clone()), Some(local.clone()));
+        assert!(!session_info(&local).iter().any(|(k, _)| *k == HOST_KEY), "local: no host entry");
+        let remote = (AgentKind::Codex, "a".to_string(), Host::Remote(HostId("dev@h:22".into())));
+        assert_eq!(round(remote.clone()), Some(remote));
+    }
 
     #[test]
     fn a_bundle_needs_an_id_and_an_app_path() {
