@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use gilvt_ipc::remote::*;
 
+use crate::hooklog::{attribute, HookLog, HOOK_LOG_MAX};
 use crate::links::Links;
 use crate::paths::Layout;
 use crate::peer::peer_uid;
@@ -30,11 +31,22 @@ struct State {
     next_bridge: u64,
     bridges: Vec<(u64, Sender<DaemonMsg>)>,
     last_activity: Instant,
+    /// This daemon's start time in ms (R2a §4.3).
+    epoch: u64,
+    hooks: HookLog,
 }
 
 impl State {
+    fn new(links: Links) -> State {
+        let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_millis() as u64);
+        State { links, seq: 0, next_bridge: 0, bridges: Vec::new(), last_activity: Instant::now(), epoch, hooks: HookLog::new(HOOK_LOG_MAX) }
+    }
+
     fn broadcast(&mut self, event: RemoteEvent) {
         self.seq += 1;
+        if matches!(event, RemoteEvent::Hook { .. }) {
+            self.hooks.push(self.seq, event.clone());
+        }
         let msg = DaemonMsg::Event { seq: self.seq, event };
         self.bridges.retain(|(_, tx)| tx.send(msg.clone()).is_ok());
         self.last_activity = Instant::now();
@@ -63,21 +75,31 @@ pub fn run(cfg: Config) -> io::Result<()> {
     let _ = std::fs::remove_file(&sock);
     let listener = UnixListener::bind(&sock)?;
     std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))?;
+    let hook_sock = cfg.layout.hook_socket();
+    let _ = std::fs::remove_file(&hook_sock);
+    let hook_listener = UnixListener::bind(&hook_sock)?;
+    std::fs::set_permissions(&hook_sock, std::fs::Permissions::from_mode(0o600))?;
     let _ = cfg.layout.prune_versions(&cfg.build_id);
 
     let mut links = Links::default();
     for l in inherited { links.up(l); }
-    let state = Arc::new(Mutex::new(State { links, seq: 0, next_bridge: 0, bridges: Vec::new(), last_activity: Instant::now() }));
+    let state = Arc::new(Mutex::new(State::new(links)));
     let cfg = Arc::new(cfg);
 
     {
-        let (state, cfg, sock) = (state.clone(), cfg.clone(), sock.clone());
+        let state = state.clone();
+        std::thread::spawn(move || serve_gilvt_sock(hook_listener, &state));
+    }
+
+    {
+        let (state, cfg, sock, hook_sock) = (state.clone(), cfg.clone(), sock.clone(), hook_sock.clone());
         std::thread::spawn(move || loop {
             std::thread::sleep(cfg.reap_every);
             let mut s = state.lock().unwrap();
             for ev in s.links.reap(pid_alive) { s.broadcast(ev); }
             if s.links.is_empty() && s.bridges.is_empty() && s.last_activity.elapsed() >= cfg.idle_exit {
                 let _ = std::fs::remove_file(&sock);
+                let _ = std::fs::remove_file(&hook_sock);
                 std::process::exit(0);
             }
         });
@@ -91,6 +113,34 @@ pub fn run(cfg: Config) -> io::Result<()> {
         std::thread::spawn(move || { let _ = serve(conn, &state, &cfg); });
     }
     Ok(())
+}
+
+/// How long one connection may take to deliver its request line. A real `gilvt hook` writes the line right after
+/// connecting and gives up itself after 200 ms (`send_nowait`), so waiting longer gains nothing.
+const HOOK_READ_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// `run/gilvt.sock`: one request line per connection, like the app's socket (R2a §4.1). Hooks are attributed to a
+/// link and broadcast; anything else is ignored (R2a's second plan adds View / Diff here).
+///
+/// Connections are handled one at a time, inline, in the order they were accepted (no thread per connection): hooks
+/// reach the app in the order they were sent, and a stuck client delays the others by at most `HOOK_READ_TIMEOUT`
+/// (R2a plan deviation 16).
+fn serve_gilvt_sock(listener: UnixListener, state: &Arc<Mutex<State>>) {
+    let me = unsafe { libc::getuid() };
+    for conn in listener.incoming() {
+        let Ok(conn) = conn else { continue };
+        if peer_uid(&conn).ok() != Some(me) {
+            continue;
+        }
+        let _ = conn.set_read_timeout(Some(HOOK_READ_TIMEOUT));
+        // A client that connects and then says nothing fails the read at the timeout and is dropped.
+        if let Ok(gilvt_ipc::Request::Hook { agent, event, payload, link, tmux, .. }) = gilvt_ipc::read_request(&conn) {
+            let mut s = state.lock().unwrap();
+            if let Some(link) = attribute(&s.links, link.as_deref(), tmux) {
+                s.broadcast(RemoteEvent::Hook { link, agent, event, payload });
+            }
+        }
+    }
 }
 
 fn try_lock(file: &std::fs::File) -> bool {
@@ -137,17 +187,23 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config) -> io::R
             let links = state.lock().unwrap().links.all();
             write_frame(&mut conn, &LocalReply::Handover { links })?;
             let _ = std::fs::remove_file(cfg.layout.socket());
+            let _ = std::fs::remove_file(cfg.layout.hook_socket());
             std::process::exit(0);
         }
-        Some(LocalMsg::Bridge { hello: AppMsg::Hello { build_id, .. } }) => {
+        Some(LocalMsg::Bridge { hello: AppMsg::Hello { build_id, cursor, epoch, .. } }) => {
             if build_id != cfg.build_id {
                 return write_frame(&mut conn, &DaemonMsg::Mismatch { build_id: cfg.build_id.clone() });
             }
             let (tx, rx) = channel::<DaemonMsg>();
             let id = {
                 let mut s = state.lock().unwrap();
-                let welcome = DaemonMsg::Welcome { build_id: cfg.build_id.clone(), hostname: cfg.hostname.clone(), uname: cfg.uname.clone(), links: s.links.all(), seq: s.seq, epoch: 0, gap: false };
+                // Welcome, the replay and the registration happen under one lock: no hook is lost or doubled.
+                let replay = s.hooks.replay(s.epoch, epoch, cursor);
+                let welcome = DaemonMsg::Welcome { build_id: cfg.build_id.clone(), hostname: cfg.hostname.clone(), uname: cfg.uname.clone(), links: s.links.all(), seq: s.seq, epoch: s.epoch, gap: replay.gap };
                 tx.send(welcome).ok();
+                for (seq, event) in replay.events {
+                    tx.send(DaemonMsg::Event { seq, event }).ok();
+                }
                 s.next_bridge += 1;
                 let id = s.next_bridge;
                 s.bridges.push((id, tx.clone()));
@@ -199,11 +255,45 @@ mod tests {
         for _ in 0..100 { if UnixStream::connect(&sock).is_ok() { break } std::thread::sleep(Duration::from_millis(20)); }
         h
     }
-    fn bridge(home: &std::path::Path, build: &str) -> UnixStream {
+    fn bridge_at(home: &std::path::Path, build: &str, cursor: u64, epoch: Option<u64>) -> UnixStream {
         let mut s = UnixStream::connect(Layout::from_home(home).socket()).unwrap();
-        write_frame(&mut s, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: build.into(), app_instance: "t".into(), cursor: 0, epoch: None } }).unwrap();
+        write_frame(&mut s, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: build.into(), app_instance: "t".into(), cursor, epoch } }).unwrap();
         s
     }
+    fn bridge(home: &std::path::Path, build: &str) -> UnixStream {
+        bridge_at(home, build, 0, None)
+    }
+    fn send_hook(home: &std::path::Path, link: Option<&str>, tmux: bool, event: &str) {
+        let mut s = UnixStream::connect(Layout::from_home(home).hook_socket()).unwrap();
+        let req = gilvt_ipc::Request::Hook { pane: None, agent: "claude".into(), event: event.into(), payload: serde_json::json!({"session_id": "s"}), link: link.map(Into::into), tmux };
+        let mut line = serde_json::to_vec(&req).unwrap();
+        line.push(b'\n');
+        std::io::Write::write_all(&mut s, &line).unwrap();
+    }
+    /// Until the daemon has handled events up to `want` (looked at through short-lived bridges: no fixed sleeps).
+    fn wait_for_seq(home: &std::path::Path, build: &str, want: u64) {
+        let end = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut probe = bridge(home, build);
+            probe.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            if let Some(DaemonMsg::Welcome { seq, .. }) = read_frame::<DaemonMsg>(&mut probe).unwrap() {
+                if seq >= want {
+                    return;
+                }
+            }
+            assert!(Instant::now() < end, "the daemon never handled the hooks (wanted seq {want})");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    fn next_hook(b: &mut UnixStream) -> (u64, String) {
+        loop {
+            match read_frame::<DaemonMsg>(b).unwrap().unwrap() {
+                DaemonMsg::Event { seq, event: RemoteEvent::Hook { event, .. } } => return (seq, event),
+                _ => continue,
+            }
+        }
+    }
+
     fn login(home: &std::path::Path, link: &str, pid: u32) {
         let mut s = UnixStream::connect(Layout::from_home(home).socket()).unwrap();
         write_frame(&mut s, &LocalMsg::Login { build_id: "0.1.0-aaaaaaaa".into(), link: LinkState { link: link.into(), hostname: "devbox".into(), tty: None, pid } }).unwrap();
@@ -233,6 +323,52 @@ mod tests {
     }
 
     #[test]
+    fn hooks_of_a_registered_link_reach_the_bridge_and_others_are_dropped() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+        read_frame::<DaemonMsg>(&mut b).unwrap(); // welcome
+        login(home.path(), "t-1", std::process::id());
+        send_hook(home.path(), None, false, "NoLink");
+        send_hook(home.path(), Some("t-9"), false, "Unknown");
+        send_hook(home.path(), Some("t-1"), true, "Tmux");
+        send_hook(home.path(), Some("t-1"), false, "Stop");
+        b.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        assert_eq!(next_hook(&mut b).1, "Stop", "the three before were dropped");
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(Layout::from_home(home.path()).hook_socket()).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn a_reconnecting_bridge_gets_the_hooks_it_missed() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+        let Some(DaemonMsg::Welcome { epoch, .. }) = read_frame::<DaemonMsg>(&mut b).unwrap() else { panic!() };
+        assert!(epoch > 0);
+        login(home.path(), "t-1", std::process::id());
+        send_hook(home.path(), Some("t-1"), false, "One");
+        b.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let (seen, _) = next_hook(&mut b);
+        drop(b);
+        // `send_hook` returns once its line is written, and the daemon takes connections in accept order, so Two is
+        // always seq+1 and Three seq+2; wait for them by polling the Welcome's seq instead of sleeping.
+        send_hook(home.path(), Some("t-1"), false, "Two");
+        send_hook(home.path(), Some("t-1"), false, "Three");
+        wait_for_seq(home.path(), "0.1.0-aaaaaaaa", seen + 2);
+        let mut b = bridge_at(home.path(), "0.1.0-aaaaaaaa", seen, Some(epoch));
+        b.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let Some(DaemonMsg::Welcome { gap, .. }) = read_frame::<DaemonMsg>(&mut b).unwrap() else { panic!() };
+        assert!(!gap);
+        assert_eq!(next_hook(&mut b).1, "Two");
+        assert_eq!(next_hook(&mut b).1, "Three");
+        let mut other = bridge_at(home.path(), "0.1.0-aaaaaaaa", seen, Some(epoch + 1));
+        let Some(DaemonMsg::Welcome { gap, .. }) = read_frame::<DaemonMsg>(&mut other).unwrap() else { panic!() };
+        assert!(gap, "another epoch: a gap");
+    }
+
+    #[test]
     fn dead_login_shell_is_reaped() {
         let home = tempfile::tempdir().unwrap();
         let _d = start(home.path(), "0.1.0-aaaaaaaa");
@@ -254,7 +390,7 @@ mod tests {
     fn bridge_is_deregistered_when_its_connection_breaks() {
         let home = tempfile::tempdir().unwrap();
         let cfg = cfg(home.path(), "0.1.0-aaaaaaaa");
-        let state = Arc::new(Mutex::new(State { links: Links::default(), seq: 0, next_bridge: 0, bridges: Vec::new(), last_activity: Instant::now() }));
+        let state = Arc::new(Mutex::new(State::new(Links::default())));
         let (mut client, server) = UnixStream::pair().unwrap();
         let st = state.clone();
         let h = std::thread::spawn(move || serve(server, &st, &cfg));

@@ -30,6 +30,10 @@ impl Links {
         self.links.clone()
     }
 
+    pub fn contains(&self, link: &str) -> bool {
+        self.links.iter().any(|l| l.link == link)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.links.is_empty()
     }
