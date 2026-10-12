@@ -14,6 +14,7 @@ mod event;
 mod history;
 mod git;
 pub mod host;
+#[cfg(target_os = "macos")]
 pub mod install_location;
 mod launch;
 mod registry;

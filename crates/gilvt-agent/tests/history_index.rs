@@ -235,6 +235,14 @@ fn claude_append_is_merged_but_rewrite_and_truncate_rebuild() {
 
     let rewritten = format!("{}{second}{third}", claude_turn(0, "omega", "r0"));
     fs::write(&path, rewritten).unwrap();
+    // Same length ("alpha" -> "omega"): the cache keys on (size, mtime), and Linux file times tick at
+    // jiffy granularity, so two writes in the same few ms can share an mtime. Make the rewrite visible.
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5))
+        .unwrap();
     index.refresh(&home);
     assert_eq!(
         index

@@ -8,9 +8,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{agent_of_process, AgentKind, SessionKey};
+#[cfg(target_os = "macos")]
+use crate::agent_of_process;
+use crate::{AgentKind, SessionKey};
 
 const LEASE_VERSION: u32 = 1;
+#[cfg(target_os = "macos")]
 const MAX_ANCESTORS: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -225,6 +228,7 @@ pub fn default_state_dir() -> Option<PathBuf> {
         .map(|home| home.join("Library/Application Support/gilvt/state"))
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy)]
 #[repr(C)]
 struct ProcBsdInfo {
@@ -252,6 +256,7 @@ struct ProcBsdInfo {
     pbi_start_tvusec: u64,
 }
 
+#[cfg(target_os = "macos")]
 extern "C" {
     fn proc_listallpids(buffer: *mut libc::c_void, buffersize: libc::c_int) -> libc::c_int;
     fn proc_pidinfo(
@@ -264,8 +269,10 @@ extern "C" {
     fn proc_name(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32) -> libc::c_int;
 }
 
+#[cfg(target_os = "macos")]
 const PROC_PIDTBSDINFO: libc::c_int = 3;
 
+#[cfg(target_os = "macos")]
 fn bsd_info(pid: u32) -> Option<ProcBsdInfo> {
     let mut info: ProcBsdInfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<ProcBsdInfo>() as libc::c_int;
@@ -281,6 +288,7 @@ fn bsd_info(pid: u32) -> Option<ProcBsdInfo> {
     (got == size).then_some(info)
 }
 
+#[cfg(target_os = "macos")]
 fn process_name(pid: u32) -> Option<String> {
     let mut buf = [0u8; 256];
     let len = unsafe {
@@ -297,6 +305,7 @@ fn process_name(pid: u32) -> Option<String> {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn process_argv(pid: u32) -> Option<Vec<String>> {
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
     let mut buf = vec![0u8; 64 * 1024];
@@ -329,10 +338,12 @@ fn process_argv(pid: u32) -> Option<Vec<String>> {
     (!args.is_empty()).then_some(args)
 }
 
+#[cfg(target_os = "macos")]
 fn process_args(pid: u32) -> Option<String> {
     process_argv(pid).map(|args| args.join(" "))
 }
 
+#[cfg(target_os = "macos")]
 fn process_kind(pid: u32) -> Option<AgentKind> {
     let name = process_name(pid)?;
     let argv = matches!(name.as_str(), "node" | "bun")
@@ -341,6 +352,7 @@ fn process_kind(pid: u32) -> Option<AgentKind> {
     agent_of_process(&name, argv.as_deref())
 }
 
+#[cfg(target_os = "macos")]
 fn terminal_owner(mut pid: u32) -> (TerminalOwner, Option<u32>) {
     for _ in 0..MAX_ANCESTORS {
         let Some(info) = bsd_info(pid) else { break };
@@ -371,6 +383,7 @@ fn terminal_owner(mut pid: u32) -> (TerminalOwner, Option<u32>) {
     (TerminalOwner::Unknown, None)
 }
 
+#[cfg(target_os = "macos")]
 fn tty_path(dev: u32) -> Option<PathBuf> {
     if dev == 0 || dev == u32::MAX {
         return None;
@@ -389,6 +402,7 @@ fn tty_path(dev: u32) -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "macos")]
 fn runtime_of(pid: u32, confidence: BindingConfidence) -> Option<RuntimeRef> {
     let info = bsd_info(pid)?;
     let (terminal, terminal_pid) = terminal_owner(pid);
@@ -403,6 +417,7 @@ fn runtime_of(pid: u32, confidence: BindingConfidence) -> Option<RuntimeRef> {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn runtime_for_hook(agent: AgentKind) -> Option<RuntimeRef> {
     let mut pid = unsafe { libc::getppid() } as u32;
     for _ in 0..MAX_ANCESTORS {
@@ -418,6 +433,7 @@ fn runtime_for_hook(agent: AgentKind) -> Option<RuntimeRef> {
     None
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn session_hint(agent: AgentKind, args: &[String]) -> Option<String> {
     let value_after = |names: &[&str]| {
         args.windows(2)
@@ -442,6 +458,7 @@ fn session_hint(agent: AgentKind, args: &[String]) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub fn scan_agent_processes() -> Vec<ProcessObservation> {
     let count = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
     if count <= 0 {
@@ -468,6 +485,26 @@ pub fn scan_agent_processes() -> Vec<ProcessObservation> {
             })
         })
         .collect()
+}
+
+/// Not macOS: no libproc. Hooks still work; only external-terminal process control is lost. The `/proc`
+/// implementation is R2b (spec R2a §3.1).
+#[cfg(not(target_os = "macos"))]
+fn runtime_for_hook(_agent: AgentKind) -> Option<RuntimeRef> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn scan_agent_processes() -> Vec<ProcessObservation> {
+    Vec::new()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn signal_runtime(_agent: AgentKind, runtime: &RuntimeRef, _signal: libc::c_int) -> Result<(), SignalError> {
+    if runtime.confidence != BindingConfidence::Exact {
+        return Err(SignalError::NotExact);
+    }
+    Err(SignalError::Gone)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -510,6 +547,7 @@ pub fn terminate_runtime(agent: AgentKind, runtime: &RuntimeRef) -> Result<(), S
     signal_runtime(agent, runtime, libc::SIGTERM)
 }
 
+#[cfg(target_os = "macos")]
 fn signal_runtime(
     agent: AgentKind,
     runtime: &RuntimeRef,
@@ -626,6 +664,7 @@ mod tests {
         assert_eq!(store.read_all(), vec![lease]);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn current_process_has_stable_identity() {
         let runtime = runtime_of(std::process::id(), BindingConfidence::Unresolved).unwrap();
@@ -633,6 +672,7 @@ mod tests {
         assert!(runtime.process_started_at > 0);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn control_rejects_non_exact_and_missing_processes() {
         let mut runtime = runtime_of(std::process::id(), BindingConfidence::Unresolved).unwrap();
