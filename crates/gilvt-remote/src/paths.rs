@@ -71,15 +71,7 @@ fn home_from_passwd() -> Option<PathBuf> {
     }
 }
 
-/// `<semver>-<8 lower-case hex>`, e.g. `0.1.0-1a2b3c4d`.
-pub fn is_build_id(name: &str) -> bool {
-    let Some((ver, sha)) = name.rsplit_once('-') else { return false };
-    sha.len() == 8
-        && sha.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
-        && !ver.is_empty()
-        && ver.split('.').count() == 3
-        && ver.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
-}
+pub use gilvt_ipc::remote::is_build_id;
 
 /// The build id of the binary at `exe`: the name of the directory it was installed into.
 pub fn build_id_of(exe: &Path) -> Option<String> {

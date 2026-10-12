@@ -141,9 +141,29 @@ pub enum LocalReply {
     Handover { links: Vec<LinkState> },
 }
 
+/// `<semver>-<8 lower-case hex>`, e.g. `0.1.0-1a2b3c4d`.
+pub fn is_build_id(name: &str) -> bool {
+    let Some((ver, sha)) = name.rsplit_once('-') else { return false };
+    sha.len() == 8
+        && sha.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+        && !ver.is_empty()
+        && ver.split('.').count() == 3
+        && ver.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_ids_are_a_version_and_eight_hex_digits() {
+        for ok in ["0.1.0-1a2b3c4d", "0.0.1-00000000", "12.30.4-ffffffff"] {
+            assert!(is_build_id(ok), "{ok}");
+        }
+        for bad in ["bin", "run", "state", "0.1.0", "0.1-1a2b3c4d", "0.1.0-1A2B3C4D", "0.1.0-1a2b3c4", "0.1.x-1a2b3c4d", "-1a2b3c4d", ".1.0-1a2b3c4d"] {
+            assert!(!is_build_id(bad), "{bad}");
+        }
+    }
 
     #[test]
     fn frames_round_trip_and_eof_is_none() {

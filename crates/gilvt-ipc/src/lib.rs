@@ -80,7 +80,7 @@ pub enum Response {
     DebugState { state: serde_json::Value },
     /// The answer to [`Request::Monitor`]: the tool result text, and whether it is an error for the model.
     Tool { text: String, is_error: bool },
-    /// The answer to RemoteBegin. `install`: "ask" | "always" | "never" (the effective policy for this host).
+    /// The answer to RemoteBegin. `install`: "ask" | "allowed" | "always" | "never" (the effective policy for this host).
     RemoteBegin { link: String, install: String, installed: Option<String>, arch: Option<String>, hostname: Option<String> },
 }
 

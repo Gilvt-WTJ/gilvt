@@ -7,6 +7,12 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Changed
+
+- SSH: after gilvt is upgraded, the first connection to a host that has an older remote helper installed now asks
+  before updating it (it used to update silently); answer `n` to log in plain this time, `N` to never install
+  on that host. `[remote] install = "always"` still updates without asking.
+
 ## [0.2.1] - 2026-10-09
 
 ### Fixed
