@@ -185,6 +185,17 @@ impl Registry {
         changes
     }
 
+    /// The pane left its ssh link (back to the local shell, or `LinkDown`): its remote sessions end like
+    /// `pane_exited`; a local session of the pane is left alone (R2a §5.3).
+    pub fn end_remote_in_pane(&mut self, pane: PaneId, now: Instant) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for s in self.sessions.iter_mut().filter(|s| s.pane == Some(pane) && s.is_live() && s.key.2.is_remote()) {
+            step(s, &Event::SessionEnd, false, now);
+            changes.push(Change::Ended(s.key.clone()));
+        }
+        changes
+    }
+
     /// A process scanner proved that an external session's process ended. Pane-bound sessions are owned by
     /// the pane foreground tracker and are deliberately left alone here.
     pub fn external_exited(&mut self, key: &SessionKey, now: Instant) -> Vec<Change> {

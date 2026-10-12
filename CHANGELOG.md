@@ -7,6 +7,12 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- SSH: `claude` and `codex` running in the remote shell of a gilvt ssh pane now appear in the sidebar and drive the
+  tab status dot and notifications, like local ones. The inspector timeline, session history and resume for them
+  arrive in the same release.
+
 ### Changed
 
 - SSH: after gilvt is upgraded, the first connection to a host that has an older remote helper installed now asks

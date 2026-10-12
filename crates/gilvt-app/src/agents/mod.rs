@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use gilvt_agent::{newest_claude_transcript, GitInfo, newest_codex_rollout, scan_agent_processes, AgentKind, BindingConfidence, Change, Lease, LeaseStore, PaneId, ProcessObservation, Registry, RuntimeRef, Session, SessionKey, Store, TerminalOwner};
+use gilvt_agent::host::{Host, HostId};
 use gilvt_ipc::Request;
 use gpui::{App, AsyncApp, Global};
 
@@ -51,8 +52,16 @@ pub fn state_dir() -> Option<PathBuf> {
     Some(home.join("Library/Application Support/gilvt/state"))
 }
 
+/// A hook request and the machine it ran on (this Mac via the IPC socket, or an ssh host via its bridge).
+pub struct HookIn {
+    pub host: Host,
+    pub request: Request,
+}
+
 pub struct Agents {
     core: Core,
+    /// Where hooks enter (the IPC socket for local ones, the bridges for remote ones).
+    hook_tx: async_channel::Sender<HookIn>,
     tails: Option<Tails>,
     watching: Vec<(SessionKey, PathBuf)>,
     /// Project names of session directories, resolved in the background.
@@ -73,6 +82,25 @@ pub struct Agents {
 }
 
 impl Global for Agents {}
+
+impl Agents {
+    /// A hook from an ssh host's bridge, already attributed to `pane` (R2a §5.2): the same pipeline as local ones.
+    pub fn remote_hook(host: &str, pane: PaneId, agent: String, event: String, payload: serde_json::Value, cx: &mut App) {
+        let Some(tx) = cx.try_global::<Agents>().map(|a| a.hook_tx.clone()) else { return };
+        let request = Request::Hook { pane: Some(pane), agent, event, payload, link: None, tmux: false };
+        let _ = tx.try_send(HookIn { host: Host::Remote(HostId(host.to_string())), request });
+    }
+
+    /// `pane` left its ssh link: its remote sessions end (R2a §5.3).
+    pub fn remote_link_ended(pane: PaneId, cx: &mut App) {
+        let Some(agents) = cx.try_global::<Agents>() else { return };
+        if !agents.core.registry.sessions().any(|s| s.pane == Some(pane) && s.is_live() && s.key.2.is_remote()) {
+            return;
+        }
+        let changes = cx.global_mut::<Agents>().core.registry.end_remote_in_pane(pane, Instant::now());
+        after_changes(changes, cx);
+    }
+}
 
 impl Agents {
     /// The snapshot recorder (the 「产物」 tab reads its ledgers).
@@ -335,12 +363,14 @@ fn git_cache_update(cached: Option<&Option<GitInfo>>, outcome: gilvt_agent::Quer
 }
 
 /// Sets up the global and its background work. Returns where the IPC server sends `Hook` requests.
-pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
+pub fn init(cx: &mut App) -> async_channel::Sender<HookIn> {
     let store = state_dir().map_or_else(Store::in_memory, |d| Store::open(&d));
     let (batch_tx, batch_rx) = async_channel::unbounded();
     let (wake_tx, wake_rx) = async_channel::unbounded::<()>();
+    let (hook_tx, hook_rx) = async_channel::unbounded::<HookIn>();
     cx.set_global(Agents {
         core: Core::new(store),
+        hook_tx: hook_tx.clone(),
         tails: Some(Tails::spawn(batch_tx)),
         watching: Vec::new(),
         projects: HashMap::new(),
@@ -362,7 +392,6 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
         }
     })
     .detach();
-    let (hook_tx, hook_rx) = async_channel::unbounded::<Request>();
     cx.spawn(async move |cx| {
         while let Ok(first) = hook_rx.recv().await {
             let mut requests = vec![first];
@@ -375,9 +404,9 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
                     requests
                         .into_iter()
                         .zip(anchors)
-                        .filter_map(|(r, anchor)| match r {
+                        .filter_map(|(HookIn { host, request }, anchor)| match request {
                             Request::Hook { pane, agent, event, payload, .. } => {
-                                let h = parse_hook_request(pane, &agent, &event, &payload)?;
+                                let h = parse_hook_request(pane, &agent, &event, &payload)?.with_host(host);
                                 Some((h, HookFeed { event, payload, anchor, at }))
                             }
                             _ => None,
@@ -393,7 +422,7 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
                 let mut modes: Vec<SessionKey> = Vec::new();
                 for (h, feed) in parsed {
                     changes.extend(agents.core.hook(&h, |p| visible.contains(&p), now));
-                    if h.meta.agent_id.is_none() {
+                    if h.meta.agent_id.is_none() && !h.host.is_remote() {
                         if let Some(key) = agents.core.timeline_key(&h) {
                             let cwd = agents.core.registry.get(&key).and_then(|s| s.cwd.clone()).or_else(|| h.meta.cwd.clone());
                             agents.recorder.signals(&key, cwd, hook_signals(&h.events, Source::Hook, false), feed.at);
@@ -433,6 +462,9 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
                 let keys: Vec<SessionKey> = views.iter().map(|(key, _)| key.clone()).collect();
                 agents.timelines.extend(views);
                 for (key, batch) in &batches {
+                    if key.2.is_remote() {
+                        continue;
+                    }
                     let (lite, cwd) = agents.core.registry.get(key).map_or((false, None), |s| (s.lite, s.cwd.clone()));
                     agents.recorder.signals(key, cwd, batch_signals(batch, lite), SystemTime::now());
                 }
@@ -625,10 +657,10 @@ fn reconcile_external(
 
 /// Terminal anchors of hook requests, read as they arrive: the pane's absolute cursor line for a session
 /// `PreToolUse` (spec §5), else None. Other requests do not touch the terminals.
-fn anchors(requests: &[Request], cx: &App) -> Vec<Option<gilvt_agent::Anchor>> {
+fn anchors(requests: &[HookIn], cx: &App) -> Vec<Option<gilvt_agent::Anchor>> {
     requests
         .iter()
-        .map(|r| match r {
+        .map(|r| match &r.request {
             Request::Hook { pane, event, payload, .. } => {
                 anchor_for(*pane, event, payload, |p| workspace::absolute_cursor_line(p, cx))
             }

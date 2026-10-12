@@ -43,7 +43,7 @@ fn route(pane: Option<u64>, req: OpenRequest, pin: bool, cx: &mut App) {
 
 /// Binds this process's socket and handles requests until the app exits; `Hook` requests go to
 /// `hooks` (the agents bridge). Returns the socket path.
-pub fn start(hooks: async_channel::Sender<Request>, cx: &mut App) -> Option<PathBuf> {
+pub fn start(hooks: async_channel::Sender<crate::agents::HookIn>, cx: &mut App) -> Option<PathBuf> {
     let path = socket_path_for(std::process::id());
     if let Some(dir) = path.parent() {
         remove_stale_sockets(dir);
@@ -80,7 +80,7 @@ pub fn start(hooks: async_channel::Sender<Request>, cx: &mut App) -> Option<Path
                     let _ = cx.update(|cx| route(pane, diff_request(files, rev), false, cx));
                 }
                 hook @ Request::Hook { .. } => {
-                    let _ = hooks.try_send(hook);
+                    let _ = hooks.try_send(crate::agents::HookIn { host: gilvt_agent::host::Host::Local, request: hook });
                 }
                 req @ (Request::RemoteRecord { .. } | Request::RemoteLinked { .. } | Request::RemoteEnd { .. }) => {
                     let _ = cx.update(|cx| crate::remote::handle(req, cx));

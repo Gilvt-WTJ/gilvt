@@ -26,7 +26,6 @@ pub struct ParsedHook {
 }
 
 impl ParsedHook {
-    #[allow(dead_code)] // the remote bridge (R2a Task 9+) is its caller; tests use it now
     pub fn with_host(self, host: Host) -> ParsedHook {
         ParsedHook { host, ..self }
     }
@@ -246,7 +245,8 @@ impl Core {
     pub fn watch_set(&self) -> Vec<(SessionKey, PathBuf)> {
         self.registry
             .sessions()
-            .filter(|s| s.is_live())
+            // A remote session's transcript path is on the ssh host: never tail it here (the bridge follows it).
+            .filter(|s| s.is_live() && !s.key.2.is_remote())
             .filter_map(|s| Some((s.key.clone(), s.transcript.clone()?)))
             .collect()
     }
