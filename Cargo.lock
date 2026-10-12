@@ -2206,6 +2206,7 @@ version = "0.2.1"
 dependencies = [
  "async-channel 2.5.0",
  "gilvt-agent",
+ "gilvt-client",
  "gilvt-i18n",
  "gilvt-ipc",
  "gilvt-monitor",
@@ -2217,6 +2218,18 @@ dependencies = [
  "tempfile",
  "toml 0.8.23",
  "toml_edit 0.22.27",
+]
+
+[[package]]
+name = "gilvt-client"
+version = "0.2.1"
+dependencies = [
+ "gilvt-agent",
+ "gilvt-ipc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.23",
 ]
 
 [[package]]
