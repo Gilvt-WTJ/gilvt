@@ -80,6 +80,8 @@ impl Case {
             dir_exists: &|_| true,
             branch: &|_| None,
             archived: &|_| false,
+            hosts: &[],
+            host_label: &|_| None,
         })
     }
 }
@@ -113,6 +115,8 @@ fn build_in(entries: &[HistoryEntry], filters: Filters, current: Option<&Project
         dir_exists: &|_| true,
         branch: &|_| None,
         archived: &|_| false,
+        hosts: &[],
+        host_label: &|_| None,
     };
     tweak(&mut input);
     build(&input)
@@ -129,6 +133,7 @@ fn shown(list: &List) -> Vec<String> {
         .map(|l| match l {
             Line::Header(h) => format!("# {h}"),
             Line::Row(i) => list.rows[*i].key.1.clone(),
+            Line::Notice(n) => format!("! {n}"),
         })
         .collect()
 }
@@ -638,6 +643,8 @@ fn a_running_session_still_archived_shows_in_the_default_list_and_not_under_the_
             dir_exists: &|_| true,
             branch: &|_| None,
             archived: &|_| true,
+            hosts: &[],
+            host_label: &|_| None,
         })
     };
     let all = Filters {
@@ -697,4 +704,38 @@ fn the_confirm_bar_opens_at_once_and_takes_only_its_own_companion_size() {
     let known = Confirm::with_companion(entries, 0);
     assert_eq!(known.text, confirm_text(2, 4_000_000, 0));
     assert!(!known.sizing());
+}
+
+#[test]
+fn a_remote_row_is_keyed_by_its_host_and_reads_host_dot_dir() {
+    use gilvt_agent::host::{Host, HostId};
+    let es = vec![
+        entry(AgentKind::Claude, "same", "/Users/u/gilvt-lab", "local", 1),
+        entry(AgentKind::Claude, "same", "/home/dev/app", "remote", 0),
+    ];
+    let hosts = [Host::Local, Host::Remote(HostId("dev@h:22".into()))];
+    let label = |h: &Host| h.is_remote().then(|| "devbox".to_string());
+    let (live, names) = (HashMap::new(), |_: &SessionKey| None);
+    let when = |_: SystemTime| String::new();
+    let list = build(&Input {
+        entries: &es,
+        live: &live,
+        saved_name: &names,
+        project: &project,
+        current: None,
+        query: "",
+        filters: ALL,
+        now: now(),
+        when: &when,
+        home: Some(Path::new("/Users/u")),
+        dir_exists: &|_| false, // a remote row must not be judged by this Mac's disk
+        branch: &|_| None,
+        archived: &|_| false,
+        hosts: &hosts,
+        host_label: &label,
+    });
+    assert_eq!(list.rows.len(), 2, "the same id on two hosts stays two rows");
+    let remote = list.rows.iter().find(|r| r.key.2.is_remote()).unwrap();
+    assert_eq!(remote.dir, "devbox · /home/dev/app");
+    assert!(!remote.dir_missing && remote.branch.is_none() && !remote.archived);
 }

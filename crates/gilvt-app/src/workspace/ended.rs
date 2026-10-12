@@ -24,7 +24,7 @@ impl Workspace {
         self.ended_confirm.as_ref()
     }
 
-    /// The ended-session actions that read this Mac's files (archive, trash, and for now resume) do not apply to a
+    /// The ended-session actions that read this Mac's files (archive, trash) do not apply to a
     /// remote session: shows the usual notice and returns true.
     fn refuse_remote_session(&mut self, key: &SessionKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if !key.2.is_remote() {
@@ -39,8 +39,19 @@ impl Workspace {
     /// Resumes ended session `key` at `location`, from the registry's cwd and id (spec §2.1 locations).
     pub fn resume_ended(&mut self, key: SessionKey, location: Location, window: &mut Window, cx: &mut Context<Self>) {
         self.ended_confirm = None;
-        if self.refuse_remote_session(&key, window, cx) {
-            return;
+        if let gilvt_agent::host::Host::Remote(h) = &key.2 {
+            let Some(session) = cx.global::<Agents>().registry().get(&key) else { return };
+            if let Some(pane) = session.pane.filter(|_| session.is_live()) {
+                return self.focus_pane(pane, window, cx);
+            }
+            let Some(cwd) = session.cwd.clone() else {
+                self.error = Some(crate::i18n::text("不知道该会话的目录，无法恢复", "The session directory is unknown, so it cannot be resumed").into());
+                cx.notify();
+                return;
+            };
+            let launch = cx.global::<AppSettings>().0.agent.launch(key.0).to_string();
+            let command = gilvt_agent::resume_command(&launch, key.0, &key.1, &cwd);
+            return self.resume_remote(h.0.clone(), command, window, cx);
         }
         let Some(session) = cx.global::<Agents>().registry().get(&key) else { return };
         let indexed_cwd = cx.try_global::<History>().and_then(|h| h.find(key.0, &key.1)).map(|e| e.cwd.clone());

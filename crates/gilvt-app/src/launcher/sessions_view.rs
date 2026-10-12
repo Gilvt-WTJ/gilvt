@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use gilvt_agent::host::Host;
 use gilvt_agent::{HistoryEntry, PaneId, RuntimeRef, SessionKey};
 use gpui::{
     prelude::*, App, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyDownEvent, Pixels, Point,
@@ -67,6 +68,8 @@ pub enum SessionsEvent {
     OpenCleanup,
     /// Esc in the cleanup wizard: back to the palette.
     CloseCleanup,
+    /// Resume a remote history entry on its host (R2a §5.6).
+    RunRemote { host: String, command: String },
 }
 
 #[derive(Clone, Copy)]
@@ -177,6 +180,7 @@ pub struct Renaming {
 #[derive(Clone, PartialEq)]
 struct Stamp {
     entries: usize,
+    remote: u64,
     query: String,
     filters: Filters,
     current: Option<Project>,
@@ -200,8 +204,14 @@ pub struct SessionsView {
     pub(super) marked: Option<String>,
     pub(super) filters: Filters,
     pub(super) entries: Arc<Vec<HistoryEntry>>,
+    /// Where `entries[i]` is; empty: all local.
+    hosts: Arc<Vec<Host>>,
+    /// 「devbox：历史读取失败」 rows.
+    notices: Vec<String>,
     pub(super) list: List,
     stamp: Option<Stamp>,
+    /// The local list the merged `entries` were made from.
+    local_source: Option<Arc<Vec<HistoryEntry>>>,
     pub(super) selection: Selection,
     pub(super) scroll: UniformListScrollHandle,
     pub(super) menu: Option<RowMenu>,
@@ -275,8 +285,11 @@ impl SessionsView {
             marked: None,
             filters: Filters::default(),
             entries: Arc::default(),
+            hosts: Arc::default(),
+            notices: Vec::new(),
             list: List::default(),
             stamp: None,
+            local_source: None,
             selection: Selection::default(),
             scroll: UniformListScrollHandle::new(),
             menu: None,
@@ -292,11 +305,32 @@ impl SessionsView {
     /// Rebuilds the list when anything it shows changed (called by `render`). A refreshed history keeps the
     /// cursor on its session; a new query or filter starts from the first row.
     pub(super) fn sync(&mut self, window: &Window, cx: &mut Context<Self>) {
-        self.entries = cx.try_global::<History>().map(History::entries).unwrap_or_default();
+        let local_list = cx.try_global::<History>().map(History::entries).unwrap_or_default();
+        let remote = cx.try_global::<crate::remote::history::RemoteHistory>();
+        let ready = remote.map(|r| r.ready()).unwrap_or_default();
+        let remote_generation = remote.map_or(0, |r| r.generation());
+        let failed = remote.map(|r| r.failed()).unwrap_or_default();
+        if ready.is_empty() {
+            self.entries = local_list.clone();
+            self.hosts = Arc::default();
+        } else {
+            // Rebuilt only when either side changed, so the pointer below stays stable between frames.
+            let keep = self.stamp.as_ref().is_some_and(|s| s.remote == remote_generation)
+                && self.local_source.as_ref().is_some_and(|l| Arc::ptr_eq(l, &local_list));
+            if !keep {
+                let (entries, hosts) = crate::remote::history::merge(&local_list, &ready);
+                self.entries = Arc::new(entries);
+                self.hosts = Arc::new(hosts);
+            }
+        }
+        self.local_source = Some(local_list);
+        // Host names come from the one place that knows them (`RemoteHosts`, via `remote::display_of`).
+        self.notices = failed.iter().map(|h| crate::remote::history::failure_text(&crate::remote::display_of(h, cx))).collect();
         let entries_id = Arc::as_ptr(&self.entries) as usize;
         if entries_id != self.resolved_for {
             self.resolved_for = entries_id;
-            let dirs = self.entries.iter().map(|e| e.cwd.clone()).chain(self.cwd.clone()).collect();
+            // Only local directories: a remote cwd is not a path on this Mac.
+            let dirs = self.entries.iter().enumerate().filter(|(i, _)| !self.hosts.get(*i).is_some_and(Host::is_remote)).map(|(_, e)| e.cwd.clone()).chain(self.cwd.clone()).collect();
             Projects::resolve(dirs, cx);
         }
         let projects = cx.default_global::<Projects>();
@@ -308,6 +342,7 @@ impl SessionsView {
         let now = SystemTime::now();
         let stamp = Stamp {
             entries: entries_id,
+            remote: remote_generation,
             query: self.query.clone(),
             filters: self.filters,
             current: self.current.clone(),
@@ -327,7 +362,7 @@ impl SessionsView {
         let now_local = local(now);
         let history = cx.try_global::<History>();
         let agents = cx.try_global::<Agents>();
-        let review_states = cx.try_global::<ReviewService>().map(|s| s.states(self.entries.iter().map(|e| gilvt_agent::local_key(e.agent, e.session_id.clone())))).unwrap_or_default();
+        let review_states = cx.try_global::<ReviewService>().map(|s| s.states(self.entries.iter().enumerate().map(|(i, e)| (e.agent, e.session_id.clone(), self.hosts.get(i).cloned().unwrap_or(Host::Local))))).unwrap_or_default();
         let home = super::dir_label::label_home();
         self.list = model::build(&Input {
             entries: &self.entries,
@@ -344,7 +379,15 @@ impl SessionsView {
             // The sidebar's git cache (live sessions' directories): a cheap read, never a git call here.
             branch: &|p| agents.and_then(|a| a.git_of_dir(p)).and_then(|g| g.branch.clone()),
             archived: &|e| review_states.get(&gilvt_agent::local_key(e.agent, e.session_id.clone())).is_some_and(|s| s.archived_for(e.turns)),
+            hosts: &self.hosts,
+            host_label: &|h| match h {
+                Host::Remote(id) => Some(crate::remote::display_of(&id.0, cx)),
+                Host::Local => None,
+            },
         });
+        for n in &self.notices {
+            self.list.lines.push(model::Line::Notice(n.clone()));
+        }
         self.selection.sync(&self.list.rows, follow);
         if !follow {
             self.scroll_to_cursor();
@@ -464,6 +507,11 @@ impl SessionsView {
         cx.notify();
     }
 
+    /// Whether any of `rows` is on a remote host (their files are not on this Mac).
+    fn any_remote(&self, rows: &[usize]) -> bool {
+        rows.iter().any(|&r| self.list.rows.get(r).is_some_and(|r| r.key.2.is_remote()))
+    }
+
     fn entry(&self, row: usize) -> Option<&HistoryEntry> {
         self.list.rows.get(row).and_then(|r| self.entries.get(r.entry))
     }
@@ -472,6 +520,16 @@ impl SessionsView {
     fn resume(&mut self, location: Location, cx: &mut Context<Self>) {
         let row = self.selection.cursor();
         let (Some(e), Some(r)) = (self.entry(row), self.list.rows.get(row)) else { return };
+        if let Host::Remote(h) = &r.key.2 {
+            if let Some(LiveAt { pane: Some(p), .. }) = &r.live {
+                cx.emit(SessionsEvent::Focus(*p));
+                return;
+            }
+            let launch = cx.global::<AppSettings>().0.agent.launch(e.agent);
+            let command = gilvt_agent::resume_command(launch, e.agent, &e.session_id, &e.cwd);
+            cx.emit(SessionsEvent::RunRemote { host: h.0.clone(), command });
+            return;
+        }
         let launch = cx.global::<AppSettings>().0.agent.launch(e.agent);
         let outcome = model::resume(e, r.live.as_ref(), launch, Path::exists);
         match outcome {
@@ -512,6 +570,10 @@ impl SessionsView {
             }
             return;
         }
+        if self.any_remote(&targets) {
+            self.show_banner(crate::remote::not_yet_remote().into(), cx);
+            return;
+        }
         let entries: Vec<HistoryEntry> = targets.iter().filter_map(|&ix| self.entry(ix).cloned()).collect();
         let toast = if unarchive {
             self.unarchive(&entries, cx)
@@ -550,6 +612,10 @@ impl SessionsView {
 
     /// 在访达中显示: the transcript, selected in a Finder window.
     fn reveal(&mut self, row: usize, cx: &mut Context<Self>) {
+        if self.any_remote(&[row]) {
+            self.show_banner(crate::remote::not_yet_remote().into(), cx);
+            return;
+        }
         let Some(path) = self.entry(row).map(|e| e.transcript.clone()) else { return };
         let spawned = std::process::Command::new("/usr/bin/open")
             .arg("-R")
@@ -579,6 +645,10 @@ impl SessionsView {
             if !self.list.rows.is_empty() {
                 self.show_banner(crate::i18n::text("运行中的会话不能移到废纸篓", "Running sessions cannot be moved to Trash").into(), cx);
             }
+            return;
+        }
+        if self.any_remote(&targets) {
+            self.show_banner(crate::remote::not_yet_remote().into(), cx);
             return;
         }
         let entries: Vec<HistoryEntry> = targets.iter().filter_map(|&i| self.entry(i).cloned()).collect();
@@ -615,7 +685,7 @@ impl SessionsView {
     /// ⌘R / 重命名…: the rename field in row `row`. ⏎ saves to the M3a store (the sidebar follows).
     fn start_rename(&mut self, row: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(e) = self.entry(row).cloned() else { return };
-        let key: SessionKey = gilvt_agent::local_key(e.agent, e.session_id.clone());
+        let Some(key) = self.list.rows.get(row).map(|r| r.key.clone()) else { return };
         let saved = cx.try_global::<Agents>().and_then(|a| a.registry().saved_name(&key));
         // What the row is called without a rename: committing that unchanged must not freeze it as one.
         let auto = crate::launcher::history::title(&e, None);

@@ -28,6 +28,7 @@ impl Workspace {
         self.session_menu = None;
         self.renaming = None;
         History::refresh(cx);
+        crate::remote::history::RemoteHistory::refresh(cx);
         let cwd = self.focused_cwd(cx);
         let me = cx.entity().downgrade();
         let view = cx.new(|cx| SessionCenterView::new(cwd, me, window, cx));
@@ -35,6 +36,7 @@ impl Workspace {
             ws.sessions = None;
             match event {
                 SessionsEvent::Run { location, dir, command } => ws.run_command(*location, dir.clone(), command.clone(), window, cx),
+                SessionsEvent::RunRemote { host, command } => ws.resume_remote(host.clone(), command.clone(), window, cx),
                 SessionsEvent::Focus(pane) if ws.has_pane(*pane) => ws.focus_pane(*pane, window, cx),
                 SessionsEvent::Focus(pane) => {
                     ws.focus_active(window, cx);

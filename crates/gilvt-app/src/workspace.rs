@@ -15,6 +15,7 @@ pub mod marks;
 mod new_agent;
 mod pane_drag;
 pub mod nav;
+mod remote_resume;
 mod restore;
 mod run;
 mod sessions;

@@ -387,6 +387,7 @@ impl TerminalView {
             }
             // The first prompt of a new pane releases a launcher command; command blocks come later.
             TermEvent::Prompt(mark) => {
+                if let Some(r) = self.remote.as_mut() { r.observe_mark(mark); }
                 if let Some(text) = self.launch_queue.on_prompt(mark) {
                     self.type_text(text, cx);
                 }
@@ -484,6 +485,11 @@ impl TerminalView {
     }
 
     /// A launcher command still waits for this pane's first prompt.
+    /// An ssh pane at the remote shell's prompt with nothing queued to type (R2a §5.6).
+    pub fn remote_idle(&self) -> bool {
+        self.remote.as_ref().is_some_and(|r| r.at_prompt()) && !self.launch_pending()
+    }
+
     pub fn launch_pending(&self) -> bool {
         self.launch_queue.is_pending()
     }

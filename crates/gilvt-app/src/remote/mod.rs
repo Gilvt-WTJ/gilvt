@@ -2,9 +2,11 @@
 //! to it over the IPC socket, bridges feed it from the remote daemon.
 
 pub mod bridge;
+pub mod history;
 pub mod pane;
 pub mod prefs;
 pub mod requests;
+pub mod resume;
 
 use std::collections::BTreeMap;
 use std::time::Instant;
