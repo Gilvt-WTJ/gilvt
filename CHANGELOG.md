@@ -9,9 +9,10 @@ breaking changes; they are called out under **Changed**.
 
 ### Added
 
-- SSH: `claude` and `codex` running in the remote shell of a gilvt ssh pane now appear in the sidebar and drive the
-  tab status dot and notifications, like local ones. The inspector timeline, session history and resume for them
-  arrive in the same release.
+- SSH: `claude` and `codex` running in the remote shell of a gilvt ssh pane now appear in the sidebar like local
+  ones: status, tab dots, notifications and jumping to an approval (`⇧⌘J`), the close confirmation, the
+  inspector's timeline, and the sessions palette (`⇧⌘R`) with the remote host's history and resuming there.
+  Agents inside remote tmux are not detected yet.
 
 ### Changed
 

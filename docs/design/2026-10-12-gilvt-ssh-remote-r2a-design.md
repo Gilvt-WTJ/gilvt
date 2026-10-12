@@ -312,3 +312,45 @@ R1 的「版本变化后自动更新」那一行改为只在 `remote.install = "
 | bridge 断开时保存，提示未连接，buffer 保持未保存 | 自动 |
 
 - `CHANGELOG.md` 的 Added 增加一条：「在 ssh 远端 pane 里可以用 gilvt view / gilvt diff / ⌘点击预览远端文件，并用内置编辑器修改保存」。
+
+## 9. 实施偏差与裁决（第一份计划）
+
+实施时与上文不同或上文没有规定的地方。以下以本节为准。
+
+### 9.1 计划阶段的差异与裁决
+
+1. **`SessionKey = (AgentKind, String, Host)`**：host 放在最后而不是最前，`key.0` / `key.1` 的含义不变（全仓库有 79 处直接用 `.0` / `.1`），只有构造和解构 key 的地方要改。新增 `gilvt_agent::local_key(agent, id)`。
+2. **transcript 推送是 `DaemonMsg` 的变体**（`TranscriptAppend` / `TranscriptReset`），不是 `RemoteEvent`：它们不带 `seq`、不进补发缓冲（§4.2 末段）。`TranscriptFollow` 的响应定为 `Following { size }`（follow 那一刻文件的字节数），`TranscriptUnfollow` 的响应为 `Ok`。app 把 `[from, size)` 当作历史（交给 registry 的是 `Batch::Catchup`），之后的才是 `Batch::Live`，否则长会话的历史会被当成实时事件改写状态（`TranscriptReset` 之后同理，见第 15 条）。daemon 在持有跟踪表锁的同时插入跟踪并发出响应，保证 `Following` 总在第一块 `TranscriptAppend` 之前。
+3. **超过 256 KB 的单行**：「每块最多 256 KB，只在行边界切块」两条不能同时满足（Claude 的一条 tool 结果常常超过 256 KB）。裁决：块在 256 KB 内的最后一个换行处切；256 KB 内没有换行时，把这一整行作为一块发出（上限 8 MB，base64 后约 10.7 MB，低于 16 MB 单帧）；超过 8 MB 的行跳过，下一块的 `offset` 跳过它，app 接受这种跳跃。
+4. **`Hello.epoch` 为空**（这个 app 进程第一次连接这台主机）时，从缓冲开头全部补发，`gap` 为 `false`；只有「epoch 不同」或「cursor 早于缓冲里最早的那条」才标记 `gap: true`。
+5. **`HistoryList` 按最后活动时间保留最新的条目，序列化后不超过 8 MB**：超过 16 MB 的帧会让 bridge 的写线程退出，这台主机的 hook 也会一起断掉。
+6. **主机记住的「允许安装」（`remote.json` 里 `install: "allowed"`）不再等于 `always`**：R1 的 `RemotePrefs::policy` 把它映射成 `always`，这样凡是装过的主机都不会出现 §2 的更新询问，与 spec 的目的相反。新的策略值 `allowed`：首次安装（远端什么都没有）直接安装，只装有旧版本时询问更新；`remote.install = "always"` 才自动更新。
+7. **探测按目录修改时间列出已安装版本，最新的在前**（`ls -1dt`），并且只保留形如 `<x.y.z>-<8 位十六进制>` 的目录名：R1 的探测把 `bin/`（里面的 `gilvt-remote` 是指向可执行文件的 symlink）也列为「已安装版本」，会让询问文案显示「远端组件是 bin」。
+8. **`gilvt-ipc` 依赖 `gilvt-agent`**（`HistoryList` 直接用 `gilvt_agent::HistoryEntry`；`gilvt-agent` 不依赖 `gilvt-ipc`，没有环）；`HistoryEntry` 增加 `Eq` 派生，`RemoteResponse` 才能继续派生 `Eq`。
+9. **DebugState**：§5.7 的「`sessions[]`」在 DebugState 里不存在。裁决：`host` 加在 `windows[].sidebar.rows[]`（会话行为 `"local"` 或 `HostId`，终端行为 `null`）和会话面板 `windows[].overlay.rows[]`（`kind == "sessions"`）上；另加 `overlay.host_errors`（「devbox：历史读取失败」各行）、`inspector.source`、`inspector.loading`、`hosts[].cursor/epoch/gap/follows`。
+10. **检查器「配置」页对远端会话也显示「这项功能暂不支持远端」**：它读的是本地的 `~/.claude` / `~/.codex` 和本地 cwd。
+11. **侧栏「已结束」里的远端会话**：「恢复」走与会话面板相同的远端恢复（§5.6 的选 pane 规则）；「归档」「移到废纸篓」显示「这项功能暂不支持远端」。
+12. **远端恢复只在发起操作的窗口里选 pane**（§5.6 第 1、2 步）：往别的窗口的 pane 里打字需要先切窗口，第 3 步（新开 tab）同样在当前窗口。
+13. **不扩展 `scripts/remote-smoke.sh`**：Linux 侧的端到端（真实 `gilvt hook` → `run/gilvt.sock` → daemon → bridge 帧）由 `crates/gilvt-remote/tests/hook_bridge.rs` 覆盖，在 `scripts/remote-test.sh` 里跑；带 GUI 的链路由 AC 用例覆盖。smoke 脚本没有 app 端 bridge，扩展它要在 shell 里重写帧协议，收益小。
+14. **`crates/gilvt-cli/tests/hook.rs` 里的穷尽模式要加 `..`**：§6.2 说 `gilvt-cli` 现有的 hook 测试全部原样通过，但给 `Request::Hook` 加字段后这一处模式匹配编译不过。断言不变，只加 `..`。
+15. **`TranscriptReset` 带 `size`**：§4.2 的 `TranscriptReset` 只有 `agent` / `session_id`。文件变短或被替换时 daemon 从 0 把整份文件重推一遍，如果 app 把这些字节全当实时事件，registry 里的状态会被历史改写，与第 2 条要避免的是同一件事。裁决：`TranscriptReset` 增加 `size: u64`（重置那一刻文件的字节数，新变体里的新字段，没有兼容问题）；app 把重置之后 `[0, size)` 的字节当作历史（`Batch::Catchup`，检查器重新显示「正在读取…」直到它们到齐），`size` 之后的才是实时事件。`size` 为 0（替换成空文件）时没有要追的历史，立即完成。
+16. **`run/gilvt.sock` 的连接在 accept 循环里内联处理**：§4.1 没有规定并发方式。每个连接起一个线程时，同一个 agent 的相邻两个 hook（比如 `PreToolUse` 和 `Stop`）会由两个线程去抢 `State` 的锁，到达 app 的顺序不再等于发出的顺序，状态会错乱。裁决：daemon 一次处理一个连接，读一行（读超时 **200 ms**，与 `gilvt hook` 自己的 200 ms 上限一致），按到达顺序归属并广播。代价：一个连上却不发数据的客户端最多拖慢后面的 hook 200 ms，可以接受；`gilvt hook` 总是连上就写，几乎不会这样。
+
+### 9.2 实施过程中的裁决
+
+17. **新的 `RemoteRequest` 变体先在 `gilvt-remote` 里用占位分支处理**，保证加协议类型的那个提交之后 `gilvt-remote` 仍能编译，真正的处理在后面的提交里补上。
+18. **`gilvt-remote` 入口把 `current_exe` 规范化**（macOS 上 symlink 路径会丢掉 build id）；测试里的监听器都带 accept 超时，避免测试挂死。入口还会按环境（`gilvt_i18n::language_from_env()`）设置界面语言，远端打印的提示与窗口同一种语言。
+19. **`remote_link_ended` 只在 pane 当前的 link 就是结束的那个 link 时才结束它名下的会话**：否则一个已重连的新 link 的会话会被旧 link 的结束事件误结束。
+20. **主机显示名只有一个来源**：直接读 `RemoteHosts`，不在 `Agents` 里另存一份 `host_labels`，避免两处不一致。
+21. **会话面板行的 host 取自会话 key**（`key.2`），`sessions_model::Row` 不再单独存 `host`。
+22. **`default_state_dir` 复用 `gilvt_agent::default_state_dir`**；`is_build_id` 只在 `gilvt_ipc::remote` 里实现一份，探测与 `gilvt-remote` 共用。
+23. **daemon 处理 `gilvt.sock` 连接时的顺序**：见第 16 条；测试等待 hook 被处理时轮询 Welcome 的 `seq`，不用固定 sleep。
+24. **登录时只在 `<build>/bin/gilvt` 存在时才设置 `GILVT_SOCKET`**（§3 写的是无条件设置）：没有这个入口 hook 就跑不起来，不设置可以让包装函数干净地保持关闭；代价是 symlink 补建失败的主机上包装函数是关的，与 hook 坏掉的结果相同。
+25. **`history_index` 对「大小和修改时间都没变的重写」不做处理**（只修了测试）：纳秒级修改时间让这种情况在实际中几乎不可能出现；万一出现，代价是历史里多一条过期条目。
+26. **DebugState 里 I1、I2 两处字符串形式在 Task 8 就修好了**（后面没有任务覆盖）：本地值与改动前逐字节相同，远端带上 `HostId`；字段只增不改。
+27. **hook 与 `LinkDown` 的竞态**：hook 已入队、`LinkDown` 先被处理时，会在 pane 上留下一个没有 link 的活跃远端会话。裁决：`HookIn` 带上 link，应用时重新用 `RemoteHosts::pane_of_link` 解析，解析不到就丢弃。
+28. **「offset 对不上就当作重置」的想法撤回**：replaced-before-follow 到达时 offset 正好等于已收到的字节数，app 端无法察觉；向前跳变会清掉未完成的半行，不会造成损坏。代价：极少数情况下被替换的文件的时间线缺几个字节。
+29. **按「spec 缺口」修了三处**：(a) 远端 shell 退出后约 1 秒内恢复，不能把命令打进本地 shell（违反「不回退到本地」）；(b) 默认的「当前」范围下远端行也要显示（§5.6：与本地合并）；(c) 活跃的远端会话在别的窗口时，跳转要能聚焦到那个窗口的 pane。
+30. **窗口内跳转的 helper 命名为 `refuse_remote_session`**：Workspace 上已有 R1 的 `refuse_remote`（pane 版），重名会冲突。
+31. **CHANGELOG 条目与行为改变放在同一个提交**：Changed（更新询问）在 Task 3，Added（远端会话进入侧栏）在 Task 9，Task 15 只润色措辞。
+32. **AC3 改在 `remote.install = "always"` 下运行**，并在最后 `restart --set 'remote.install="ask"'` 改回默认值，否则同节后面的 AC19–AC29 会在 `always` 下运行，AC19 的更新询问不会出现。

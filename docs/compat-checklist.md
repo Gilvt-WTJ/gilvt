@@ -550,15 +550,15 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AB3 | 运行 `scripts/update-e2e.sh` | 打印 `PASS: quitting A installed B (0.0.2, build 101); signature verifies`；结束后 `launchctl list` 里没有 `com.gilvt.app-sparkle-updater` | 手动（要钥匙串里的 Developer ID 证书和 Sparkle 私钥，在沙盒外启动真实签名的 app） |
 | AB4 | `GILVT_NOTARIZE=1 scripts/package.sh` | app 与 dmg 两轮公证都是 Accepted；`Contents/Frameworks/Sparkle.framework` 里的 `Updater.app`、`Autoupdate`、两个 XPC 服务都由 Developer ID 签名，`spctl -a -vv` 为 Notarized Developer ID | 手动（要 Apple 公证凭据，约 2 分钟） |
 
-## AC. SSH 远程（R1）
+## AC. SSH 远程（R1、R2a）
 
-在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。
+在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。R2a 起远端 shell 里运行的 claude / codex 进入侧栏；测试远端上的 `claude` / `codex` 是 Linux 版 fake agent（`remote.sh up` 安装）。
 
 | # | 操作 | 期望 | 用例 |
 |---|------|------|------|
 | AC1 | 首次 `ssh devbox-test`，回答 `Y` | 出现安装询问；装好后进入远端 shell；`panes[0].remote.enhanced` 为 true，`hosts[0].bridge` 为 `up`，`remote.cwd` 为 `/home/dev` | [AC1](../tests/gui/cases/AC/AC1.md) |
 | AC2 | 退出后再次 `ssh devbox-test` | 不询问、不显示「正在安装 / 更新」；直接进入远端 shell，`enhanced` 为 true | [AC2](../tests/gui/cases/AC/AC2.md) |
-| AC3 | 远端的组件目录被改名后连接两次 | 第一次打印「远端组件不存在，以普通方式登录」；第二次不询问、显示「正在更新远端组件」后正常进入 | [AC3](../tests/gui/cases/AC/AC3.md) |
+| AC3 | `remote.install = "always"` 下，远端的组件目录被改名后连接两次 | 第一次打印「远端组件不存在，以普通方式登录」；第二次不询问、显示「正在更新远端组件」后正常进入 | [AC3](../tests/gui/cases/AC/AC3.md) |
 | AC4 | 首次连接回答 `N`，退出再连 | 普通登录、`enhanced` 为 false、`hosts[0].install` 为 `never`；第二次不再询问 | [AC4](../tests/gui/cases/AC/AC4.md) |
 | AC5 | 连接一个认证失败的主机 | ssh 自己的报错，`$?` 为 255；pane 回到本地（`remote` 为 `null`） | [AC5](../tests/gui/cases/AC/AC5.md) |
 | AC6 | 远端 `cd /tmp` | `remote.cwd` 为 `/tmp`，pane 的 `cwd` 为 `null`（不是本地目录）；标签标题含远端主机名 `devbox`（来自远端 shell 设置的窗口标题） | [AC6](../tests/gui/cases/AC/AC6.md) |
@@ -574,6 +574,17 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC16 | 用 `devbox-zsh`（远端登录 shell 为 zsh）重复 AC1、AC6、AC7 | 安装、远端 cwd、命令块都正常 | [AC16](../tests/gui/cases/AC/AC16.md) |
 | AC17 | 按住 ⌥ 把本地文件从访达拖进远端 pane | pane 里不插入路径，出现提示「拖入的是本地路径，远端看不到」 | 手动（`drive.sh drop` 不支持修饰键，访达拖放不能带 ⌥；提示文案在 `terminal_view.rs`） |
 | AC18 | 在 ssh 会话中的 pane 里按 ⌘W 关掉它 | 几秒内 `hosts[0].links` 为 `[]`（link 随 pane 结束）；60 秒内 `hosts[0].bridge` 为 `none` | [AC18](../tests/gui/cases/AC/AC18.md) |
+| AC19 | 远端只有一个旧版本（伪造的 `0.0.1-00000000` 目录）时连接：先答 `n`，退出再连答 `Y` | 两次都出现「devbox-test 上的远端组件是 0.0.1，当前 gilvt 是 …，要更新吗？」；`n` 时普通登录（`enhanced` 为 false，原因「这次不更新远端组件」）；`Y` 时更新并 `enhanced` 为 true | [AC19](../tests/gui/cases/AC/AC19.md) |
+| AC20 | 远端 shell 里 `cd ~/ac20 && claude @scenario:think-long` | 侧栏出现 `host` 为远端的会话行，分组为 `devbox-test · ac20`，没有 git 行；状态从思考中变为空闲 | [AC20](../tests/gui/cases/AC/AC20.md) |
+| AC21 | 远端运行 `claude @scenario:remote-approval`，焦点在另一个标签 | 远端会话进入等待审批；它的标签状态点为琥珀色；`⌘⇧J` 跳到这个 pane | [AC21](../tests/gui/cases/AC/AC21.md) |
+| AC22 | 远端会话运行时打开检查器（`⌘I`） | `inspector.source` 为 `remote`，时间线显示远端会话的 Bash 调用；点「产物」提示「这项功能暂不支持远端」 | [AC22](../tests/gui/cases/AC/AC22.md) |
+| AC23 | 远端会话等待审批时杀掉 bridge，在 bridge 断开期间按 `y` | bridge 重连后补发断开期间的 hook：会话变为空闲，`hosts[0].gap` 为 false | [AC23](../tests/gui/cases/AC/AC23.md) |
+| AC24 | 远端会话结束后按 `⌘⇧R`：在空闲的远端 pane 里恢复；退出 ssh 后再恢复一次 | 面板列出 `host` 为远端、目录以 `devbox-test ·` 开头的条目；第一次在当前远端 pane 里输入恢复命令；第二次新开一个标签，先 `ssh devbox-test`，出现远端提示符后再恢复 | [AC24](../tests/gui/cases/AC/AC24.md) |
+| AC25 | 远端 agent 在思考时按 `⌘W` 关这个 pane | 出现关闭确认，`items` 列出这个远端会话 | [AC25](../tests/gui/cases/AC/AC25.md) |
+| AC26 | 远端 agent 运行中，在远端结束 agent 后 `exit` 退出 ssh | pane 回到本地，这个 pane 上的远端会话状态为已结束 | [AC26](../tests/gui/cases/AC/AC26.md) |
+| AC27 | 远端 shell 里运行 `ssh -V` 和 `echo $GILVT_SSH` | 打印 OpenSSH 的版本、`GILVT_SSH` 为 `0`；没有任何 `gilvt:` 提示，也没有新的 link | [AC27](../tests/gui/cases/AC/AC27.md) |
+| AC28 | 远端 tmux 里运行 `claude @scenario:default` | 侧栏没有远端会话行（R2b 之前的已知限制） | [AC28](../tests/gui/cases/AC/AC28.md) |
+| AC29 | 真实 claude 在真实远端上运行一轮（含一次审批） | 侧栏、通知、审批跳转、检查器都可用 | [AC29](../tests/gui/cases/AC/AC29.md) 真实 claude（需要真实远端与登录态） |
 
 ## 已知限制（M1）
 
