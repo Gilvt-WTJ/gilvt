@@ -335,6 +335,8 @@ impl Workspace {
             rows: Vec::new(),
             artifacts: None,
             config: None,
+            source: None,
+            loading: false,
         };
         if self.inspector.hidden {
             return hidden;
@@ -360,6 +362,8 @@ impl Workspace {
             tab: self.inspector.tab.name(),
             artifacts: self.debug_artifacts(session, rect, cx),
             config: self.debug_config(session, rect),
+            source: session.map(|s| if s.key.2.is_remote() { "remote" } else { "local" }),
+            loading: session.is_some_and(|s| agents.transcript_loading(&s.key)),
             ..hidden
         }
     }

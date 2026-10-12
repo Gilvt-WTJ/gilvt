@@ -288,6 +288,7 @@ fn a_terminal_row_maps_to_kind_terminal_without_a_session() {
     let r = &sb.rows[0];
     assert_eq!((r.kind, r.session.as_str(), r.agent, r.status, r.cwd.as_str()), ("terminal", "", "", "terminal", "/work/repo"));
     assert_eq!((r.section.as_str(), r.pane, r.rect), ("project:repo", Some(7), Some([8.0, 96.0, 224.0, 40.0])));
+    assert_eq!(r.host, None);
     assert!(r.git.is_none());
     assert_eq!((sb.terminals, sb.header.as_str()), (1, "会话 · 0 · 终端 1"));
     let buttons: Vec<_> = sb.group_buttons.iter().map(|b| (b.name, b.active, b.rect.is_some())).collect();
@@ -386,4 +387,39 @@ fn session_id_keeps_local_strings_and_prefixes_remote_hosts() {
     assert_eq!(session_id(&gilvt_agent::local_key(AgentKind::Claude, "a")), "claude:a");
     let remote = (AgentKind::Claude, "a".to_string(), Host::Remote(HostId("dev@h:22".into())));
     assert_eq!(session_id(&remote), "dev@h:22|claude:a");
+}
+
+#[test]
+fn rows_carry_their_host() {
+    use crate::launcher::sessions_model::Row as PaletteRow;
+    use gilvt_agent::host::{Host, HostId};
+    let t0 = Instant::now();
+    let local = session(AgentKind::Claude, "l", Status::Idle, t0);
+    let mut remote = session(AgentKind::Claude, "r", Status::Idle, t0);
+    remote.key = (AgentKind::Claude, "r".to_string(), Host::Remote(HostId("dev@h:22".into())));
+    let sessions = [local.clone(), remote.clone()];
+    let items = [item(&local, "lab", false), item(&remote, "lab", false)];
+    let m = build(&items, &[], &SidebarState::default(), t0, &|_| "12:40".into());
+    let lookup = |k: &SessionKey| sessions.iter().find(|s| &s.key == k);
+    let sb = sidebar(Some(&m), Grouping::Project, None, &lookup, &|_| None, None, &|_| None);
+    let hosts: Vec<(String, Option<String>)> = sb.rows.iter().map(|r| (r.session.clone(), r.host.clone())).collect();
+    assert!(hosts.contains(&("claude:l".into(), Some("local".into()))), "{hosts:?}");
+    assert!(hosts.contains(&("dev@h:22|claude:r".into(), Some("dev@h:22".into()))), "{hosts:?}");
+    let prow = |key: SessionKey| PaletteRow {
+        key,
+        entry: 0,
+        letter: 'C',
+        title: "t".into(),
+        title_source: gilvt_agent::TitleSource::Prompt,
+        turns_label: "1 轮".into(),
+        dir: "~".into(),
+        dir_missing: false,
+        branch: None,
+        when: "now".into(),
+        size: 0,
+        live: None,
+        archived: false,
+    };
+    let rows = palette_rows(&[prow(local.key.clone()), prow(remote.key.clone())], 0, &|_| false, &|_| None);
+    assert_eq!((rows[0].host.as_str(), rows[1].host.as_str()), ("local", "dev@h:22"));
 }

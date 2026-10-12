@@ -129,7 +129,6 @@ impl Agents {
     }
 
     /// Transcripts followed on `host` (DebugState `hosts[].follows`).
-    #[allow(dead_code)] // DebugState `hosts[].follows` (R2a Task 13)
     pub fn remote_follow_count(&self, host: &str) -> usize {
         self.remote_follows.count(host)
     }

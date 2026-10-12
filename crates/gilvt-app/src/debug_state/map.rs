@@ -264,6 +264,7 @@ pub fn sidebar<'a>(
                 rect: rect.flatten(),
                 git: if r.git.is_empty() { None } else { key.and_then(|k| git(k)).map(|g| git_state(&r.git, &g)) },
                 summary: r.summary.clone(),
+                host: key.map(|k| k.2.id_str().to_string()),
             }
         })
         .collect();
@@ -331,6 +332,7 @@ pub fn palette_rows(
     rows.iter()
         .enumerate()
         .map(|(i, r)| SessionsRow {
+            host: r.key.2.id_str().to_string(),
             session: session_id(&r.key),
             title: r.title.clone(),
             title_source: match r.title_source {

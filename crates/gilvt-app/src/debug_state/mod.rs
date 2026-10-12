@@ -718,6 +718,8 @@ pub struct Row {
     pub git: Option<Git>,
     /// The ✦ line as drawn without 「✦ 」; null when not drawn.
     pub summary: Option<String>,
+    /// "local" or the HostId of an agent row's session; null for terminal rows.
+    pub host: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -798,10 +800,18 @@ pub struct HostState {
     pub installed: Option<String>,
     pub bridge: &'static str,
     pub links: Vec<String>,
+    /// The greatest event `seq` received from this host's daemon.
+    pub cursor: u64,
+    /// The daemon's start time in ms; null before a Welcome.
+    pub epoch: Option<u64>,
+    /// A reconnect this run reported lost hooks.
+    pub gap: bool,
+    /// Remote transcripts followed on this host.
+    pub follows: usize,
 }
 
 /// The `hosts` list from the app-wide remote state (BTreeMap order = sorted by id).
-fn host_states(r: &crate::remote::RemoteHosts) -> Vec<HostState> {
+fn host_states(r: &crate::remote::RemoteHosts, follows: &dyn Fn(&str) -> usize) -> Vec<HostState> {
     r.hosts
         .iter()
         .map(|(id, h)| {
@@ -813,7 +823,7 @@ fn host_states(r: &crate::remote::RemoteHosts) -> Vec<HostState> {
             };
             let mut links = r.links_of(id);
             links.sort();
-            HostState { id: id.clone(), display: h.display.clone(), hostname: h.hostname.clone(), install, installed: prefs.and_then(|p| p.installed.clone()), bridge: h.bridge.id(), links }
+            HostState { id: id.clone(), display: h.display.clone(), hostname: h.hostname.clone(), install, installed: prefs.and_then(|p| p.installed.clone()), bridge: h.bridge.id(), links, cursor: h.cursor, epoch: h.epoch, gap: h.gap, follows: follows(id) }
         })
         .collect()
 }
@@ -897,6 +907,8 @@ pub enum Overlay {
         banner: Option<String>,
         /// The 「清理… ⌘⇧K」 entry of the key hints (null while the confirm bar replaces them).
         cleanup: Option<Button>,
+        /// 「devbox：历史读取失败」 rows, in order.
+        host_errors: Vec<String>,
     },
     /// The cleanup wizard (⌘⇧K) in place of the 会话 palette.
     Cleanup {
@@ -1115,6 +1127,8 @@ pub struct ReviewActions {
 /// A row of the 会话 palette.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionsRow {
+    /// "local" or the HostId of the session's host.
+    pub host: String,
     /// "<agent>:<session_id>".
     pub session: String,
     pub title: String,
@@ -1209,6 +1223,10 @@ pub struct Inspector {
     pub artifacts: Option<Artifacts>,
     /// The M5a read-only configuration summary while 「配置」 is the current tab; else null.
     pub config: Option<ConfigSummary>,
+    /// "local" | "remote"; null without a followed session.
+    pub source: Option<&'static str>,
+    /// A followed remote session's history has not all arrived yet.
+    pub loading: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1586,7 +1604,7 @@ pub fn collect(tail_lines: u16, cx: &mut App) -> DebugState {
     state.settings = collect::settings(cx);
     state.chat_process = crate::monitor::chat::process_state(cx);
     state.update = crate::updater::debug(cx);
-    state.hosts = cx.try_global::<crate::remote::RemoteHosts>().map(host_states).unwrap_or_default();
+    state.hosts = cx.try_global::<crate::remote::RemoteHosts>().map(|r| host_states(r, &|h| cx.try_global::<crate::agents::Agents>().map_or(0, |a| a.remote_follow_count(h)))).unwrap_or_default();
     state
 }
 

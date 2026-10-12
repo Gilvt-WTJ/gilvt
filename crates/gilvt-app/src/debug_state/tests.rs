@@ -54,6 +54,7 @@ fn window() -> WindowState {
                     repo: "gilvt".into(),
                 }),
                 summary: Some("接口改完了。".into()),
+                host: Some("local".into()),
             }],
             trash_confirm: Some(TrashConfirm {
                 sessions: vec!["claude:0ld".into()],
@@ -99,6 +100,7 @@ fn window() -> WindowState {
             items: 1,
             filter: SessionsFilter { scope: "current", stale: true, archived: true },
             rows: vec![SessionsRow {
+                host: "local".into(),
                 session: "claude:0ld".into(),
                 title: "i10 旧会话".into(),
                 title_source: "ai",
@@ -118,6 +120,7 @@ fn window() -> WindowState {
             chips: vec![Chip { label: "全部项目".into(), active: false, rect: Some([700.0, 70.0, 60.0, 16.0]) }],
             confirm: Some(Confirm { text: "1 个会话 · 64 KB 将移到废纸篓（可从废纸篓还原）".into(), buttons: vec![Button { label: "取消".into(), rect: None }] }),
             banner: None,
+            host_errors: vec![],
             cleanup: Some(Button { label: "清理… ⌘⇧K".into(), rect: Some([900.0, 470.0, 70.0, 16.0]) }),
         }),
         inspector: Inspector {
@@ -133,6 +136,8 @@ fn window() -> WindowState {
             toast: Some("已复制".into()),
             artifacts: None,
             config: None,
+            source: Some("local"),
+            loading: false,
             rows: vec![TimelineRow {
                 kind: "tool",
                 label: "Update README.md +2 −1".into(),
@@ -245,7 +250,7 @@ fn window_json_shape() {
                     "line": "gilvt-lab · ⎇ main ●2 ↑1↓0", "branch": "main", "detached": null, "dirty": 2, "ahead": 1, "behind": 0,
                     "linked_worktree": true, "repo_root": "/r/gilvt-lab", "repo": "gilvt"
                 },
-                "summary": "接口改完了。"
+                "summary": "接口改完了。", "host": "local"
             }],
             "trash_confirm": {"sessions": ["claude:0ld"], "buttons": [{"label": "取消", "rect": null}, {"label": "移到废纸篓", "rect": [150.0, 760.0, 80.0, 20.0]}]},
             "terminals": 0, "header": "会话 · 1 · 终端 0", "tooltip": null,
@@ -268,14 +273,15 @@ fn window_json_shape() {
         "overlay": {
             "kind": "sessions", "query": "", "selected": 0, "items": 1, "filter": {"scope": "current", "stale": true, "archived": true},
             "rows": [{
-                "session": "claude:0ld", "title": "i10 旧会话", "title_source": "ai", "agent": "claude", "meta": "~/proj · 2 轮", "dir": "~/proj", "dir_missing": true, "right": "8 天前 · 64 KB",
+                "host": "local", "session": "claude:0ld", "title": "i10 旧会话", "title_source": "ai", "agent": "claude", "meta": "~/proj · 2 轮", "dir": "~/proj", "dir_missing": true, "right": "8 天前 · 64 KB",
                 "live": false, "binding": "none", "pid": null, "tty": null,
                 "selected": true, "marked": true, "rect": [300.0, 150.0, 638.0, 28.0]
             }],
             "chips": [{"label": "全部项目", "active": false, "rect": [700.0, 70.0, 60.0, 16.0]}],
             "confirm": {"text": "1 个会话 · 64 KB 将移到废纸篓（可从废纸篓还原）", "buttons": [{"label": "取消", "rect": null}]},
             "banner": null,
-            "cleanup": {"label": "清理… ⌘⇧K", "rect": [900.0, 470.0, 70.0, 16.0]}
+            "cleanup": {"label": "清理… ⌘⇧K", "rect": [900.0, 470.0, 70.0, 16.0]},
+            "host_errors": []
         },
         "inspector": {
             "visible": true, "tab": "process", "card": {"status": "awaiting_answer", "turn": 1},
@@ -285,6 +291,7 @@ fn window_json_shape() {
             "toast": "已复制",
             "artifacts": null,
             "config": null,
+            "source": "local", "loading": false,
             "rows": [{
                 "kind": "tool", "label": "Update README.md +2 −1", "status": "ok", "anchored": true, "expanded": false,
                 "lines": {"added": 2, "removed": 1}, "nested": false, "history": false, "error": [],
@@ -898,7 +905,14 @@ fn install_banner_shape() {
 fn pane_remote_and_hosts_shape() {
     let r = PaneRemoteState { link: "i-1".into(), host: "dev@h:22".into(), display: "devbox".into(), hostname: Some("h".into()), enhanced: true, cwd: Some("/tmp".into()) };
     assert_eq!(serde_json::to_value(&r).unwrap(), serde_json::json!({"link":"i-1","host":"dev@h:22","display":"devbox","hostname":"h","enhanced":true,"cwd":"/tmp"}));
-    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "ask", installed: None, bridge: "none", links: vec![] };
-    assert_eq!(serde_json::to_value(&h).unwrap(), serde_json::json!({"id":"dev@h:22","display":"devbox","hostname":null,"install":"ask","installed":null,"bridge":"none","links":[]}));
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "ask", installed: None, bridge: "none", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0 };
+    assert_eq!(serde_json::to_value(&h).unwrap(), serde_json::json!({"id":"dev@h:22","display":"devbox","hostname":null,"install":"ask","installed":null,"bridge":"none","links":[],"cursor":0,"epoch":null,"gap":false,"follows":0}));
     assert!(serde_json::to_value(top_level(1, false, None, 0)).unwrap()["hosts"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn r2a_fields_serialize_with_their_documented_names() {
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "allowed", installed: None, bridge: "up", links: vec![], cursor: 12, epoch: Some(1_760_000_000_000), gap: false, follows: 1 };
+    let v = serde_json::to_value(&h).unwrap();
+    assert_eq!((v["cursor"].as_u64(), v["epoch"].as_u64(), v["gap"].as_bool(), v["follows"].as_u64()), (Some(12), Some(1_760_000_000_000), Some(false), Some(1)));
 }

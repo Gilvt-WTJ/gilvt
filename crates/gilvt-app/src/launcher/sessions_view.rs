@@ -266,6 +266,7 @@ impl SessionsView {
             cleanup: self.confirm.is_none().then(|| crate::debug_state::Button { label: cleanup_label().into(), rect: rect(RectId::PaletteCleanup) }),
             confirm,
             banner: self.banner.clone(),
+            host_errors: self.notices.clone(),
         }
     }
 
