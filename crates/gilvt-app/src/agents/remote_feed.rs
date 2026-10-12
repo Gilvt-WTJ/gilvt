@@ -41,17 +41,25 @@ struct Follow {
     active: bool,
     /// A `TranscriptFollow` was sent and its `Following` has not come: pushes before it are the old follower's.
     awaiting: Cell<bool>,
+    /// The follow failed (timeout, daemon error): follow again from `received` at this time.
+    retry_at: Option<Instant>,
+    failures: u32,
 }
 
 impl Follow {
     fn new(host: &str, path: &PathBuf) -> Follow {
-        Follow { host: host.into(), path: path.clone(), received: 0, history_until: None, history_done: false, partial: Vec::new(), ended: None, active: true, awaiting: Cell::new(true) }
+        Follow { host: host.into(), path: path.clone(), received: 0, history_until: None, history_done: false, partial: Vec::new(), ended: None, active: true, awaiting: Cell::new(true), retry_at: None, failures: 0 }
     }
 }
 
 #[derive(Default)]
 pub struct RemoteFollows {
     map: HashMap<SessionKey, Follow>,
+}
+
+/// 2 s, 4 s, 8 s ... capped at 30 s.
+fn retry_backoff(failures: u32) -> Duration {
+    Duration::from_secs((2u64 << failures.saturating_sub(1).min(4)).min(30))
 }
 
 fn host_of(key: &SessionKey) -> Option<&str> {
@@ -97,6 +105,11 @@ impl RemoteFollows {
     pub fn tick(&mut self, now: Instant) -> Vec<FollowCmd> {
         let mut cmds = Vec::new();
         for (key, f) in self.map.iter_mut() {
+            if f.active && f.retry_at.is_some_and(|t| now >= t) {
+                f.retry_at = None;
+                f.awaiting.set(true);
+                cmds.push(FollowCmd::Follow { host: f.host.clone(), key: key.clone(), path: f.path.clone(), from: f.received, restart: false });
+            }
             if f.active && f.ended.is_some_and(|t| now.saturating_duration_since(t) >= UNFOLLOW_AFTER) {
                 f.active = false;
                 cmds.push(FollowCmd::Unfollow { host: f.host.clone(), key: key.clone() });
@@ -119,6 +132,8 @@ impl RemoteFollows {
     pub fn following(&mut self, key: &SessionKey, size: u64) -> bool {
         let Some(f) = self.map.get_mut(key) else { return false };
         f.awaiting.set(false);
+        f.failures = 0;
+        f.retry_at = None;
         if f.history_done {
             return false;
         }
@@ -163,9 +178,16 @@ impl RemoteFollows {
         Some(f.history_done)
     }
 
-    /// The follow request failed (timeout, error): stop dropping pushes, there may still be some.
-    pub fn follow_failed(&mut self, key: &SessionKey) {
-        if let Some(f) = self.map.get_mut(key) {
+    /// The follow request failed. `retry`: the daemon may or may not be following (timeout, daemon error), so
+    /// follow again from what arrived after a backoff (2 s, 4 s, ... 30 s); pushes stay dropped meanwhile, so none
+    /// is ever classified as history that never completes. Without `retry` (no bridge: the reconnect re-follows)
+    /// it just stops waiting.
+    pub fn follow_failed(&mut self, key: &SessionKey, now: Instant, retry: bool) {
+        let Some(f) = self.map.get_mut(key) else { return };
+        if retry {
+            f.failures = f.failures.saturating_add(1);
+            f.retry_at = Some(now + retry_backoff(f.failures));
+        } else {
             f.awaiting.set(false);
         }
     }
@@ -246,8 +268,50 @@ mod tests {
         f.append(&k, 0, b"x\n").unwrap();
         f.reconnected("dev@h:22");
         assert!(f.append(&k, 2, b"y\n").is_none(), "awaiting the new bridge's Following");
-        f.follow_failed(&k);
+        f.follow_failed(&k, t0, false);
         assert!(f.append(&k, 2, b"y\n").is_some());
+    }
+
+    #[test]
+    fn a_timed_out_follow_is_retried_from_what_arrived_with_a_growing_backoff() {
+        let (t0, k) = (Instant::now(), key("s"));
+        let mut f = RemoteFollows::default();
+        f.sync(&[(k.clone(), "/home/dev/s.jsonl".into())], t0);
+        f.following(&k, 0);
+        f.append(&k, 0, b"x\n").unwrap();
+        f.reconnected("dev@h:22");
+        // (a) timed out: nothing before the backoff, then the same `from`
+        f.follow_failed(&k, t0, true);
+        assert!(f.tick(t0 + Duration::from_millis(1999)).is_empty());
+        assert_eq!(f.tick(t0 + Duration::from_secs(2)), vec![follow("dev@h:22", &k, 2)]);
+        // (c) a push arriving while the retry's reply is outstanding is not swallowed as history later
+        assert!(f.append(&k, 2, b"y\n").is_none());
+        // (b) a daemon error: the next wait is longer
+        let t1 = t0 + Duration::from_secs(2);
+        f.follow_failed(&k, t1, true);
+        assert!(f.tick(t1 + Duration::from_secs(3)).is_empty());
+        assert_eq!(f.tick(t1 + Duration::from_secs(4)), vec![follow("dev@h:22", &k, 2)]);
+        // the retry is answered: pushes count again, live (not history), and the backoff starts over
+        f.following(&k, 2);
+        let a = f.append(&k, 2, b"y\n").unwrap();
+        assert_eq!((a.history, a.history_done), (false, false));
+        f.follow_failed(&k, t1, true);
+        assert_eq!(f.tick(t1 + Duration::from_secs(2)).len(), 1);
+    }
+
+    #[test]
+    fn a_follow_that_never_succeeded_keeps_loading_and_retries_up_to_the_cap() {
+        let (t0, k) = (Instant::now(), key("s"));
+        let mut f = RemoteFollows::default();
+        f.sync(&[(k.clone(), "/home/dev/s.jsonl".into())], t0);
+        for _ in 0..8 {
+            f.follow_failed(&k, t0, true);
+        }
+        assert!(f.loading(&k));
+        assert!(f.tick(t0 + Duration::from_secs(29)).is_empty());
+        assert_eq!(f.tick(t0 + Duration::from_secs(30)), vec![follow("dev@h:22", &k, 0)]);
+        f.following(&k, 0);
+        assert!(!f.loading(&k));
     }
 
     #[test]

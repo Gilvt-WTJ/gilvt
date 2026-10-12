@@ -193,9 +193,12 @@ fn run_follow_cmds(cmds: Vec<remote_feed::FollowCmd>, cx: &mut App) {
                 let req = RemoteRequest::TranscriptFollow { agent: key.0.name().into(), session_id: key.1.clone(), path, from };
                 crate::remote::bridge::request(&host, req, FOLLOW_TIMEOUT, Box::new(move |res, cx| match res {
                     Ok(RemoteResponse::Following { size }) => Agents::remote_following(&key, size, cx),
-                    _ => {
+                    other => {
+                        // No bridge: the reconnect follows again. Anything else (timeout, daemon error): retry.
+                        use crate::remote::bridge::RequestError;
+                        let retry = !matches!(other, Err(RequestError::NotConnected | RequestError::Disconnected));
                         if cx.has_global::<Agents>() {
-                            cx.global_mut::<Agents>().remote_follows.follow_failed(&key);
+                            cx.global_mut::<Agents>().remote_follows.follow_failed(&key, Instant::now(), retry);
                         }
                     }
                 }), cx);
