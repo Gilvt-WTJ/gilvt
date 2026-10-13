@@ -32,7 +32,10 @@ fn io_error(e: &io::Error) -> RemoteResponse {
 
 /// The file's metadata and at most `max` bytes, or the response that refuses it.
 fn read_capped(path: &Path, max: u64) -> Result<(fs::Metadata, Vec<u8>), RemoteResponse> {
-    let meta = fs::metadata(path).map_err(|e| io_error(&e))?;
+    // Open first (O_NONBLOCK: opening a FIFO for reading then returns at once instead of blocking a worker until a
+    // writer shows up), then judge the opened file, so the check and the read cannot see different files.
+    let mut file = fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path).map_err(|e| io_error(&e))?;
+    let meta = file.metadata().map_err(|e| io_error(&e))?;
     if !meta.is_file() {
         return Err(RemoteResponse::FileError { error: FsError::Io { message: "not a regular file".into() } });
     }
@@ -41,7 +44,7 @@ fn read_capped(path: &Path, max: u64) -> Result<(fs::Metadata, Vec<u8>), RemoteR
     }
     let mut bytes = Vec::with_capacity(meta.len() as usize);
     // One byte past the cap: a file growing between the stat and the read is refused too.
-    fs::File::open(path).and_then(|f| f.take(max + 1).read_to_end(&mut bytes)).map_err(|e| io_error(&e))?;
+    (&mut file).take(max + 1).read_to_end(&mut bytes).map_err(|e| io_error(&e))?;
     if bytes.len() as u64 > max {
         return Err(RemoteResponse::FileError { error: FsError::TooLarge { size: bytes.len() as u64, max } });
     }
@@ -108,7 +111,12 @@ pub fn fingerprint_of(path: &Path) -> io::Result<Option<Fingerprint>> {
     if meta.len() > MAX_REMOTE_EDIT_BYTES {
         return Ok(Some(Fingerprint { mtime_ns: mtime_ns(&meta), size: meta.len(), sha256: String::new() }));
     }
-    let bytes = fs::read(path)?;
+    let mut bytes = Vec::new();
+    fs::File::open(path)?.take(MAX_REMOTE_EDIT_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_REMOTE_EDIT_BYTES {
+        // grew past the cap since the stat: size + mtime only
+        return Ok(Some(Fingerprint { mtime_ns: mtime_ns(&meta), size: bytes.len() as u64, sha256: String::new() }));
+    }
     Ok(Some(fingerprint(&meta, &bytes)))
 }
 
@@ -132,9 +140,27 @@ fn conflict(path: &Path, expect: Option<&Fingerprint>) -> io::Result<Option<Fing
     }
 }
 
+/// Where a save to `path` lands: the canonical path, or, for a dangling symlink, the (resolved) path it points at, so
+/// the link stays a link and the file appears at its target.
+fn resolve_link(path: &Path, depth: u32) -> PathBuf {
+    if let Ok(p) = fs::canonicalize(path) {
+        return p;
+    }
+    if depth < 8 && fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        if let Ok(link) = fs::read_link(path) {
+            let next = if link.is_absolute() { link } else { path.parent().unwrap_or_else(|| Path::new(".")).join(link) };
+            return resolve_link(&next, depth + 1);
+        }
+    }
+    path.to_path_buf()
+}
+
 pub fn write_file(path: &Path, bytes: &[u8], expect: Option<&Fingerprint>) -> RemoteResponse {
     // Saving through a symbolic link updates the file it points to (as the Mac's editor does).
-    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let target = resolve_link(path, 0);
+    if fs::metadata(&target).is_ok_and(|m| !m.is_file()) {
+        return RemoteResponse::FileError { error: FsError::Io { message: "not a regular file".into() } };
+    }
     match conflict(&target, expect) {
         Ok(Some(current)) => return RemoteResponse::Modified { current },
         Ok(None) => {}
@@ -182,7 +208,10 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> io::Result<()> {
         if let Some(meta) = &existing {
             fs::set_permissions(&tmp, meta.permissions())?;
         }
-        fs::rename(&tmp, target)
+        fs::rename(&tmp, target)?;
+        // Make the rename itself durable; a filesystem that refuses to fsync a directory is not an error.
+        let _ = fs::File::open(dir).and_then(|d| d.sync_all());
+        Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
@@ -360,6 +389,36 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         assert!(matches!(git_changes(outside.path(), None), RemoteResponse::Error { .. }));
         assert!(matches!(git_changes(repo.path(), Some("--output=/tmp/x")), RemoteResponse::Error { .. }));
+    }
+
+    #[test]
+    fn write_through_a_dangling_symlink_creates_the_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink("target.txt", &link).unwrap();
+        assert!(matches!(write_file(&link, b"hi", None), RemoteResponse::Saved { .. }));
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read(dir.path().join("target.txt")).unwrap(), b"hi");
+    }
+
+    #[test]
+    fn a_fifo_is_refused_without_blocking() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("pipe");
+        let c = std::ffi::CString::new(p.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(read_file(&p, 10)).unwrap());
+        let r = rx.recv_timeout(std::time::Duration::from_secs(5)).expect("read_file blocked on a FIFO");
+        assert!(matches!(r, RemoteResponse::FileError { error: FsError::Io { .. } }), "{r:?}");
+    }
+
+    #[test]
+    fn writing_to_a_directory_is_an_io_error_not_a_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = write_file(dir.path(), b"x", None);
+        assert!(matches!(r, RemoteResponse::FileError { error: FsError::Io { .. } }), "{r:?}");
     }
 
     /// The same one-commit repository as `gilvt_client::git::testrepo` (that one is crate-private).
