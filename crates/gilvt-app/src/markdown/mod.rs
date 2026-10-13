@@ -41,6 +41,8 @@ pub struct MdDoc {
     pub probes: remote::RemoteProbes,
     /// Rows showing each image `src` (re-measured when a remote image arrives).
     pub image_rows: HashMap<String, Vec<usize>>,
+    /// Rows holding each link destination (re-measured when the Stat takes its mark away).
+    pub link_rows: HashMap<String, Vec<usize>>,
 }
 
 /// Highlight spans per code block, keyed by the block's first source line.
@@ -143,16 +145,25 @@ impl MdDoc {
             }
         });
         let mut image_rows: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut link_rows: HashMap<String, Vec<usize>> = HashMap::new();
         for (ix, info) in rows.iter().enumerate() {
             if let rows::Row::Block(b) = info.row {
                 walk(std::slice::from_ref(&blocks[b]), &mut |blk| {
+                    for inl in own_inlines(blk).into_iter().flatten() {
+                        if let Some(dest) = inl.style.link.as_ref().filter(|d| file_links.contains(*d)) {
+                            let rows = link_rows.entry(dest.clone()).or_default();
+                            if rows.last() != Some(&ix) {
+                                rows.push(ix);
+                            }
+                        }
+                    }
                     if let BlockKind::Image { src, .. } = &blk.kind {
                         image_rows.entry(src.clone()).or_default().push(ix);
                     }
                 });
             }
         }
-        Some(MdDoc { rail: rows::rail_marks(&rows, line_count), blocks, changes, rows, line_count, images, file_links, probes, image_rows })
+        Some(MdDoc { rail: rows::rail_marks(&rows, line_count), blocks, changes, rows, line_count, images, file_links, probes, image_rows, link_rows })
     }
 
     /// `(first line, language, text)` of every code block that names a language.
@@ -242,6 +253,7 @@ mod tests {
         assert_eq!(doc.probes.links.iter().map(|(d, _)| d.as_str()).collect::<Vec<_>>(), ["here.md", "gone.md"]);
         assert_eq!(doc.probes.images, vec![("pic.png".to_string(), dir.path().join("pic.png"))]);
         assert_eq!(doc.image_rows["pic.png"].len(), 1, "the one row that shows it");
+        assert_eq!(doc.link_rows["gone.md"], vec![0], "the row whose mark the Stat may take away");
         std::fs::write(dir.path().join("a.md"), text).unwrap();
         let local = MdDoc::build(&Preview::load(&dir.path().join("a.md"), &DiffBase::Head).unwrap()).unwrap();
         assert!(local.probes.links.is_empty() && local.probes.images.is_empty(), "a local document probes nothing remote");

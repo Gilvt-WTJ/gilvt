@@ -22,6 +22,10 @@ breaking changes; they are called out under **Changed**.
   before updating it (it used to update silently); answer `n` to log in plain this time, `N` to never install
   on that host. `[remote] install = "always"` still updates without asking.
 
+### Fixed
+
+- `gilvt view --help` and `gilvt diff --help` print the usage instead of failing with an unknown option.
+
 ## [0.2.1] - 2026-10-09
 
 ### Fixed

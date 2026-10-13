@@ -86,6 +86,24 @@ pub fn apply_stats(probes: &RemoteProbes, paths: &[PathBuf], stats: &[StatEntry]
     (o, fetch)
 }
 
+/// The Stat failed: links stay as drawn (a click then says what is wrong), but no image may stay "reading" for good.
+pub fn probe_failed(probes: &RemoteProbes) -> MdOverrides {
+    let images = probes.images.iter().map(|(src, _)| (src.clone(), unreadable(src))).collect();
+    MdOverrides { images, ..MdOverrides::default() }
+}
+
+fn unreadable(src: &str) -> Image {
+    Image::Unavailable { path: src.to_string(), reason: crate::i18n::text("无法读取图片", "Could not read image") }
+}
+
+/// An error placeholder names the image as the document wrote it, not its cache file on this Mac.
+fn as_written(src: &str, image: Image) -> Image {
+    match image {
+        Image::Unavailable { reason, .. } => Image::Unavailable { path: src.to_string(), reason },
+        other => other,
+    }
+}
+
 pub fn cache_dir() -> PathBuf {
     std::env::temp_dir().join("gilvt-remote-images").join(std::process::id().to_string())
 }
@@ -138,9 +156,10 @@ impl PreviewView {
         let fs = RemoteFs::new(&host, cx);
         let stat = fs.stat(paths.clone(), cx);
         self._probe = Some(cx.spawn(async move |this, cx| {
-            // An unreachable host leaves the links as drawn (a click then says what is wrong) and the images pending.
-            let Ok(stats) = stat.await else { return };
-            let (overrides, fetches) = apply_stats(&doc.probes, &paths, &stats);
+            let (overrides, fetches) = match stat.await {
+                Ok(stats) => apply_stats(&doc.probes, &paths, &stats),
+                Err(_) => (probe_failed(&doc.probes), Vec::new()),
+            };
             let Ok(reads) = this.update(cx, |v, cx| {
                 v.set_md_overrides(&doc, overrides, cx);
                 fetches
@@ -164,15 +183,16 @@ impl PreviewView {
                                     let _ = std::fs::create_dir_all(cache_dir());
                                     match std::fs::write(&path, &r.bytes) {
                                         Ok(()) => images::from_bytes(path, &r.bytes),
-                                        Err(_) => Image::Unavailable { path: path.display().to_string(), reason: crate::i18n::text("无法读取图片", "Could not read image") },
+                                        Err(_) => unreadable(""),
                                     }
                                 })
                                 .await
                         }
                         Err(e) => Image::Unavailable { path: f.src.clone(), reason: if matches!(e, crate::remote::fs::FsFailure::TooLarge { .. }) { too_large_text() } else { crate::i18n::text("无法读取图片", "Could not read image") } },
                     },
-                    None => cx.background_executor().spawn(async move { std::fs::read(&cached).map(|b| images::from_bytes(cached.clone(), &b)).unwrap_or(Image::Pending) }).await,
+                    None => cx.background_executor().spawn(async move { std::fs::read(&cached).map(|b| images::from_bytes(cached.clone(), &b)).unwrap_or_else(|_| unreadable("")) }).await,
                 };
+                let image = as_written(&f.src, image);
                 let _ = this.update(cx, |v, cx| v.set_md_image(&doc, &f.src, image, cx));
             }
         }));
@@ -180,7 +200,9 @@ impl PreviewView {
 
     fn set_md_overrides(&mut self, doc: &Rc<MdDoc>, overrides: MdOverrides, cx: &mut Context<Self>) {
         let Some(md) = self.md.as_mut().filter(|md| Rc::ptr_eq(&md.doc, doc)) else { return };
-        let changed: Vec<usize> = overrides.images.keys().filter_map(|src| doc.image_rows.get(src)).flatten().copied().collect();
+        let images = overrides.images.keys().filter_map(|src| doc.image_rows.get(src));
+        let links = overrides.missing_links.iter().filter_map(|dest| doc.link_rows.get(dest));
+        let changed: Vec<usize> = images.chain(links).flatten().copied().collect();
         md.overrides = Rc::new(overrides);
         for row in changed {
             md.remeasure_row(row);
@@ -249,6 +271,16 @@ mod tests {
         assert_eq!(target.remote_host(), Some("h"), "never a Mac path");
         assert_eq!(remote_nav("h", file, "gone.md", Some(root), &o), RemoteNav::NoSuchFile);
         assert_eq!(remote_nav("h", file, "#top", None, &o), RemoteNav::Anchor("top".into()));
+    }
+
+    #[test]
+    fn a_failed_stat_leaves_links_alone_and_no_image_pending() {
+        let probes = RemoteProbes { links: vec![("a.md".into(), vec!["/r/a.md".into()])], images: vec![("p.png".into(), "/r/p.png".into())] };
+        let o = probe_failed(&probes);
+        assert!(o.missing_links.is_empty() && o.link_targets.is_empty(), "links stay as drawn");
+        assert!(matches!(&o.images["p.png"], Image::Unavailable { path, .. } if path == "p.png"));
+        let cached = Image::Unavailable { path: "/tmp/gilvt-remote-images/1/ab.png".into(), reason: "r" };
+        assert!(matches!(as_written("img/p.png", cached), Image::Unavailable { path, .. } if path == "img/p.png"), "not the Mac cache path");
     }
 
     #[test]
