@@ -322,7 +322,7 @@ R1 的「版本变化后自动更新」那一行改为只在 `remote.install = "
 1. **`SessionKey = (AgentKind, String, Host)`**：host 放在最后而不是最前，`key.0` / `key.1` 的含义不变（全仓库有 79 处直接用 `.0` / `.1`），只有构造和解构 key 的地方要改。新增 `gilvt_agent::local_key(agent, id)`。
 2. **transcript 推送是 `DaemonMsg` 的变体**（`TranscriptAppend` / `TranscriptReset`），不是 `RemoteEvent`：它们不带 `seq`、不进补发缓冲（§4.2 末段）。`TranscriptFollow` 的响应定为 `Following { size }`（follow 那一刻文件的字节数），`TranscriptUnfollow` 的响应为 `Ok`。app 把 `[from, size)` 当作历史（交给 registry 的是 `Batch::Catchup`），之后的才是 `Batch::Live`，否则长会话的历史会被当成实时事件改写状态（`TranscriptReset` 之后同理，见第 15 条）。daemon 在持有跟踪表锁的同时插入跟踪并发出响应，保证 `Following` 总在第一块 `TranscriptAppend` 之前。
 3. **超过 256 KB 的单行**：「每块最多 256 KB，只在行边界切块」两条不能同时满足（Claude 的一条 tool 结果常常超过 256 KB）。裁决：块在 256 KB 内的最后一个换行处切；256 KB 内没有换行时，把这一整行作为一块发出（上限 8 MB，base64 后约 10.7 MB，低于 16 MB 单帧）；超过 8 MB 的行跳过，下一块的 `offset` 跳过它，app 接受这种跳跃。
-4. **`Hello.epoch` 为空**（这个 app 进程第一次连接这台主机）时，从缓冲开头全部补发，`gap` 为 `false`；只有「epoch 不同」或「cursor 早于缓冲里最早的那条」才标记 `gap: true`。
+4. **`Hello.epoch` 为空**（这个 app 进程第一次连接这台主机）时，从缓冲开头全部补发，`gap` 为 `false`；只有「epoch 不同」或「cursor 早于缓冲里最早的那条」才标记 `gap: true`。补发哪些事件、缓冲多大，以第 33 条为准。
 5. **`HistoryList` 按最后活动时间保留最新的条目，序列化后不超过 8 MB**：超过 16 MB 的帧会让 bridge 的写线程退出，这台主机的 hook 也会一起断掉。
 6. **主机记住的「允许安装」（`remote.json` 里 `install: "allowed"`）不再等于 `always`**：R1 的 `RemotePrefs::policy` 把它映射成 `always`，这样凡是装过的主机都不会出现 §2 的更新询问，与 spec 的目的相反。新的策略值 `allowed`：首次安装（远端什么都没有）直接安装，只装有旧版本时询问更新；`remote.install = "always"` 才自动更新。
 7. **探测按目录修改时间列出已安装版本，最新的在前**（`ls -1dt`），并且只保留形如 `<x.y.z>-<8 位十六进制>` 的目录名：R1 的探测把 `bin/`（里面的 `gilvt-remote` 是指向可执行文件的 symlink）也列为「已安装版本」，会让询问文案显示「远端组件是 bin」。
@@ -354,3 +354,14 @@ R1 的「版本变化后自动更新」那一行改为只在 `remote.install = "
 30. **窗口内跳转的 helper 命名为 `refuse_remote_session`**：Workspace 上已有 R1 的 `refuse_remote`（pane 版），重名会冲突。
 31. **CHANGELOG 条目与行为改变放在同一个提交**：Changed（更新询问）在 Task 3，Added（远端会话进入侧栏）在 Task 9，Task 15 只润色措辞。
 32. **AC3 改在 `remote.install = "always"` 下运行**，并在最后 `restart --set 'remote.install="ask"'` 改回默认值，否则同节后面的 AC19–AC29 会在 `always` 下运行，AC19 的更新询问不会出现。
+
+### 9.3 合入前整体 review 的裁决
+
+33. **补发规则**（修订第 4 条）：(a) daemon 的 hook 缓冲同时受条数（2000）和字节数（payload 的 JSON 长度合计 **32 MB**）限制，超出时从最旧的丢，`gap` 的判定不变（cursor 早于被丢掉的最大 `seq` 就是 gap）；单条超过 32 MB 的 hook 不进缓冲，也算被丢掉。(b) `ensure_daemon` 的探测改用新的 `LocalMsg::Probe { build_id }`（只增不改）：同一 build 的 daemon 回 `LocalReply::Ok`，不登记 bridge、不补发；别的 build（包括不认识 `Probe` 的旧 daemon）不回复直接关连接，调用方照旧启动新 daemon 接管。(c) 只补发 link 仍在 link 表里的 hook：已结束的 link 没有 pane 可去，补发只会让 app 白白处理。这种过滤不算 gap。(d) 事件在 daemon 里以 `Arc` 共享：广播给各 bridge、放进缓冲、补发时都只复制指针，帧在各 bridge 的写线程里（锁外）序列化，`State` 锁内不再复制大的 payload；`hook_size` 也在取锁之前算好。
+34. **检查器时间线里 ⌘+点击文件名**：远端会话只显示「这项功能暂不支持远端」，不在 Mac 上解析路径（远端 cwd、Mac 的 `$HOME`）也不打开 Mac 上的文件。时间线的其他操作（跳到终端位置、展开、复制）不碰文件，照常可用。
+35. **远端 catch-up 与实时事件的顺序**：`HistoryDone` 和行一起按到达顺序排队，catch-up 批次在 `HistoryDone` 所在的位置发给 registry，总在它之后到达的实时批次之前，旧状态不会覆盖新状态。
+36. **`[monitor] exclude_paths` 对远端会话只按写出来的路径比较**：远端会话的 cwd 是 ssh 主机上的目录，与配置里的目录逐个路径分量比较（写了 `/home/dev/secret`，远端 `/home/dev/secret/x` 照样排除），但从不在 Mac 上解析 symlink，也不缓存答案；`~` 仍按 Mac 的 `$HOME` 展开，所以 `~/secret` 不匹配远端目录。排除是隐私开关，宁可多排除：完全不让远端会话匹配会让用户没有办法把远端目录挡在监控官之外。远端终端 pane 的 `cwd` 本来就是 `null`，不受影响。
+37. **远端恢复的命令总是用裸的 `claude` / `codex`**：Mac 上的启动命令设置（例如 `/opt/homebrew/bin/claude`）指的是 Mac 上的文件，远端多半没有，而且绕过远端的 `gilvt` 包装函数（没有 hook）。会话面板、侧栏「已结束」和 Session Center 的远端恢复都这样。
+38. **Session Center 的恢复区分主机**：远端会话不再按 `(agent, id)` 去 Mac 的历史里找条目（那会是另一台机器上的会话），而是走与会话面板相同的远端恢复；远端会话的目录未知时与「本地会话找不到历史条目」一样什么也不做（Session Center 没有提示行）。
+39. **`HOME` 为空时 `gilvt_agent::default_state_dir` 返回 `None`**（与旧的 `trust::state_dir` 一致），不会在 agent 的 cwd 下写出相对路径的 `Library/Application Support/...`。
+40. **AC24、AC26 的步骤**：AC24 以 DebugState 里左栏这一行重新有 `pane`、状态不是 `ended` 判断恢复成功，不看屏幕上的命令行；AC26 的回车用 `key enter` 送，`~.` 不带换行由 `type` 一次送出，不做回显核对（ssh 吞掉转义序列，屏幕上不会出现）。

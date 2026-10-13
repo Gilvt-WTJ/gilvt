@@ -174,6 +174,13 @@ pub fn not_yet_remote() -> &'static str {
     crate::i18n::text(NOT_YET_REMOTE.0, NOT_YET_REMOTE.1)
 }
 
+/// The command that resumes session `session_id` of `agent` on an ssh host, run in `cwd` there. Always the bare agent
+/// name: the Mac's launch setting (e.g. `/opt/homebrew/bin/claude`) names a file on this Mac, and only the bare name
+/// goes through the host's gilvt wrapper (hooks) (R2a §9).
+pub fn resume_command(agent: gilvt_agent::AgentKind, session_id: &str, cwd: &std::path::Path) -> String {
+    gilvt_agent::resume_command(agent.name(), agent, session_id, cwd)
+}
+
 /// Applies `r` to `pane` in whichever window has it.
 pub fn apply_to_pane(pane: u64, r: Option<PaneRemote>, cx: &mut App) {
     for w in cx.windows().into_iter().filter_map(|w| w.downcast::<crate::workspace::Workspace>()) {
@@ -239,6 +246,14 @@ pub fn save_prefs(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_remote_resume_uses_the_bare_agent_name() {
+        use gilvt_agent::AgentKind;
+        let cwd = std::path::Path::new("/home/dev/my repo");
+        assert_eq!(resume_command(AgentKind::Claude, "s-1", cwd), "cd '/home/dev/my repo' && claude --resume s-1");
+        assert_eq!(resume_command(AgentKind::Codex, "s-2", cwd), "cd '/home/dev/my repo' && codex resume s-2");
+    }
 
     fn hosts() -> RemoteHosts { RemoteHosts::new("abcd0123".into(), RemotePrefs::default()) }
 

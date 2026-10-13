@@ -13,7 +13,7 @@ use gpui::{
 };
 
 use super::colors::Colors;
-use super::timeline_model::{detail_text, resolve_path, summary, DetailLine, Entry, Filter, Ink, Row, RowKind, ToolRow};
+use super::timeline_model::{detail_text, summary, DetailLine, Entry, Filter, Ink, Row, RowKind, ToolRow};
 use crate::debug_state::rects::{self, RectId};
 use crate::workspace::Workspace;
 
@@ -241,10 +241,7 @@ fn tool(row: &Row, t: &ToolRow, ix: usize, cx: &Ctx) -> AnyElement {
             if !window.modifiers().platform {
                 return;
             }
-            let home = std::env::var_os("HOME").map(PathBuf::from);
-            if let Some(path) = resolve_path(&raw, cwd.as_deref(), home.as_deref()) {
-                let _ = ws.update(cx, |ws, cx| ws.timeline_quick_look(path, window, cx));
-            }
+            let _ = ws.update(cx, |ws, cx| ws.timeline_quick_look(&raw, cwd.as_deref(), window, cx));
         });
     }
     let key = row.key.clone();

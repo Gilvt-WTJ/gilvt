@@ -469,13 +469,14 @@ impl SessionCenterView {
             cx.emit(SessionsEvent::Navigate(runtime));
             return;
         }
-        let Some(entry) = self
-            .snapshot
-            .entries
-            .iter()
-            .find(|entry| entry.agent == row.key.0 && entry.session_id == row.key.1)
-        else {
-            return;
+        let entry = match model::resume_target(&row.key, &row.cwd, &self.snapshot.entries) {
+            model::ResumeTarget::Local(entry) => entry,
+            model::ResumeTarget::Remote { host, command } => {
+                cx.emit(SessionsEvent::RunRemote { host, command });
+                return;
+            }
+            // Like a local row without a history entry: nothing to resume (the Session Center has no message line).
+            model::ResumeTarget::RemoteNoDir | model::ResumeTarget::Nothing => return,
         };
         let launch = cx.global::<AppSettings>().0.agent.launch(entry.agent);
         match sessions_model::resume(entry, None, launch, Path::exists) {

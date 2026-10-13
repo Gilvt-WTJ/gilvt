@@ -223,8 +223,14 @@ impl LeaseStore {
     }
 }
 
+/// The app's state directory; None without a `HOME` (an empty one counts as none: a relative path would land under
+/// the agent's cwd).
 pub fn default_state_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
+    state_dir_under(std::env::var_os("HOME"))
+}
+
+fn state_dir_under(home: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    home.filter(|h| !h.is_empty())
         .map(PathBuf::from)
         .map(|home| home.join("Library/Application Support/gilvt/state"))
 }
@@ -616,6 +622,13 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_state_dir_needs_a_non_empty_home() {
+        assert_eq!(state_dir_under(None), None);
+        assert_eq!(state_dir_under(Some("".into())), None, "never a path relative to the cwd");
+        assert_eq!(state_dir_under(Some("/Users/u".into())), Some(PathBuf::from("/Users/u/Library/Application Support/gilvt/state")));
+    }
 
     #[test]
     fn signal_errors_and_unknown_terminal_in_english() {

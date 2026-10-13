@@ -197,7 +197,6 @@ impl RemoteFollows {
         self.map.get(key).is_some_and(|f| f.active && !f.history_done)
     }
 
-    #[allow(dead_code)] // DebugState `hosts[].follows` (R2a Task 13)
     pub fn count(&self, host: &str) -> usize {
         self.map.values().filter(|f| f.active && f.host == host).count()
     }

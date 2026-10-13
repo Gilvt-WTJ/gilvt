@@ -52,8 +52,8 @@ impl Workspace {
                 cx.notify();
                 return;
             };
-            let launch = cx.global::<AppSettings>().0.agent.launch(key.0).to_string();
-            let command = gilvt_agent::resume_command(&launch, key.0, &key.1, &cwd);
+            // Not the Mac's launch setting: it names a file on this Mac (R2a §9).
+            let command = crate::remote::resume_command(key.0, &key.1, &cwd);
             return self.resume_remote(h.0.clone(), command, window, cx);
         }
         let Some(session) = cx.global::<Agents>().registry().get(&key) else { return };

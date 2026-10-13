@@ -152,6 +152,14 @@ impl Exclusions {
         answer
     }
 
+    /// [`Exclusions::excluded`] for a directory on another machine (an ssh host): compared with the configured
+    /// directories as written, by path component, never resolved on this Mac's disk (and not remembered).
+    pub fn excluded_as_written(&self, cwd: Option<&Path>) -> bool {
+        let Some(cwd) = cwd.filter(|c| c.is_absolute()) else { return false };
+        let literal: PathBuf = cwd.components().collect();
+        self.dirs.iter().any(|d| literal.starts_with(d))
+    }
+
     /// The remembered answer for `cwd`, if it was asked.
     pub fn cached(&self, cwd: &Path) -> Option<bool> {
         self.answers.borrow().get(cwd).copied()
@@ -281,6 +289,23 @@ mod tests {
         assert!(excluded(Some(&link.join("sub")), &dirs), "the cwd resolves into the excluded directory");
         let dirs = expand(&[link.display().to_string()], None);
         assert!(excluded(Some(&real), &dirs), "the excluded entry is a link to the cwd");
+    }
+
+    #[test]
+    fn a_path_of_another_machine_is_compared_as_written() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let ex = Exclusions::new(&[real.display().to_string(), "/home/dev/secret".into()], None);
+        assert!(ex.excluded(Some(&link.join("sub"))), "on this Mac the link resolves into the excluded directory");
+        assert!(!ex.excluded_as_written(Some(&link.join("sub"))), "never resolved on this Mac's disk");
+        assert!(ex.excluded_as_written(Some(Path::new("/home/dev/secret/x"))));
+        assert!(ex.excluded_as_written(Some(Path::new("/home/dev/secret/./x"))));
+        assert!(!ex.excluded_as_written(Some(Path::new("/home/dev/secrets"))), "by path component");
+        assert!(!ex.excluded_as_written(Some(Path::new("secret"))) && !ex.excluded_as_written(None));
+        assert_eq!(ex.cached(Path::new("/home/dev/secret/x")), None, "nothing remembered");
     }
 
     #[test]

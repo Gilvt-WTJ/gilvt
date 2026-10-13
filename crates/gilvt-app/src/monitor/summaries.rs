@@ -181,6 +181,21 @@ pub fn is_excluded(cwd: Option<&Path>, cx: &App) -> bool {
     with_exclusions(cx, |ex| ex.excluded(cwd))
 }
 
+/// Session `key` (in `cwd`) is excluded. A remote session's cwd is a directory on its ssh host: it is compared with
+/// the configured directories as written and never resolved on this Mac's disk (R2a §9).
+pub fn session_excluded(key: &SessionKey, cwd: Option<&Path>, ex: &Exclusions) -> bool {
+    if key.2.is_remote() {
+        ex.excluded_as_written(cwd)
+    } else {
+        ex.excluded(cwd)
+    }
+}
+
+/// [`session_excluded`] with the configured exclusions.
+pub fn is_session_excluded(key: &SessionKey, cwd: Option<&Path>, cx: &App) -> bool {
+    with_exclusions(cx, |ex| session_excluded(key, cwd, ex))
+}
+
 fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
@@ -336,7 +351,7 @@ fn subjects(excluded: &Exclusions, cx: &App) -> Vec<Subject> {
     let agents = cx.global::<Agents>();
     let mut out = Vec::new();
     for s in agents.registry().sessions() {
-        if excluded.excluded(s.cwd.as_deref()) {
+        if session_excluded(&s.key, s.cwd.as_deref(), excluded) {
             continue;
         }
         let timeline = agents.timeline(&s.key);
@@ -425,7 +440,7 @@ pub fn tick(cx: &mut App) {
     }
     let (subjects, sessions) = with_exclusions(cx, |ex| {
         // Saved summaries of every non-excluded session, ended ones too (their cards show them after a restart).
-        let sessions: Vec<String> = cx.global::<Agents>().registry().sessions().filter(|s| !ex.excluded(s.cwd.as_deref())).map(|s| agent_key(&s.key)).collect();
+        let sessions: Vec<String> = cx.global::<Agents>().registry().sessions().filter(|s| !session_excluded(&s.key, s.cwd.as_deref(), ex)).map(|s| agent_key(&s.key)).collect();
         (subjects(ex, cx), sessions)
     });
     let policy_cfg = PolicyConfig { auto: cfg.auto_summary, interval: cfg.interval() };
@@ -557,7 +572,7 @@ impl Summaries {
 
 /// The keys of the sessions (`(key, cwd)`) whose directory `ex` excludes.
 fn excluded_keys<'a>(sessions: impl Iterator<Item = (&'a SessionKey, Option<&'a Path>)>, ex: &Exclusions) -> Vec<String> {
-    sessions.filter(|(_, cwd)| ex.excluded(*cwd)).map(|(k, _)| agent_key(k)).collect()
+    sessions.filter(|(k, cwd)| session_excluded(k, *cwd, ex)).map(|(k, _)| agent_key(k)).collect()
 }
 
 /// The sessions gilvt knows of (the registry's, and those waiting to be resumed) that `ex` excludes.

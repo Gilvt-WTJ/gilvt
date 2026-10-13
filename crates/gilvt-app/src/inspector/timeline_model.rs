@@ -190,6 +190,23 @@ pub fn resolve_path(raw: &str, cwd: Option<&Path>, home: Option<&Path>) -> Optio
     cwd.map(|c| c.join(p))
 }
 
+/// What ⌘+click on a row's file name opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QuickLook {
+    Open(PathBuf),
+    /// The session runs on an ssh host: its paths name files there, never on this Mac (R2a §9).
+    NotYetRemote,
+    Nothing,
+}
+
+/// ⌘+click on `raw` in the timeline of a session whose cwd is `cwd`; `remote`: that session is on an ssh host.
+pub fn quick_look_target(raw: &str, cwd: Option<&Path>, home: Option<&Path>, remote: bool) -> QuickLook {
+    if remote {
+        return QuickLook::NotYetRemote;
+    }
+    resolve_path(raw, cwd, home).map_or(QuickLook::Nothing, QuickLook::Open)
+}
+
 /// One line of an expanded detail.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DetailLine {

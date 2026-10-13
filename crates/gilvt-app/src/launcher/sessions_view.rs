@@ -527,8 +527,8 @@ impl SessionsView {
                 cx.emit(SessionsEvent::Focus(*p));
                 return;
             }
-            let launch = cx.global::<AppSettings>().0.agent.launch(e.agent);
-            let command = gilvt_agent::resume_command(launch, e.agent, &e.session_id, &e.cwd);
+            // Not the Mac's launch setting: it names a file on this Mac (R2a §9).
+            let command = crate::remote::resume_command(e.agent, &e.session_id, &e.cwd);
             cx.emit(SessionsEvent::RunRemote { host: h.0.clone(), command });
             return;
         }

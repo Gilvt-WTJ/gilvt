@@ -61,12 +61,13 @@ pub enum TranscriptSource {
 
 #[derive(Default)]
 pub struct RemoteQueue {
-    pending: Vec<(Vec<String>, bool)>,
+    /// Lines (`true`: history) and `None` for `HistoryDone`, in the order they came: the catch-up goes out where
+    /// `HistoryDone` stood, before any live batch that followed it.
+    pending: Vec<Option<(Vec<String>, bool)>>,
     /// History, reduced as it arrives (the latest usage and model), for one catch-up batch once it is complete.
     history: Vec<gilvt_agent::Event>,
     /// The session's first real prompt, seen in the history.
     first_prompt: Option<String>,
-    done: bool,
     caught_up: bool,
 }
 
@@ -159,8 +160,8 @@ impl Worker {
         }
         let Some(TranscriptSource::Remote(q)) = e.source.as_mut() else { unreachable!() };
         match feed {
-            RemoteFeed::Lines { lines, history } => q.pending.push((lines, history)),
-            RemoteFeed::HistoryDone => q.done = true,
+            RemoteFeed::Lines { lines, history } => q.pending.push(Some((lines, history))),
+            RemoteFeed::HistoryDone => q.pending.push(None),
             RemoteFeed::Reset => {
                 // Back to the catch-up state: the lines that follow are history until `HistoryDone` (the main
                 // thread sends it at once when there is nothing to catch up on).
@@ -208,7 +209,17 @@ impl Worker {
                 }
                 Some(TranscriptSource::Remote(q)) => {
                     // Only the main session: subagent transcripts are not followed remotely (R2a §1).
-                    for (lines, history) in std::mem::take(&mut q.pending) {
+                    for item in std::mem::take(&mut q.pending) {
+                        let Some((lines, history)) = item else {
+                            if !q.caught_up {
+                                q.caught_up = true;
+                                let batch = Batch::Catchup { events: std::mem::take(&mut q.history), first_prompt: q.first_prompt.take() };
+                                if !batch.is_empty() {
+                                    emit(key.clone(), batch);
+                                }
+                            }
+                            continue;
+                        };
                         for line in &lines {
                             e.fed.apply(key, |t| t.apply_transcript_line(line));
                         }
@@ -227,13 +238,6 @@ impl Worker {
                             }
                         } else if !events.is_empty() {
                             emit(key.clone(), Batch::Live(events));
-                        }
-                    }
-                    if q.done && !q.caught_up {
-                        q.caught_up = true;
-                        let batch = Batch::Catchup { events: std::mem::take(&mut q.history), first_prompt: q.first_prompt.take() };
-                        if !batch.is_empty() {
-                            emit(key.clone(), batch);
                         }
                     }
                 }

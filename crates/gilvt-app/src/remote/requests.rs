@@ -2,7 +2,6 @@
 
 use std::collections::BTreeMap;
 
-#[allow(dead_code)] // used by bridge::request, whose callers arrive in R2a Task 10+
 pub struct Pending<R> {
     next: u64,
     waiting: BTreeMap<u64, R>,
@@ -14,7 +13,6 @@ impl<R> Default for Pending<R> {
     }
 }
 
-#[allow(dead_code)]
 impl<R> Pending<R> {
     pub fn add(&mut self, r: R) -> u64 {
         self.next += 1;
@@ -31,6 +29,7 @@ impl<R> Pending<R> {
         std::mem::take(&mut self.waiting).into_values().collect()
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.waiting.len()
     }

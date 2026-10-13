@@ -250,7 +250,11 @@ pub fn model_for(ws: &Workspace, me: AnyWindowHandle, cx: &App) -> model::Model 
     }
     use crate::monitor::summaries;
     model::with_summaries(m, |r| {
-        if !r.cwd.is_empty() && summaries::is_excluded(Some(std::path::Path::new(&r.cwd)), cx) {
+        let excluded = match &r.key {
+            Some(k) => summaries::is_session_excluded(k, (!r.cwd.is_empty()).then(|| std::path::Path::new(&r.cwd)), cx),
+            None => !r.cwd.is_empty() && summaries::is_excluded(Some(std::path::Path::new(&r.cwd)), cx),
+        };
+        if excluded {
             return None;
         }
         let key = match (&r.key, r.pane) {

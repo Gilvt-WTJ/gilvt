@@ -263,6 +263,27 @@ fn sessions_under_new_exclusions_are_found() {
 }
 
 #[test]
+fn a_remote_session_is_excluded_by_its_path_as_written_only() {
+    use gilvt_agent::host::{Host, HostId};
+    use gilvt_agent::AgentKind;
+    // A remote cwd names a directory on the ssh host: compared as written, never resolved on this Mac's disk.
+    let tmp = tempfile::tempdir().unwrap();
+    let real = tmp.path().join("real");
+    std::fs::create_dir(&real).unwrap();
+    let link = tmp.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let ex = Exclusions::new(&[real.display().to_string(), "/home/dev/secret".to_string()], None);
+    let remote: gilvt_agent::SessionKey = (AgentKind::Claude, "r".into(), Host::Remote(HostId("dev@h:22".into())));
+    let local = gilvt_agent::local_key(AgentKind::Claude, "l");
+    assert!(session_excluded(&local, Some(&link.join("x")), &ex), "a local cwd is resolved on this Mac");
+    assert!(!session_excluded(&remote, Some(&link.join("x")), &ex), "a remote one never is");
+    assert!(session_excluded(&remote, Some(Path::new("/home/dev/secret/x")), &ex), "the path as written still counts");
+    let x = link.join("x");
+    let all = [(&remote, Some(x.as_path())), (&local, Some(x.as_path()))];
+    assert_eq!(excluded_keys(all.into_iter(), &ex), vec![agent_key(&local)]);
+}
+
+#[test]
 fn a_result_for_a_key_excluded_meanwhile_is_not_kept() {
     let key = "agent:claude:x";
     let mut s = empty();

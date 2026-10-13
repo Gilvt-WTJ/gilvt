@@ -371,3 +371,23 @@ fn a_remote_source_catches_up_then_goes_live_and_resets() {
     w.read(&mut |k, b| out.push((k, b)));
     assert!(matches!(&out[..], [(_, Batch::Catchup { events, .. })] if matches!(events.as_slice(), [Event::Usage { context_tokens: 40, .. }])), "{out:?}");
 }
+
+#[test]
+fn remote_catchup_goes_out_before_the_live_lines_that_followed_it() {
+    // History, HistoryDone and live lines all queued before one read: the older catch-up must not land after the
+    // newer live batch (it would roll the status back).
+    use gilvt_agent::host::{Host, HostId};
+    let key: SessionKey = (AgentKind::Codex, "r2".into(), Host::Remote(HostId("dev@h:22".into())));
+    let usage = |n: u64| format!(r#"{{"timestamp":"2026-01-01T00:00:00Z","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{{"total_tokens":{n}}},"model_context_window":1000}}}}}}"#);
+    let mut w = Worker::default();
+    w.watch(vec![(key.clone(), "/home/dev/r2.jsonl".into())]);
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(10)], history: true });
+    w.remote(key.clone(), RemoteFeed::HistoryDone);
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(30)], history: false });
+    let mut out = Vec::new();
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(
+        matches!(&out[..], [(_, Batch::Catchup { .. }), (_, Batch::Live(events))] if matches!(events.as_slice(), [Event::Usage { context_tokens: 30, .. }])),
+        "{out:?}"
+    );
+}
