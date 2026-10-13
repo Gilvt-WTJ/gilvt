@@ -200,10 +200,38 @@ fn serve_gilvt_sock(listener: UnixListener, state: &Arc<Mutex<State>>) {
                 let _ = conn.set_write_timeout(Some(Duration::from_secs(1)));
                 let _ = gilvt_ipc::write_response(&mut conn, &reply);
             }
+            // A request line over the cap can only be a View / Diff worth answering (a hook this large is dropped, as
+            // hooks never get replies). The client is still writing: swallow the rest of its line (bounded) before
+            // replying, or closing on unread data resets the connection and the reply is lost.
+            Err(e) if gilvt_ipc::is_line_too_long(&e) => {
+                drain_line(&conn);
+                let mut conn = conn;
+                let _ = conn.set_write_timeout(Some(Duration::from_secs(1)));
+                let _ = gilvt_ipc::write_response(&mut conn, &gilvt_ipc::Response::Error { message: OPEN_TOO_LARGE.into() });
+            }
             _ => {}
         }
     }
 }
+
+/// Reads and discards up to the end of the current line, for at most `OVERSIZE_DRAIN` in total.
+fn drain_line(conn: &UnixStream) {
+    use std::io::Read;
+    let _ = conn.set_read_timeout(Some(HOOK_READ_TIMEOUT));
+    let deadline = Instant::now() + OVERSIZE_DRAIN;
+    let mut buf = [0u8; 64 * 1024];
+    let mut conn = conn;
+    while Instant::now() < deadline {
+        match conn.read(&mut buf) {
+            Ok(0) | Err(_) => return,
+            Ok(n) if buf[..n].contains(&b'\n') => return,
+            Ok(_) => {}
+        }
+    }
+}
+
+/// How long an oversized request may keep sending before the daemon answers anyway.
+const OVERSIZE_DRAIN: Duration = Duration::from_secs(3);
 
 /// R2a §8.2: a View / Diff from a shell whose link is registered, with an app connected, is accepted (Ok, then an
 /// `Open` broadcast; like link events it is not kept for replay). Errors are codes the remote `gilvt` translates. An

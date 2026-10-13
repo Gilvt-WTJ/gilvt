@@ -204,11 +204,22 @@ pub fn write_response(stream: &mut UnixStream, response: &Response) -> io::Resul
     write_line(stream, response)
 }
 
+/// The message of the `InvalidData` error `read_request` returns for a line longer than `MAX_MESSAGE_BYTES`.
+const LINE_TOO_LONG: &str = "request line over MAX_MESSAGE_BYTES";
+
+/// Whether `e` (from `read_request`) is a request line over `MAX_MESSAGE_BYTES`, rather than a timeout, EOF or garbage.
+pub fn is_line_too_long(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::InvalidData && e.to_string() == LINE_TOO_LONG
+}
+
 fn read_line<T: for<'de> Deserialize<'de>>(stream: &UnixStream) -> io::Result<T> {
     let mut line = String::new();
     BufReader::new(stream.take(MAX_MESSAGE_BYTES)).read_line(&mut line)?;
     if line.is_empty() {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "connection closed"));
+    }
+    if line.len() as u64 >= MAX_MESSAGE_BYTES && !line.ends_with('\n') {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, LINE_TOO_LONG));
     }
     serde_json::from_str(&line).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }

@@ -13,6 +13,17 @@ impl Drop for KillDaemon {
     }
 }
 
+/// Nothing `Open` arrives within a short while (other events are ignored).
+fn no_open(rx: &mpsc::Receiver<DaemonMsg>) -> bool {
+    let end = std::time::Instant::now() + Duration::from_millis(500);
+    while let Some(left) = end.checked_duration_since(std::time::Instant::now()) {
+        if let Ok(DaemonMsg::Event { event: RemoteEvent::Open { .. }, .. }) = rx.recv_timeout(left) {
+            return false;
+        }
+    }
+    true
+}
+
 #[test]
 fn a_view_for_a_registered_link_reaches_the_bridge_as_open() {
     let home = tempfile::tempdir().unwrap();
@@ -71,6 +82,11 @@ fn a_view_for_a_registered_link_reaches_the_bridge_as_open() {
     // an unregistered link is refused and nothing is broadcast
     let stray = gilvt_ipc::Request::View { pane: None, path: Some(home.path().join("a.md")), content: None, as_type: None, line: None, col: None, pin: true, link: Some("t-9".into()) };
     assert_eq!(gilvt_ipc::send(std::path::Path::new(&socket), &stray).unwrap(), gilvt_ipc::Response::Error { message: OPEN_NOT_LINKED.into() });
+    assert!(no_open(&rx), "a refused View was broadcast");
+    // a request line over the cap never reaches open_reply: the daemon still answers too_large, and broadcasts nothing
+    let huge = gilvt_ipc::Request::View { pane: None, path: None, content: Some("\u{1}".repeat(3 * 1024 * 1024)), as_type: None, line: None, col: None, pin: false, link: Some("t-1".into()) };
+    assert_eq!(gilvt_ipc::send(std::path::Path::new(&socket), &huge).unwrap(), gilvt_ipc::Response::Error { message: OPEN_TOO_LARGE.into() });
+    assert!(no_open(&rx), "an oversized View was broadcast");
     std::fs::write(home.path().join("go"), "").unwrap();
     assert!(shell.wait().unwrap().success());
     let _ = bridge.kill();
