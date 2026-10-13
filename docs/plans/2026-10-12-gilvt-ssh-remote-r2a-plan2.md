@@ -42,6 +42,12 @@
 21. **AC8 改写**：R1 的 AC8 断言「⌘点击远端路径显示暂不支持远端」，与本计划的行为相反。改写为 spec §8.5 的诱饵用例（同一行 ID，不留一条过时的行），其余新行为 AC30–AC36。
 22. **`git` 查询移进 `gilvt-client`**：`gilvt-viewer::git` 改为 `pub use gilvt_client::git`，路径不变；daemon 与本地 `changed_files` 用同一个函数（新增的 `changed_entries` 多带一个状态）。`gilvt-viewer` 因此依赖 `gilvt-client`（它只依赖 `gilvt-agent`、`gilvt-ipc`，没有环）。
 
+23. **app→daemon 的超帧请求只让这一个请求失败，不再拆掉 bridge**（预飞行发现：app 的 bridge 写线程在任何 `write_frame` 错误时 `break`，一次超过 16 MB 的 `WriteFile` 会结束写线程，这台主机的 hook 一起断）。两道防线：(1) `save_remote` 在编码之后先检查，字节数超过 `MAX_REMOTE_EDIT_BYTES` 就不发请求，红色保存失败条「文件太大，远端暂不支持」，缓冲区保持未保存（`remote_edit::too_large_to_save`）；(2) bridge 写线程遇到 `is_frame_too_large` 时把一条合成的 `Response { id, Error { OPEN_TOO_LARGE } }` 经 `events` 通道交给主线程（`too_large_reply`），该请求按 `FsFailure::TooLarge` 失败，写线程继续（Task 6、Task 12）。
+24. **远端 `gilvt view` / `gilvt diff` 到 app 能处理 `Open` 的那个提交才接上**：Task 5 只做 daemon 一侧（`run/gilvt.sock` 接收、广播 `Open`，用直接发到 socket 的 `Request` 测试），入口 `entry.rs` 的 `view` / `diff` 与它的测试放在 Task 8，和 `CHANGELOG.md` 的那一行同一个提交。这样每个提交里远端 `gilvt view` 的行为都与 app 一致（之前是「远端不支持这个命令」，之后是打开 Quick Look），不会出现「CLI 成功退出而 app 忽略 `Open`」的中间状态。
+25. **DebugState `hosts[].watches` 只数 daemon 已确认的 `Watch`**：`Watch` 得到 `Ok` 才计入，bridge 断开后清零，重连后随 `rewatch` 逐个回来（`WatchTable.acked`）。验收用例（AC30、AC35）等 `watches` 达到预期，就表示 daemon 的基线已经取好，之后的远端改动一定会推送；不是 app「想要监视」的数目。
+26. **超过 `MAX_REMOTE_EDIT_BYTES`（10 MB）的文件，fingerprint 只含 size 与 mtime，不算 sha256**：`fingerprint_of` 不读这种文件（`sha256` 为空串），`Fingerprint::same_content` 遇到任何一边没有哈希时要求 size 与 mtime 都相同；监视线程的 `poll` 只做 stat，被报告文件的 fingerprint 在释放 `watches` 锁之后才计算，所以一个在增长的日志不会被每 500 ms 整个读一遍，也不会让读循环上的 `Watch` / `Unwatch` 等锁。代价：对大于 10 MB 的文件，大小与 mtime 都不变的改写发现不了（编辑器本来就打不开这种文件，只有固定预览会受影响）。
+27. **去重**：(1) 编辑器本地与远端共用 `finished_reload(silent)` 与 `finished_reopen`（本地的静默重载、重新载入、换编码也改为调用它们），`EditorModel::reopen` 与 `reopen_from_bytes` 共用 `reopen_path` / `replace_buffer`；(2) 本地预览加载也走 `HostFs::Local::load_preview`，`HostGit::Local::changed_files` 是本地 `gilvt diff` 列表的唯一实现（本地行为不变，由既有的 preview_view 测试与 AC 用例覆盖）；(3) `gilvt-remote` 里的 `write_atomic` 是 `gilvt-editor` 那一份的有意拷贝（远端组件要小，不依赖 `gilvt-editor`），文档注释里写明，`watch.rs` 与 `files.rs` 共用 `mtime_ns`。
+
 ## Global Constraints
 
 以下数值和文案原样取自 spec §8（英文是本计划一次定下的译文），每个任务都隐含遵守：
@@ -70,10 +76,10 @@
 
 ## Review Focus
 
-1. **Mac 上恰好有同名文件**（`/etc/hosts`、`/tmp/x.txt`、`~/project/README.md` 在两台机器上都存在）：⌘点击、预览、编辑器的焦点检查与保存都不能读写 Mac 上的那个文件。→ Task 10 的 `a_missing_remote_file_never_falls_back_to_a_local_decoy`，Task 11 的 `a_detached_buffer_never_touches_the_local_disk`，Task 12 的 `a_remote_path_never_matches_a_local_editor`。
+1. **Mac 上恰好有同名文件**（`/etc/hosts`、`/tmp/x.txt`、`~/project/README.md` 在两台机器上都存在）：⌘点击、预览、编辑器的焦点检查与保存都不能读写 Mac 上的那个文件。→ Task 10 的 `a_remote_pane_never_asks_the_local_disk`（⌘点击与悬停都经过的 `path_click`，远端分支从不调用 Mac 磁盘的 `exists`）与 `a_missing_remote_file_is_missing_whatever_the_mac_has`（`decide_remote_click` 只信主机的回答），Task 11 的 `a_detached_buffer_never_touches_the_local_disk`，Task 12 的 `a_remote_path_never_matches_a_local_editor`。
 2. **加载之后、保存之前远端文件被改动，或者只是被 `touch`，或者 `Watch` 推回的是我们自己刚保存的结果**：真改动要出冲突条，`touch` 和自己的回声都不能出条。→ Task 3 的 `write_refuses_a_content_change_but_not_a_touch`，Task 12 的 `our_own_save_echo_is_not_a_change` 与 `a_change_reported_during_a_save_is_decided_after_it`。
-3. **接近 16 MB 单帧的内容**（10 MB 的 `gilvt view -`，全是需要转义的字符；一个很大的旧版本）：只能让这一个请求失败，bridge 与 hook 照常。→ Task 4 的 `an_oversized_answer_becomes_an_error_and_the_bridge_lives`，Task 5 的 `an_open_too_large_for_a_frame_is_refused_not_broadcast`。
-4. **保存时 bridge 不在，或者保存进行中又继续输入**：缓冲区保持未保存，文字「devbox 未连接，未保存」；保存期间输入的内容不能被标成已保存。→ Task 12 的 `a_disconnected_save_keeps_the_buffer_dirty` 与 `edits_made_while_saving_stay_unsaved`。
+3. **接近 16 MB 单帧的内容**（10 MB 的 `gilvt view -`，全是需要转义的字符；一个很大的旧版本）：只能让这一个请求失败，bridge 与 hook 照常。→ Task 4 的 `an_oversized_answer_becomes_an_error_and_the_bridge_lives`，Task 6 的 `an_oversized_request_fails_only_itself`（app→daemon 方向）与 Task 12 的 `a_buffer_over_the_remote_limit_is_refused_before_anything_is_sent`，Task 5 的 `an_open_too_large_for_a_frame_is_refused_not_broadcast`。
+4. **保存时 bridge 不在，或者保存进行中又继续输入**：缓冲区保持未保存，文字「devbox 未连接，未保存」；保存期间输入的内容不能被标成已保存。→ Task 12 的 `a_disconnected_save_keeps_the_buffer_dirty`（`finish_save`）与 view.rs 里经过真正的 `finish_remote_save` 的 `text_typed_while_saving_stays_unsaved`、`a_failed_or_refused_save_leaves_the_buffer_dirty_with_its_bar`。
 5. **Markdown 里有几百个链接、或者图片超过 5 MB / 格式不支持**：`Stat` 每批不超过 256 个且只来回一次（并发），大图与不支持的格式不取回内容。→ Task 6 的 `stats_are_split_into_batches_of_256`，Task 9 的 `stats_decide_links_and_which_images_to_fetch`。
 
 ---
@@ -220,6 +226,15 @@
     }
 
     #[test]
+    fn an_unhashed_fingerprint_compares_size_and_mtime() {
+        let big = Fingerprint { mtime_ns: 5, size: 20_000_000, sha256: String::new() };
+        assert!(big.same_content(&big.clone()));
+        assert!(!big.same_content(&Fingerprint { mtime_ns: 6, ..big.clone() }), "no hash to fall back on: a new mtime is a change");
+        assert!(!big.same_content(&Fingerprint { size: 20_000_001, ..big.clone() }));
+        assert!(!big.same_content(&Fingerprint { sha256: "ab".into(), mtime_ns: 6, ..big.clone() }));
+    }
+
+    #[test]
     fn an_oversized_frame_is_recognisable_and_writes_nothing() {
         let mut buf = Vec::new();
         let big = RemoteResponse::Error { message: "x".repeat(MAX_FRAME as usize) };
@@ -276,8 +291,12 @@ pub struct Fingerprint {
 }
 
 impl Fingerprint {
-    /// The same bytes (a `touch` changes only the mtime).
+    /// The same bytes (a `touch` changes only the mtime). A fingerprint with an empty `sha256` was not hashed (the
+    /// file is above `MAX_REMOTE_EDIT_BYTES`, plan ruling 26): against one of those, size and mtime must both match.
     pub fn same_content(&self, other: &Fingerprint) -> bool {
+        if self.sha256.is_empty() || other.sha256.is_empty() {
+            return self.size == other.size && self.mtime_ns == other.mtime_ns;
+        }
         self.size == other.size && self.sha256 == other.sha256
     }
 }
@@ -824,7 +843,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   pub fn stat(paths: &[PathBuf]) -> RemoteResponse                      // Stats | Error（超过 256 个）
   pub fn write_file(path: &Path, bytes: &[u8], expect: Option<&Fingerprint>) -> RemoteResponse   // Saved | Modified | FileError
   pub fn git_changes(cwd: &Path, rev: Option<&str>) -> RemoteResponse   // Changes | Error
-  pub fn fingerprint_of(path: &Path) -> io::Result<Option<Fingerprint>>  // None: missing / not a file
+  pub fn fingerprint_of(path: &Path) -> io::Result<Option<Fingerprint>>  // None: missing / not a file; above MAX_REMOTE_EDIT_BYTES: not hashed (sha256 empty)
   ```
 - Produces（`crate::watch`）：
   ```rust
@@ -833,8 +852,9 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
       pub fn add(&mut self, path: PathBuf) -> Result<(), String>   // 超过 MAX_WATCHES 时 Err
       pub fn remove(&mut self, path: &Path)
       pub fn len(&self) -> usize
-      /// Files whose stat changed since the last look: (path, new fingerprint or None when gone).
-      pub fn poll(&mut self) -> Vec<(PathBuf, Option<Fingerprint>)>
+      /// Files whose stat changed since the last look. Stat only: the caller computes each fingerprint
+      /// (`files::fingerprint_of`) after releasing the lock around the set.
+      pub fn poll(&mut self) -> Vec<PathBuf>
   }
   ```
 
@@ -867,6 +887,21 @@ mod tests {
         assert_eq!(read_file(&f, 2), RemoteResponse::FileError { error: FsError::TooLarge { size: 3, max: 2 } });
         assert_eq!(read_file(&dir.path().join("nope"), 10), RemoteResponse::FileError { error: FsError::NotFound });
         assert!(matches!(read_file(dir.path(), 10), RemoteResponse::FileError { error: FsError::Io { .. } }), "a directory");
+    }
+
+    #[test]
+    fn a_file_above_the_edit_limit_is_compared_by_size_and_mtime_not_hashed() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("big.log");
+        std::fs::write(&f, vec![b'a'; MAX_REMOTE_EDIT_BYTES as usize + 1]).unwrap();
+        let fp = fingerprint_of(&f).unwrap().unwrap();
+        assert_eq!((fp.size, fp.sha256.as_str()), (MAX_REMOTE_EDIT_BYTES + 1, ""), "not read, not hashed");
+        assert!(fp.same_content(&fingerprint_of(&f).unwrap().unwrap()));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&f, vec![b'a'; MAX_REMOTE_EDIT_BYTES as usize + 1]).unwrap();
+        assert!(!fp.same_content(&fingerprint_of(&f).unwrap().unwrap()), "a new mtime is a change when there is no hash");
+        // a write expecting the old fingerprint is refused without reading the file
+        assert!(matches!(write_file(&f, b"x", Some(&fp)), RemoteResponse::Modified { .. }));
     }
 
     #[test]
@@ -1023,15 +1058,16 @@ mod tests {
         w.add(f.clone()).unwrap();
         assert!(w.poll().is_empty(), "the first look is the baseline");
         std::fs::write(&f, "three").unwrap();
-        let changed = w.poll();
-        assert_eq!(changed.len(), 1);
-        assert_eq!(changed[0].1.as_ref().map(|fp| fp.size), Some(5));
+        assert_eq!(w.poll(), vec![f.clone()]);
+        assert_eq!(crate::files::fingerprint_of(&f).unwrap().map(|fp| fp.size), Some(5));
         assert!(w.poll().is_empty(), "reported once");
         std::fs::remove_file(&f).unwrap();
-        assert_eq!(w.poll(), vec![(f.clone(), None)]);
+        assert_eq!(w.poll(), vec![f.clone()]);
+        assert_eq!(crate::files::fingerprint_of(&f).unwrap(), None, "gone");
         assert!(w.poll().is_empty());
         std::fs::write(&f, "back").unwrap();
-        assert_eq!(w.poll()[0].1.as_ref().map(|fp| fp.size), Some(4), "reappearing is a change");
+        assert_eq!(w.poll(), vec![f.clone()], "reappearing is a change");
+        assert_eq!(crate::files::fingerprint_of(&f).unwrap().map(|fp| fp.size), Some(4));
     }
 
     #[test]
@@ -1051,7 +1087,7 @@ mod tests {
 
 - [ ] **Step 2: 运行测试，确认失败**
 
-Run: `cargo test -p gilvt-remote files:: watch:: 2>&1 | tail -5`
+Run: `cargo test -p gilvt-remote -- files:: watch:: 2>&1 | tail -5`
 Expected: 编译错误（模块不存在）。
 
 - [ ] **Step 3: 实现**
@@ -1077,7 +1113,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn mtime_ns(meta: &fs::Metadata) -> u64 {
+pub(crate) fn mtime_ns(meta: &fs::Metadata) -> u64 {
     (meta.mtime().max(0) as u64).saturating_mul(1_000_000_000).saturating_add(meta.mtime_nsec().max(0) as u64)
 }
 
@@ -1157,7 +1193,10 @@ pub fn stat(paths: &[PathBuf]) -> RemoteResponse {
     RemoteResponse::Stats { entries }
 }
 
-/// What is at `path` now (None: missing, or not a regular file). Reads the whole file for the sha256.
+/// What is at `path` now (None: missing, or not a regular file). Reads the file for the sha256 up to
+/// `MAX_REMOTE_EDIT_BYTES`; above that the fingerprint is size + mtime only (`sha256` empty, see
+/// `Fingerprint::same_content`), so a growing log is never re-read on every poll and a conflict check never hashes a
+/// huge file (plan ruling 26). Callers must not hold a lock shared with request handling while calling this.
 pub fn fingerprint_of(path: &Path) -> io::Result<Option<Fingerprint>> {
     let meta = match fs::metadata(path) {
         Ok(m) if m.is_file() => m,
@@ -1165,6 +1204,9 @@ pub fn fingerprint_of(path: &Path) -> io::Result<Option<Fingerprint>> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
+    if meta.len() > MAX_REMOTE_EDIT_BYTES {
+        return Ok(Some(Fingerprint { mtime_ns: mtime_ns(&meta), size: meta.len(), sha256: String::new() }));
+    }
     let bytes = fs::read(path)?;
     Ok(Some(fingerprint(&meta, &bytes)))
 }
@@ -1211,7 +1253,9 @@ static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// A temp file next to `target` (0600 while an existing target's mode is copied over, so a private file is never
 /// briefly readable by others), written, fsynced, given the target's permissions and renamed over it. The temp file is
 /// removed on every failure. A directory that refuses the temp file falls back to rewriting a writable target in place
-/// (not crash-atomic), as `gilvt-editor`'s `write_atomic` does.
+/// (not crash-atomic), as `gilvt-editor`'s `write_atomic` does. This is a deliberate copy of that function:
+/// `gilvt-remote` is installed on every host and must stay small, so it does not depend on `gilvt-editor` (plan
+/// ruling 27); keep the two in step.
 pub fn write_atomic(target: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = target.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -1258,13 +1302,14 @@ pub fn git_changes(cwd: &Path, rev: Option<&str>) -> RemoteResponse {
 
 ```rust
 //! One bridge's watched files (R2a §8.1 `Watch`): looked at every `WATCH_POLL`; a changed stat (mtime, size, gone,
-//! back) is reported once with the new fingerprint. The sha256 is computed only for a file whose stat changed.
+//! back) is reported once. `poll` only stats: the daemon computes the fingerprints of the reported files after
+//! releasing the set's lock, so a slow disk never holds up `Watch` / `Unwatch` on the read loop (plan ruling 26).
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use gilvt_ipc::remote::{Fingerprint, MAX_WATCHES};
+use gilvt_ipc::remote::MAX_WATCHES;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Seen {
@@ -1276,7 +1321,7 @@ struct Seen {
 
 fn look(path: &Path) -> Seen {
     match std::fs::metadata(path) {
-        Ok(m) if m.is_file() => Seen { exists: true, mtime_ns: (m.mtime().max(0) as u64) * 1_000_000_000 + m.mtime_nsec().max(0) as u64, size: m.len(), ino: m.ino() },
+        Ok(m) if m.is_file() => Seen { exists: true, mtime_ns: crate::files::mtime_ns(&m), size: m.len(), ino: m.ino() },
         _ => Seen { exists: false, mtime_ns: 0, size: 0, ino: 0 },
     }
 }
@@ -1309,16 +1354,14 @@ impl WatchSet {
         self.files.len()
     }
 
-    pub fn poll(&mut self) -> Vec<(PathBuf, Option<Fingerprint>)> {
+    pub fn poll(&mut self) -> Vec<PathBuf> {
         let mut out = Vec::new();
         for (path, last) in self.files.iter_mut() {
             let now = look(path);
-            if *last == now {
-                continue;
+            if *last != now {
+                *last = now;
+                out.push(path.clone());
             }
-            *last = now;
-            let fp = if now.exists { crate::files::fingerprint_of(path).ok().flatten() } else { None };
-            out.push((path.clone(), fp));
         }
         out
     }
@@ -1331,7 +1374,7 @@ impl WatchSet {
 
 - [ ] **Step 4: 运行测试，确认通过（Mac 与 Linux）**
 
-Run: `cargo test -p gilvt-remote files:: watch:: && scripts/remote-test.sh -p gilvt-remote -- files:: watch::`
+Run: `cargo test -p gilvt-remote -- files:: watch:: && scripts/remote-test.sh -p gilvt-remote -- files:: watch::`
 Expected: PASS（两处都是）。`remote-test.sh` 在 docker 不可用时退出 2，这时在交付说明里注明。
 
 - [ ] **Step 5: 提交**
@@ -1363,7 +1406,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   // crate::daemon（私有）
   fn serve(conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history: &Arc<HistoryWorker>, workers: &Arc<FileWorkers>) -> io::Result<()>
   ```
-  行为：每个文件请求在工作线程里执行，应答按完成顺序发回（app 按 id 对应）；`Watch` / `Unwatch` 在读循环里直接回答；路径不是绝对路径时回 `Error`；`ReadFile.max` 被夹到 `MAX_REMOTE_EDIT_BYTES`；超过单帧的 `Response` 改为 `Error { message: OPEN_TOO_LARGE }`，超过单帧的推送丢弃。
+  行为：每个文件请求在工作线程里执行，应答按完成顺序发回（app 按 id 对应）；`Watch` / `Unwatch` 在读循环里直接回答；路径不是绝对路径时回 `Error`；`ReadFile.max` 被夹到 `MAX_REMOTE_EDIT_BYTES`；监视线程在锁外算 fingerprint；超过单帧的 `Response` 改为 `Error { message: OPEN_TOO_LARGE }`，超过单帧的推送丢弃。
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -1467,6 +1510,7 @@ mod tests {
     #[test]
     fn an_oversized_response_is_written_as_an_error() {
         let (mut client, mut server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap(); // a regression fails the test instead of hanging cargo
         let huge = RemoteResponse::Error { message: "x".repeat(MAX_FRAME as usize) };
         Out::Msg(DaemonMsg::Response { id: 4, resp: huge }).write(&mut server).unwrap();
         Out::Msg(DaemonMsg::TranscriptAppend { agent: "a".into(), session_id: "s".into(), offset: 0, bytes: "y".repeat(MAX_FRAME as usize) }).write(&mut server).unwrap();
@@ -1502,7 +1546,7 @@ mod tests {
 
 - [ ] **Step 2: 运行测试，确认失败**
 
-Run: `cargo test -p gilvt-remote daemon:: workers:: 2>&1 | tail -5`
+Run: `cargo test -p gilvt-remote -- daemon:: workers:: 2>&1 | tail -5`
 Expected: 编译错误（`workers` 模块不存在、`serve` 参数个数不对）。
 
 - [ ] **Step 3: 实现**
@@ -1588,8 +1632,11 @@ impl Out {
                     if closed.load(std::sync::atomic::Ordering::Relaxed) {
                         return;
                     }
+                    // Stat only under the lock (it is shared with the read loop's Watch / Unwatch); the sha256 of a
+                    // changed file is computed after the guard is dropped (plan ruling 26).
                     let changed = watches.lock().unwrap().poll();
-                    for (path, fingerprint) in changed {
+                    for path in changed {
+                        let fingerprint = files::fingerprint_of(&path).ok().flatten();
                         if tx.send(Out::Msg(DaemonMsg::FileChanged { path, fingerprint })).is_err() {
                             return;
                         }
@@ -1598,24 +1645,34 @@ impl Out {
             }
 ```
 
-5. 请求 `match` 里，Task 1 的占位分支换成：
+5. 请求 `match` 里，Task 1 的占位分支换成（每个分支先 `relative(&[path.as_path()])` 检查，再 `file_job`；检查与闭包 move 在两个表达式里，不会同时借用 `path`）：
 
 ```rust
-                            RemoteRequest::ReadFile { path, max } => file_job(workers, &tx, rid, &[&path], move || files::read_file(&path, max.min(MAX_REMOTE_EDIT_BYTES))),
-                            RemoteRequest::ReadForPreview { path, rev } => file_job(workers, &tx, rid, &[&path], move || files::read_for_preview(&path, rev.as_deref())),
+                            RemoteRequest::ReadFile { path, max } => match relative(&[path.as_path()]) {
+                                Some(refused) => Some(refused),
+                                None => file_job(workers, &tx, rid, move || files::read_file(&path, max.min(MAX_REMOTE_EDIT_BYTES))),
+                            },
+                            RemoteRequest::ReadForPreview { path, rev } => match relative(&[path.as_path()]) {
+                                Some(refused) => Some(refused),
+                                None => file_job(workers, &tx, rid, move || files::read_for_preview(&path, rev.as_deref())),
+                            },
                             RemoteRequest::Stat { paths } => {
                                 let refs: Vec<&std::path::Path> = paths.iter().map(|p| p.as_path()).collect();
                                 match relative(&refs) {
                                     Some(refused) => Some(refused),
-                                    None => file_job(workers, &tx, rid, &[], move || files::stat(&paths)),
+                                    None => file_job(workers, &tx, rid, move || files::stat(&paths)),
                                 }
                             }
-                            RemoteRequest::WriteFile { path, bytes, expect } => match decode_bytes(&bytes) {
-                                Ok(bytes) => file_job(workers, &tx, rid, &[&path], move || files::write_file(&path, &bytes, expect.as_ref())),
-                                Err(e) => Some(RemoteResponse::Error { message: e.to_string() }),
+                            RemoteRequest::WriteFile { path, bytes, expect } => match (relative(&[path.as_path()]), decode_bytes(&bytes)) {
+                                (Some(refused), _) => Some(refused),
+                                (None, Err(e)) => Some(RemoteResponse::Error { message: e.to_string() }),
+                                (None, Ok(bytes)) => file_job(workers, &tx, rid, move || files::write_file(&path, &bytes, expect.as_ref())),
                             },
-                            RemoteRequest::GitChanges { cwd, rev } => file_job(workers, &tx, rid, &[&cwd], move || files::git_changes(&cwd, rev.as_deref())),
-                            RemoteRequest::Watch { path } => Some(match relative(&[&path]) {
+                            RemoteRequest::GitChanges { cwd, rev } => match relative(&[cwd.as_path()]) {
+                                Some(refused) => Some(refused),
+                                None => file_job(workers, &tx, rid, move || files::git_changes(&cwd, rev.as_deref())),
+                            },
+                            RemoteRequest::Watch { path } => Some(match relative(&[path.as_path()]) {
                                 Some(refused) => refused,
                                 None => match watches.lock().unwrap().add(path) {
                                     Ok(()) => RemoteResponse::Ok,
@@ -1636,11 +1693,9 @@ fn relative(paths: &[&std::path::Path]) -> Option<RemoteResponse> {
     paths.iter().find(|p| !p.is_absolute()).map(|p| RemoteResponse::Error { message: format!("not an absolute path: {}", p.display()) })
 }
 
-/// Runs `job` on a file worker and sends its answer for request `id`; `None`: nothing to answer inline.
-fn file_job(workers: &FileWorkers, tx: &std::sync::mpsc::Sender<Out>, id: u64, paths: &[&std::path::Path], job: impl FnOnce() -> RemoteResponse + Send + 'static) -> Option<RemoteResponse> {
-    if let Some(refused) = relative(paths) {
-        return Some(refused);
-    }
+/// Runs `job` on a file worker and sends its answer for request `id`; always `None` (nothing to answer inline).
+/// Callers check `relative` first, with a borrow that has ended before the closure takes the path by move.
+fn file_job(workers: &FileWorkers, tx: &std::sync::mpsc::Sender<Out>, id: u64, job: impl FnOnce() -> RemoteResponse + Send + 'static) -> Option<RemoteResponse> {
     let tx = tx.clone();
     workers.submit(move || {
         let _ = tx.send(Out::Msg(DaemonMsg::Response { id, resp: job() }));
@@ -1648,8 +1703,6 @@ fn file_job(workers: &FileWorkers, tx: &std::sync::mpsc::Sender<Out>, id: u64, p
     None
 }
 ```
-
-（`file_job` 的闭包把 `path` move 进去，所以 `&[&path]` 要在 move 之前求值：Rust 按参数从左到右求值，`relative` 在 `file_job` 内部调用时 `paths` 借用的是调用处的局部变量，而闭包在最后一个参数才 move。若借用检查器报错，把检查提到调用之前：`if let Some(r) = relative(&[&path]) { Some(r) } else { file_job(…) }`。）
 
 - [ ] **Step 4: 运行测试，确认通过（Mac 与 Linux）**
 
@@ -1672,13 +1725,12 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 
 **Files:**
 - Modify: `crates/gilvt-remote/src/daemon.rs:160-183`（`serve_gilvt_sock`）
-- Modify: `crates/gilvt-remote/src/entry.rs`（`view`、`diff`）
-- Modify: `crates/gilvt-remote/src/main.rs:1-3`（模块文档）
-- Modify: `crates/gilvt-remote/tests/gilvt_entry.rs`（「其他命令被拒绝」改用 `ssh` 以外再加一条 `integrate`；新增 view 的测试）
 - Create: `crates/gilvt-remote/tests/view_bridge.rs`
 
+本任务 **不** 改 `entry.rs`：远端 `gilvt view` / `gilvt diff` 继续打印「远端不支持这个命令」并以 1 退出，直到 app 能处理 `Open`。入口的 `view` / `diff` 由 Task 8 在同一个提交里接上（连同 CHANGELOG 的那一行、`gilvt_entry.rs` 的测试），所以每个提交的可见行为都一致（裁决 24）。
+
 **Interfaces:**
-- Consumes: Task 1 的 `RemoteEvent::Open`、`OPEN_NOT_LINKED`、`OPEN_TOO_LARGE`、`write_response`；Task 2 的 `gilvt_client::view::{args::parse, request_for, read_stdin, open_error_text, not_linked_text}`。
+- Consumes: Task 1 的 `RemoteEvent::Open`、`OPEN_NOT_LINKED`、`OPEN_TOO_LARGE`、`write_response`。
 - Produces（`crate::daemon`，私有、纯）：
   ```rust
   /// Whether `req` fits in one `Open` frame (computed before the State lock is taken: a 10 MB stdin takes a while).
@@ -1686,7 +1738,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   /// What `run/gilvt.sock` answers a View / Diff, and the event to broadcast when it is accepted.
   fn open_reply(links: &Links, bridges: usize, req: gilvt_ipc::Request, fits: bool) -> (gilvt_ipc::Response, Option<RemoteEvent>)
   ```
-  远端 `gilvt view …` / `gilvt diff …`：成功以 0 退出，不打印；检查失败打印 `gilvt: <原因>` 以 1 退出；参数错误打印用法以 2 退出；没有 `GILVT_SOCKET` / `GILVT_LINK`、连不上、或 daemon 回 `not_linked` 时打印 `gilvt: 这个 shell 没有连着 gilvt` 以 1 退出。
+  `run/gilvt.sock` 收到带有已登记 link 的 `View` / `Diff` 时回 `Ok` 并广播 `Open`；否则回 `Error { not_linked | too_large }`。（远端 CLI 的 `view` / `diff` 在 Task 8。）
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -1725,49 +1777,11 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
     }
 ```
 
-`crates/gilvt-remote/tests/gilvt_entry.rs` 追加：
-
-```rust
-#[test]
-fn view_without_a_link_says_so_and_exits_1() {
-    let home = tempfile::tempdir().unwrap();
-    let gilvt = install(home.path());
-    std::fs::write(home.path().join("a.txt"), "x").unwrap();
-    let out = Command::new(&gilvt).args(["view", "a.txt"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_LANGUAGE", "zh-CN").env_remove("GILVT_SOCKET").env_remove("GILVT_LINK").output().unwrap();
-    assert_eq!(out.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("这个 shell 没有连着 gilvt"), "{out:?}");
-}
-
-#[test]
-fn view_checks_the_remote_file_and_sends_the_link() {
-    let home = tempfile::tempdir().unwrap();
-    let gilvt = install(home.path());
-    std::fs::write(home.path().join("a.txt"), "x").unwrap();
-    let sock = home.path().join("g.sock");
-    let listener = UnixListener::bind(&sock).unwrap();
-    let missing = Command::new(&gilvt).args(["view", "nope.txt"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_SOCKET", &sock).env("GILVT_LINK", "i-3").output().unwrap();
-    assert_eq!(missing.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&missing.stderr).contains("nope.txt: no such file"));
-    let child = Command::new(&gilvt).args(["view", "a.txt:2"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_SOCKET", &sock).env("GILVT_LINK", "i-3").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    let mut conn = accept_within(&listener, Duration::from_secs(10));
-    let mut line = String::new();
-    BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
-    let req: gilvt_ipc::Request = serde_json::from_str(&line).unwrap();
-    let want_path = home.path().canonicalize().unwrap().join("a.txt");
-    assert!(matches!(req, gilvt_ipc::Request::View { ref path, line: Some(2), link: Some(ref l), .. } if l == "i-3" && path.as_deref().map(|p| p.canonicalize().unwrap()) == Some(want_path.clone())), "{req:?}");
-    conn.write_all(b"{\"type\":\"ok\"}\n").unwrap();
-    let out = child.wait_with_output().unwrap();
-    assert!(out.status.success() && out.stdout.is_empty(), "{out:?}");
-}
-```
-
-（`other_commands_are_refused_and_unknown_hook_usage_is_silent` 不变：`ssh` 仍然被拒绝。）
-
 `crates/gilvt-remote/tests/view_bridge.rs`：
 
 ```rust
-//! Remote `gilvt view` end to end (R2a §8.2): the login shell's `gilvt` asks `run/gilvt.sock`, the daemon answers Ok
-//! and the bridge carries an `Open` event with the shell's link. Runs on macOS and, in scripts/remote-test.sh, Linux.
+//! A View sent to `run/gilvt.sock` end to end (R2a §8.2): the daemon answers Ok and the bridge carries an `Open`
+//! event with the shell's link. Runs on macOS and, in scripts/remote-test.sh, Linux.
 use gilvt_ipc::remote::*;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -1782,7 +1796,7 @@ impl Drop for KillDaemon {
 }
 
 #[test]
-fn view_in_the_login_shell_reaches_the_bridge_as_open() {
+fn a_view_for_a_registered_link_reaches_the_bridge_as_open() {
     let home = tempfile::tempdir().unwrap();
     let dir = home.path().join(".gilvt-server/0.1.0-bbbbbbbb");
     std::fs::create_dir_all(dir.join("bin")).unwrap();
@@ -1808,13 +1822,26 @@ fn view_in_the_login_shell_reaches_the_bridge_as_open() {
     stdin.write_all(&hello).unwrap();
     assert!(matches!(rx.recv_timeout(Duration::from_secs(10)).unwrap(), DaemonMsg::Welcome { .. }));
 
-    let status = Command::new(&exe)
-        .args(["login", "--link", "t-1", "--exec", r#"cd "$HOME" && "$GILVT_BIN_DIR/gilvt" view --pin a.md && echo ok > "$HOME/exit""#])
+    // A login shell that stays up (the link is registered while it runs) and says where its socket is.
+    let mut shell = Command::new(&exe)
+        .args(["login", "--link", "t-1", "--exec", r#"printf '%s\n' "$GILVT_SOCKET" > "$HOME/sock"; while [ ! -e "$HOME/go" ]; do sleep 0.1; done"#])
         .env("HOME", home.path())
         .env("SHELL", "/bin/sh")
-        .status()
+        .spawn()
         .unwrap();
-    assert!(status.success());
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let socket = loop {
+        if let Ok(s) = std::fs::read_to_string(home.path().join("sock")) {
+            if s.ends_with('\n') {
+                break s.trim().to_string();
+            }
+        }
+        assert!(std::time::Instant::now() < deadline, "the shell never wrote its socket");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    // What the remote `gilvt view --pin a.md` sends (the CLI itself comes with the app side, Task 8).
+    let req = gilvt_ipc::Request::View { pane: None, path: Some(home.path().join("a.md")), content: None, as_type: None, line: None, col: None, pin: true, link: Some("t-1".into()) };
+    assert_eq!(gilvt_ipc::send(std::path::Path::new(&socket), &req).unwrap(), gilvt_ipc::Response::Ok);
     let open = loop {
         match rx.recv_timeout(Duration::from_secs(10)).expect("no Open frame") {
             DaemonMsg::Event { event: RemoteEvent::Open { link, request }, .. } => break (link, *request),
@@ -1823,7 +1850,11 @@ fn view_in_the_login_shell_reaches_the_bridge_as_open() {
     };
     assert_eq!(open.0, "t-1");
     assert!(matches!(open.1, gilvt_ipc::Request::View { pin: true, link: Some(ref l), path: Some(ref p), .. } if l == "t-1" && p.ends_with("a.md")), "{:?}", open.1);
-    assert_eq!(std::fs::read_to_string(home.path().join("exit")).unwrap(), "ok\n", "the CLI got Ok and exited 0");
+    // an unregistered link is refused and nothing is broadcast
+    let stray = gilvt_ipc::Request::View { link: Some("t-9".into()), ..req.clone() };
+    assert_eq!(gilvt_ipc::send(std::path::Path::new(&socket), &stray).unwrap(), gilvt_ipc::Response::Error { message: OPEN_NOT_LINKED.into() });
+    std::fs::write(home.path().join("go"), "").unwrap();
+    assert!(shell.wait().unwrap().success());
     let _ = bridge.kill();
 }
 ```
@@ -1831,7 +1862,7 @@ fn view_in_the_login_shell_reaches_the_bridge_as_open() {
 - [ ] **Step 2: 运行测试，确认失败**
 
 Run: `cargo test -p gilvt-remote 2>&1 | grep -E "error|FAILED|test result" | head`
-Expected: 编译错误（`open_reply` 不存在）；`view_*` 测试打印「远端不支持这个命令」而失败。
+Expected: 编译错误（`open_reply` 不存在）。
 
 - [ ] **Step 3: 实现**
 
@@ -1897,61 +1928,6 @@ fn open_reply(links: &Links, bridges: usize, req: gilvt_ipc::Request, fits: bool
 
 （`Links::contains` 是第一份计划已有的方法，`daemon.rs:244` 的补发过滤在用。文档注释里 `serve_gilvt_sock` 的「R2a's second plan adds View / Diff here」改为「View / Diff are answered and broadcast as `Open` (R2a §8.2)」。）
 
-`entry.rs`：
-
-```rust
-        Some("view") | Some("diff") => view(args),
-```
-
-（加在 `Some("hook")` 分支之后），以及：
-
-```rust
-/// `gilvt view` / `gilvt diff` on the ssh host (R2a §8.2): checked here, against this host's files, then asked of
-/// `run/gilvt.sock` with this shell's link. The app answers by opening a preview of the remote file.
-fn view(args: &[String]) -> ExitCode {
-    use gilvt_client::view::{args::parse, not_linked_text, open_error_text, read_stdin, request_for};
-    let cmd = match parse(args) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("gilvt: {e}\n{REMOTE_USAGE}");
-            return ExitCode::from(2);
-        }
-    };
-    let fail = |msg: &str| {
-        eprintln!("gilvt: {msg}");
-        ExitCode::from(1)
-    };
-    let (Some(socket), Some(link)) = (std::env::var_os("GILVT_SOCKET"), std::env::var("GILVT_LINK").ok()) else { return fail(not_linked_text()) };
-    let Ok(cwd) = std::env::current_dir() else { return fail("current directory is gone") };
-    let req = match request_for(&cmd, &cwd, || read_stdin(std::io::stdin()), None, Some(link)) {
-        Ok(Some(req)) => req,
-        Ok(None) => {
-            print!("{REMOTE_USAGE}");
-            return ExitCode::SUCCESS;
-        }
-        Err(e) => return fail(&e),
-    };
-    // A line the daemon cannot read whole (10 MB of stdin can grow past 16 MB as JSON) is refused here, not cut off there.
-    if serde_json::to_vec(&req).map_or(true, |v| v.len() as u64 + 256 > gilvt_ipc::MAX_MESSAGE_BYTES) {
-        return fail(&open_error_text(gilvt_ipc::remote::OPEN_TOO_LARGE));
-    }
-    match gilvt_ipc::send(std::path::Path::new(&socket), &req) {
-        Ok(gilvt_ipc::Response::Ok) => ExitCode::SUCCESS,
-        Ok(gilvt_ipc::Response::Error { message }) => fail(&open_error_text(&message)),
-        Ok(_) | Err(_) => fail(not_linked_text()),
-    }
-}
-
-const REMOTE_USAGE: &str = "\
-usage:
-  gilvt view [--pin] [--as TYPE] <file>[:line[:col]]   preview a file of this host in gilvt
-  gilvt view --as TYPE -                             preview standard input
-  gilvt diff [REV]                                   preview changes against REV (default HEAD)
-";
-```
-
-（`gilvt-remote/Cargo.toml` 已依赖 `gilvt-client`、`gilvt-ipc`。`main.rs` 与 `entry.rs` 的模块文档把「R2a's second plan adds view / diff」改为「and `view` / `diff` (R2a §8.2)」。）
-
 - [ ] **Step 4: 运行测试，确认通过（Mac 与 Linux）**
 
 Run: `cargo test -p gilvt-remote && scripts/remote-test.sh -p gilvt-remote -p gilvt-client`
@@ -1961,7 +1937,7 @@ Expected: PASS。
 
 ```bash
 git add crates/gilvt-remote
-git commit -m "gilvt-remote: gilvt view / gilvt diff in the remote shell, broadcast as Open through run/gilvt.sock
+git commit -m "gilvt-remote: View / Diff on run/gilvt.sock are broadcast as Open
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
@@ -1974,7 +1950,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 - Modify: `crates/gilvt-agent/src/host.rs`（`HostPath` 的派生与方法、测试；`~/` 的展开在 Task 10 的 `gilvt_term::paths::path_probe` 里，用 `Welcome.home`）
 - Modify: `crates/gilvt-viewer/src/preview.rs`（`Preview::from_remote`、`Preview::too_large`、测试）
 - Modify: `crates/gilvt-app/src/remote/mod.rs`（`HostEntry.home`；`pub mod fs; pub mod watch;`；`init` 建 `RemoteWatches`）
-- Modify: `crates/gilvt-app/src/remote/bridge.rs`（`request_async`；`Welcome` 记下 `home` 并重新 `Watch`；`FileChanged` 分发）
+- Modify: `crates/gilvt-app/src/remote/bridge.rs`（`request_async`；`Welcome` 记下 `home` 并重新 `Watch`；`FileChanged` 分发；写线程遇到超过单帧的请求只让这一个请求失败，不再结束 bridge，裁决 23；bridge 断开时清掉 Watch 确认）
 - Create: `crates/gilvt-app/src/remote/fs.rs`、`crates/gilvt-app/src/remote/watch.rs`、`crates/gilvt-app/src/hostfs.rs`
 - Modify: `crates/gilvt-app/src/main.rs`（`mod hostfs;`）
 
@@ -2026,12 +2002,13 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   }
   pub(crate) fn stat_batches(paths: &[PathBuf]) -> Vec<Vec<PathBuf>>
   // crate::remote::watch
-  pub struct WatchTable { … }   // add / remove / ids_for / paths_of / count（纯）
+  pub struct WatchTable { … }   // add / remove / ids_for / paths_of / ack / clear_acks / count（纯；count 只数已确认的）
   pub fn watch(host: &str, path: PathBuf, on_change: impl FnMut(Option<Fingerprint>, &mut App) + 'static, cx: &mut App) -> u64
   pub fn unwatch(id: u64, cx: &mut App)
   pub fn file_changed(host: &str, path: &Path, fingerprint: Option<Fingerprint>, cx: &mut App)
   pub fn rewatch(host: &str, cx: &mut App)
-  pub fn count(host: &str, cx: &App) -> usize
+  pub fn bridge_down(host: &str, cx: &mut App)          // the daemon's watches died with the bridge: forget the acknowledgements
+  pub fn count(host: &str, cx: &App) -> usize           // paths the daemon has ACKNOWLEDGED (Watch answered Ok on the current bridge), not the app's intent
   // crate::hostfs
   pub enum HostFs { Local, Remote(RemoteFs) }
   impl HostFs { pub fn of(path: &HostPath, cx: &App) -> HostFs; pub fn load_preview(&self, path: PathBuf, base: DiffBase, cx: &mut App) -> Task<Result<Preview, String>> }
@@ -2147,11 +2124,20 @@ mod tests {
         let (c, first) = t.add("other", Path::new("/f"));
         assert!(first, "the same path on another host is another file");
         assert_eq!(t.ids_for("h", Path::new("/f")), vec![a, b]);
-        assert_eq!((t.count("h"), t.paths_of("h")), (1, vec![PathBuf::from("/f")]));
+        assert_eq!((t.count("h"), t.paths_of("h")), (0, vec![PathBuf::from("/f")]), "wanted, not yet acknowledged by the daemon");
+        t.ack("h", Path::new("/f"));
+        t.ack("h", Path::new("/never-watched"));
+        assert_eq!(t.count("h"), 1, "only an acknowledged watch counts; an ack for an unwatched path is ignored");
+        t.clear_acks("h");
+        assert_eq!((t.count("h"), t.paths_of("h").len()), (0, 1), "the bridge went down: the daemon forgot, the app still wants it");
+        t.ack("h", Path::new("/f"));
         assert_eq!(t.remove(a), Some(("h".into(), PathBuf::from("/f"), false)));
+        assert_eq!(t.count("h"), 1);
         assert_eq!(t.remove(b), Some(("h".into(), PathBuf::from("/f"), true)));
         assert_eq!(t.remove(b), None);
         assert_eq!(t.count("h"), 0);
+        t.ack("h", Path::new("/f"));
+        assert_eq!(t.count("h"), 0, "nobody watches it any more");
         assert_eq!(t.ids_for("other", Path::new("/f")), vec![c]);
     }
 }
@@ -2159,7 +2145,7 @@ mod tests {
 
 - [ ] **Step 2: 运行测试，确认失败**
 
-Run: `cargo test -p gilvt-agent host:: && cargo test -p gilvt-viewer from_remote && cargo test -p gilvt-app remote::fs remote::watch 2>&1 | tail -5`
+Run: `cargo test -p gilvt-agent host:: && cargo test -p gilvt-viewer from_remote && cargo test -p gilvt-app -- remote::fs remote::watch 2>&1 | tail -5`
 Expected: 编译错误。
 
 - [ ] **Step 3: 实现**
@@ -2236,7 +2222,57 @@ pub fn request_async(host: &str, req: RemoteRequest, timeout: Duration, cx: &mut
 }
 ```
 
-`on_message` 的 `Welcome` 分支解构加 `home`，`h.welcomed(epoch, gap);` 之后 `h.home = home;`，并在 `Agents::remote_reconnected` 之前加 `super::watch::rewatch(host, cx);`（bridge 已是 `Up`，`request` 会发出去）。Task 1 的占位 `Some(DaemonMsg::FileChanged { .. }) => {}` 换成 `Some(DaemonMsg::FileChanged { path, fingerprint }) => super::watch::file_changed(host, &path, fingerprint, cx),`。
+写线程（`ensure` 里 `for m in rx` 那段）改成：遇到超过单帧的请求时只让这一个请求失败。`write_frame` 在写任何字节之前就拒绝，所以流还是好的；写线程把一条合成的 `Response { id, Error { OPEN_TOO_LARGE } }` 经 `events` 通道交给主线程，`on_message` 照常把它交给等待的 reply（`RequestError::Remote(OPEN_TOO_LARGE)` → `FsFailure::TooLarge { size: 0 }`）。其他写错误仍然结束写线程。这样一次很大的保存（Task 12）或将来任何超大请求不会拆掉 bridge 和这台主机的 hook（裁决 23）：
+
+```rust
+/// What the main thread should hear when `write_frame` refused `m` for being over the frame cap (R2a plan ruling 23).
+fn too_large_reply(m: &AppMsg) -> Option<DaemonMsg> {
+    match m {
+        AppMsg::Request { id, .. } => Some(DaemonMsg::Response { id: *id, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }),
+        _ => None,
+    }
+}
+
+    // in ensure(), the writer thread:
+    let (writer_events, writer_host) = (events.clone(), host.to_string());
+    std::thread::spawn(move || {
+        let mut w = BufWriter::new(stdin);
+        if write_frame(&mut w, &hello).is_err() {
+            return;
+        }
+        for m in rx {
+            match write_frame(&mut w, &m) {
+                Ok(()) => {}
+                // Refused before a byte was written: this request fails, the bridge (and the host's hooks) go on.
+                Err(e) if is_frame_too_large(&e) => {
+                    if let Some(reply) = too_large_reply(&m) {
+                        if writer_events.send_blocking((writer_host.clone(), generation, Some(reply))).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+```
+
+（`events` 要在读线程 move 之前克隆；`use gilvt_ipc::remote::{…, is_frame_too_large, OPEN_TOO_LARGE}`。）`bridge.rs` 的 `mod tests` 追加：
+
+```rust
+    #[test]
+    fn an_oversized_request_fails_only_itself() {
+        let big = AppMsg::Request { id: 7, req: RemoteRequest::WriteFile { path: "/x".into(), bytes: "A".repeat(gilvt_ipc::remote::MAX_FRAME as usize), expect: None } };
+        let mut out = Vec::new();
+        let e = write_frame(&mut out, &big).unwrap_err();
+        assert!(is_frame_too_large(&e) && out.is_empty(), "refused whole, nothing written");
+        assert_eq!(too_large_reply(&big), Some(DaemonMsg::Response { id: 7, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }));
+    }
+```
+
+`on_message` 的 `None`（bridge 结束）分支在 `retire(h, cx)` 之后加 `super::watch::bridge_down(host, cx);`。
+
+`on_message` 的 `Welcome` 分支解构加 `home`，`h.welcomed(epoch, gap);` 之后 `h.home = home;`，并在 `Agents::remote_reconnected` 之前加 `super::watch::rewatch(host, cx);`（bridge 已是 `Up`，`request` 会发出去；每个 `Watch` 被 daemon 答 `Ok` 之后才算确认）。Task 1 的占位 `Some(DaemonMsg::FileChanged { .. }) => {}` 换成 `Some(DaemonMsg::FileChanged { path, fingerprint }) => super::watch::file_changed(host, &path, fingerprint, cx),`。
 
 `remote/fs.rs`：
 
@@ -2432,17 +2468,19 @@ impl RemoteFs {
 //! (the daemon's watches belong to one bridge connection). `FileChanged` pushes go to every watcher of that path.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use gilvt_ipc::remote::{Fingerprint, RemoteRequest};
+use gilvt_ipc::remote::{Fingerprint, RemoteRequest, RemoteResponse};
 use gpui::{App, Global};
 
 #[derive(Default)]
 pub struct WatchTable {
     next: u64,
     subs: BTreeMap<u64, (String, PathBuf)>,
+    /// (host, path) the daemon answered `Watch` Ok for on its current bridge connection (plan ruling 25).
+    acked: BTreeSet<(String, PathBuf)>,
 }
 
 impl WatchTable {
@@ -2458,7 +2496,22 @@ impl WatchTable {
     pub fn remove(&mut self, id: u64) -> Option<(String, PathBuf, bool)> {
         let (host, path) = self.subs.remove(&id)?;
         let last = self.ids_for(&host, &path).is_empty();
+        if last {
+            self.acked.remove(&(host.clone(), path.clone()));
+        }
         Some((host, path, last))
+    }
+
+    /// The daemon accepted the `Watch`. Ignored when nobody watches the path any more (the answer came late).
+    pub fn ack(&mut self, host: &str, path: &Path) {
+        if !self.ids_for(host, path).is_empty() {
+            self.acked.insert((host.to_string(), path.to_path_buf()));
+        }
+    }
+
+    /// The bridge to `host` ended or came back: its daemon-side watches are gone (they belong to one connection).
+    pub fn clear_acks(&mut self, host: &str) {
+        self.acked.retain(|(h, _)| h != host);
     }
 
     pub fn ids_for(&self, host: &str, path: &Path) -> Vec<u64> {
@@ -2472,8 +2525,10 @@ impl WatchTable {
         v
     }
 
+    /// Watches the daemon has acknowledged: what DebugState's `hosts[].watches` reports (a test waiting for it knows
+    /// the daemon has taken its baseline).
     pub fn count(&self, host: &str) -> usize {
-        self.paths_of(host).len()
+        self.acked.iter().filter(|(h, _)| h == host).count()
     }
 }
 
@@ -2486,16 +2541,32 @@ pub struct RemoteWatches {
 }
 impl Global for RemoteWatches {}
 
-fn send(host: &str, req: RemoteRequest, cx: &mut App) {
-    // A refused Watch (64 already, bridge down) only costs live updates: the view still shows what it loaded.
-    super::bridge::request(host, req, super::fs::WATCH_TIMEOUT, Box::new(|_, _| {}), cx);
+fn send_watch(host: &str, path: PathBuf, cx: &mut App) {
+    // A refused Watch (64 already, bridge down) only costs live updates: the view still shows what it loaded, and the
+    // path is not counted as acknowledged.
+    let (h, p) = (host.to_string(), path.clone());
+    super::bridge::request(
+        host,
+        RemoteRequest::Watch { path },
+        super::fs::WATCH_TIMEOUT,
+        Box::new(move |r, cx| {
+            if matches!(r, Ok(RemoteResponse::Ok)) && cx.has_global::<RemoteWatches>() {
+                cx.global_mut::<RemoteWatches>().table.ack(&h, &p);
+            }
+        }),
+        cx,
+    );
+}
+
+fn send_unwatch(host: &str, path: PathBuf, cx: &mut App) {
+    super::bridge::request(host, RemoteRequest::Unwatch { path }, super::fs::WATCH_TIMEOUT, Box::new(|_, _| {}), cx);
 }
 
 pub fn watch(host: &str, path: PathBuf, on_change: impl FnMut(Option<Fingerprint>, &mut App) + 'static, cx: &mut App) -> u64 {
     let (id, first) = cx.global_mut::<RemoteWatches>().table.add(host, &path);
     cx.global_mut::<RemoteWatches>().callbacks.insert(id, Rc::new(RefCell::new(on_change)));
     if first {
-        send(host, RemoteRequest::Watch { path }, cx);
+        send_watch(host, path, cx);
     }
     id
 }
@@ -2507,7 +2578,7 @@ pub fn unwatch(id: u64, cx: &mut App) {
     let w = cx.global_mut::<RemoteWatches>();
     w.callbacks.remove(&id);
     if let Some((host, path, true)) = w.table.remove(id) {
-        send(&host, RemoteRequest::Unwatch { path }, cx);
+        send_unwatch(&host, path, cx);
     }
 }
 
@@ -2520,10 +2591,21 @@ pub fn file_changed(host: &str, path: &Path, fingerprint: Option<Fingerprint>, c
     }
 }
 
+/// A new bridge connection is up: ask the daemon to watch everything the app still wants (acknowledgements start again).
 pub fn rewatch(host: &str, cx: &mut App) {
-    let Some(w) = cx.try_global::<RemoteWatches>() else { return };
-    for path in w.table.paths_of(host) {
-        send(host, RemoteRequest::Watch { path }, cx);
+    if !cx.has_global::<RemoteWatches>() {
+        return;
+    }
+    cx.global_mut::<RemoteWatches>().table.clear_acks(host);
+    for path in cx.global::<RemoteWatches>().table.paths_of(host) {
+        send_watch(host, path, cx);
+    }
+}
+
+/// The bridge to `host` ended: the daemon's watches are gone, so none of them is acknowledged any more.
+pub fn bridge_down(host: &str, cx: &mut App) {
+    if cx.has_global::<RemoteWatches>() {
+        cx.global_mut::<RemoteWatches>().table.clear_acks(host);
     }
 }
 
@@ -2536,7 +2618,9 @@ pub fn count(host: &str, cx: &App) -> usize {
 
 ```rust
 //! Files and git on the machine a path is on (spec §6, R2a §8.3). `Local` runs the existing blocking functions on the
-//! background executor (unchanged behaviour); `Remote` asks the host's daemon through its bridge. Both return a gpui
+//! background executor (unchanged behaviour) and is the only implementation of local preview loading and of the local
+//! changed-file list (`PreviewView::spawn_load` and the local `Diff` request go through it, Task 8; plan ruling 27);
+//! `Remote` asks the host's daemon through its bridge. Both return a gpui
 //! `Task`, so callers never block the main thread and never look at the Mac's disk for a remote path.
 
 use std::path::PathBuf;
@@ -2789,20 +2873,21 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 ### Task 8: 远端预览；远端 `gilvt view` / `gilvt diff` 打开 Quick Look
 
 **Files:**
-- Modify: `crates/gilvt-app/src/preview_view.rs`（`loading`、远端 `spawn_load`、`apply_load`、远端 `watch`、`replace_request`、`fail`、`pending`、释放时 `unwatch`）
+- Modify: `crates/gilvt-app/src/preview_view.rs`（`loading`、`spawn_load` 改为经 `HostFs::load_preview` 载入文件（本地与远端同一条路径）、`apply_load`、远端 `watch`、`replace_request`、`fail`、`pending`、释放时 `unwatch`）
 - Modify: `crates/gilvt-app/src/workspace.rs`（`open_preview_pending`、`close_quicklook_if`）
-- Modify: `crates/gilvt-app/src/ipc_bridge.rs`（`view_request` 带主机、`diff_request` 用 `HostPath`、`route` 改为 `pub(crate)`、`route_pending`；本地 `Diff` 改用 `HostGit::Local`）
+- Modify: `crates/gilvt-app/src/ipc_bridge.rs`（`view_request` 带主机、`diff_request` 用 `HostPath`、`route` 改为 `pub(crate)`、`route_pending`；本地 `Diff` 改用 `HostGit::Local`；**既有测试** `view_requests_become_previews`、`diff_requests_list_files` 随新签名更新）
+- Modify: `crates/gilvt-remote/src/entry.rs`（`view`、`diff`：远端 `gilvt view` / `gilvt diff` 在 app 能处理 `Open` 的这个提交里才接上，裁决 24）、`crates/gilvt-remote/src/main.rs:1-3`（模块文档）、`crates/gilvt-remote/tests/gilvt_entry.rs`（新增 view 的测试）
 - Create: `crates/gilvt-app/src/remote/open.rs`
 - Modify: `crates/gilvt-app/src/remote/mod.rs`（`pub mod open;`）、`crates/gilvt-app/src/remote/bridge.rs`（`Open` 分支）、`crates/gilvt-app/src/hostfs.rs`（删掉 `#![allow(dead_code)]`）
 - Modify: `CHANGELOG.md`（Added 一条）
 
 **Interfaces:**
-- Consumes: Task 6 的 `HostFs`、`HostGit`、`RemoteFs`、`remote::watch`、`fs::{FsFailure, not_connected}`；Task 7 的 `Source::File(HostPath)`、`OpenRequest::{at, host_files}`。
+- Consumes: Task 6 的 `HostFs`、`HostGit`、`RemoteFs`、`remote::watch`、`fs::{FsFailure, not_connected, loading_text}`；Task 7 的 `Source::File(HostPath)`、`OpenRequest::{at, host_files}`；Task 2 的 `gilvt_client::view::{args::parse, request_for, read_stdin, open_error_text, not_linked_text}`；Task 5 的 `Open` 广播。
 - Produces：
   ```rust
   // PreviewView
   pub(crate) loading: bool                         // 远端读取进行中（DebugState 的 loading）
-  pub fn pending(window: &mut Window, cx: &mut Context<Self>) -> PreviewView        // 空的 Quick Look，显示「加载中…」
+  pub fn pending(window: &mut Window, cx: &mut Context<Self>) -> PreviewView        // 空的 Quick Look，显示「正在读取…」（`remote::fs::loading_text()`）
   pub fn replace_request(&mut self, req: OpenRequest, cx: &mut Context<Self>)      // 换成 req 并载入
   pub fn fail(&mut self, message: String, cx: &mut Context<Self>)                  // 停止加载，显示 message
   // Workspace
@@ -2824,6 +2909,30 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 `ipc_bridge.rs` 的测试追加：
 
 ```rust
+    // 既有的两个测试随签名一起更新（`view_request(req, host)`、`diff_request(Vec<HostPath>, rev)`）：
+    #[test]
+    fn view_requests_become_previews() {
+        let req = Request::View { pane: Some(2), path: Some("/r/a.rs".into()), content: None, as_type: None, line: Some(9), col: Some(1), pin: true, link: None };
+        let (pane, open, pin) = view_request(req, None).unwrap();
+        assert_eq!((pane, pin), (Some(2), true));
+        assert_eq!(open.sources, vec![Source::File(HostPath::local("/r/a.rs"))]);
+        assert_eq!(open.line, Some(9));
+
+        let req = Request::View { pane: None, path: None, content: Some("x".into()), as_type: Some("md".into()), line: None, col: None, pin: false, link: None };
+        let (_, open, _) = view_request(req, None).unwrap();
+        assert_eq!(open.sources, vec![Source::Inline { content: "x".into(), as_type: Some("md".into()) }]);
+
+        let empty = Request::View { pane: None, path: None, content: None, as_type: None, line: None, col: None, pin: false, link: None };
+        assert!(view_request(empty, None).is_none());
+    }
+
+    #[test]
+    fn diff_requests_list_files() {
+        let open = diff_request(vec![HostPath::local("/r/a"), HostPath::local("/r/b")], Some("main".into()));
+        assert_eq!(open.sources.len(), 2);
+        assert_eq!(open.rev.as_deref(), Some("main"));
+    }
+
     #[test]
     fn a_remote_view_names_a_file_on_its_host() {
         let req = Request::View { pane: None, path: Some("/home/dev/a.md".into()), content: None, as_type: None, line: Some(4), col: None, pin: true, link: Some("i-1".into()) };
@@ -2835,12 +2944,13 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
     }
 ```
 
-`remote/open.rs` 的测试（随实现写在文件末尾）：
+`remote/open.rs` 的测试（随实现写在文件末尾；`Source` 不在模块的导入里，测试自己导入）：
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::preview_view::Source;
 
     #[test]
     fn plans_a_view_a_stdin_view_and_a_diff() {
@@ -2857,9 +2967,47 @@ mod tests {
 }
 ```
 
+`crates/gilvt-remote/tests/gilvt_entry.rs` 追加（Task 5 没有碰入口，所以远端 `gilvt view` 到这里才可用）：
+
+```rust
+#[test]
+fn view_without_a_link_says_so_and_exits_1() {
+    let home = tempfile::tempdir().unwrap();
+    let gilvt = install(home.path());
+    std::fs::write(home.path().join("a.txt"), "x").unwrap();
+    let out = Command::new(&gilvt).args(["view", "a.txt"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_LANGUAGE", "zh-CN").env_remove("GILVT_SOCKET").env_remove("GILVT_LINK").output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("这个 shell 没有连着 gilvt"), "{out:?}");
+}
+
+#[test]
+fn view_checks_the_remote_file_and_sends_the_link() {
+    let home = tempfile::tempdir().unwrap();
+    let gilvt = install(home.path());
+    std::fs::write(home.path().join("a.txt"), "x").unwrap();
+    let sock = home.path().join("g.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let missing = Command::new(&gilvt).args(["view", "nope.txt"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_SOCKET", &sock).env("GILVT_LINK", "i-3").output().unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("nope.txt: no such file"));
+    let child = Command::new(&gilvt).args(["view", "a.txt:2"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_SOCKET", &sock).env("GILVT_LINK", "i-3").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut conn = accept_within(&listener, Duration::from_secs(10));
+    let mut line = String::new();
+    BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
+    let req: gilvt_ipc::Request = serde_json::from_str(&line).unwrap();
+    let want_path = home.path().canonicalize().unwrap().join("a.txt");
+    assert!(matches!(req, gilvt_ipc::Request::View { ref path, line: Some(2), link: Some(ref l), .. } if l == "i-3" && path.as_deref().map(|p| p.canonicalize().unwrap()) == Some(want_path.clone())), "{req:?}");
+    conn.write_all(b"{\"type\":\"ok\"}\n").unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success() && out.stdout.is_empty(), "{out:?}");
+}
+```
+
+（`other_commands_are_refused_and_unknown_hook_usage_is_silent` 不变：它用 `ssh`，仍被拒绝。）
+
 - [ ] **Step 2: 运行测试，确认失败**
 
-Run: `cargo test -p gilvt-app ipc_bridge remote::open 2>&1 | tail -3`
+Run: `cargo test -p gilvt-app -- ipc_bridge remote::open 2>&1 | tail -3`
 Expected: 编译错误。
 
 - [ ] **Step 3: 实现**
@@ -2904,29 +3052,40 @@ Expected: 编译错误。
     }
 ```
 
-`spawn_load` 开头（`let base = …` 之后）加远端分支，本地分支保持原样（只把回调体换成 `view.apply_load(result, cx)`）：
+`spawn_load` 整体换成下面的版本（取代 Task 7 的占位分支）。文件来源 **本地与远端走同一条路**：`HostFs::of(..).load_preview(..)`（本地是 `Preview::load` 的后台包装，远端是一次 `ReadForPreview`），所以本地预览的加载只有一份实现；只有 Markdown 的构建按主机区分，仍在后台线程里：
 
 ```rust
-        if let Source::File(hp) = &source {
-            if hp.remote_host().is_some() {
-                // One ReadForPreview (R2a §8.3); the Markdown is built off the main thread like a local one, but
-                // without probing the Mac's disk (`Probe::Remote`, Task 9; until then `MdDoc::build` on the bytes).
-                self.loading = true;
-                let read = crate::hostfs::HostFs::of(hp, cx).load_preview(hp.path.clone(), base, cx);
-                self._load = Some(cx.spawn(async move |this, cx| {
-                    let result = match read.await {
-                        Ok(preview) => Ok(cx.background_executor().spawn(async move { let md = MdDoc::build_remote(&preview); (preview, md) }).await),
-                        Err(e) => Err(e),
-                    };
-                    let _ = this.update(cx, |view, cx| view.apply_load(result, cx));
-                }));
-                cx.notify();
-                return;
-            }
-        }
+    fn spawn_load(&mut self, cx: &mut Context<Self>) {
+        self.stale = false;
+        let Some(source) = self.source().cloned() else { return };
+        let base = self.bases[self.base_ix].clone();
+        let remote = matches!(&source, Source::File(hp) if hp.remote_host().is_some());
+        let load: Task<Result<Preview, String>> = match source {
+            Source::File(hp) => crate::hostfs::HostFs::of(&hp, cx).load_preview(hp.path.clone(), base, cx),
+            Source::Inline { content, as_type } => cx.background_executor().spawn(async move { Ok(Preview::from_content(content, as_type)) }),
+            Source::Live(input) => cx.background_executor().spawn(async move { crate::live_preview::build_preview(&input, &crate::live_preview::cache_dir()) }),
+        };
+        // A remote read has a wait worth showing (R2a: loading state); a local one is as quick as before.
+        self.loading = remote;
+        self._load = Some(cx.spawn(async move |this, cx| {
+            let result = match load.await {
+                // The Markdown is built off the main thread; a remote file never probes the Mac's disk
+                // (`build_remote`, Task 9; until then none: the file shows as source).
+                Ok(preview) => Ok(cx.background_executor().spawn(async move {
+                    let md = if remote { MdDoc::build_remote(&preview) } else { MdDoc::build(&preview) };
+                    (preview, md)
+                }).await),
+                Err(e) => Err(e),
+            };
+            let _ = this.update(cx, |view, cx| view.apply_load(result, cx));
+        }));
+        cx.notify();
+    }
 ```
 
-（`MdDoc::build_remote` 的真正实现在 Task 9。本任务先在 `markdown/mod.rs` 加一个过渡版本：远端 Markdown 暂时按源码显示，不做任何探测，保证不会拿远端路径去查 Mac 的磁盘：
+（`Task` 来自 `gpui::Task`，`use` 加上。本地路径的变化只有「读 + diff」和「建 Markdown」是两次后台调度而不是一次；错误文字、`Preview::load` 的调用与 Markdown 的构建都不变，由既有的 preview_view 测试和 AC 用例覆盖。）
+
+`MdDoc::build_remote` 的真正实现在 Task 9。本任务先在 `markdown/mod.rs` 加一个过渡版本：远端 Markdown 暂时按源码显示，不做任何探测，保证不会拿远端路径去查 Mac 的磁盘：
 
 ```rust
     /// A remote file's rendered document. Until the remote probes exist (Task 9), none: the file shows as source.
@@ -2934,7 +3093,6 @@ Expected: 编译错误。
         None
     }
 ```
-）
 
 `watch` 开头加远端分支：
 
@@ -2962,7 +3120,7 @@ Expected: 编译错误。
 新增：
 
 ```rust
-    /// An empty Quick Look that says 加载中… while a remote request runs (⌘-click's Stat, `gilvt diff`'s list).
+    /// An empty Quick Look that says 「正在读取…」 while a remote request runs (⌘-click's Stat, `gilvt diff`'s list).
     pub fn pending(window: &mut Window, cx: &mut Context<Self>) -> PreviewView {
         let mut view = PreviewView::new(OpenRequest::host_files(Vec::new()), false, window, cx);
         view.loading = true;
@@ -2990,7 +3148,7 @@ Expected: 编译错误。
     }
 ```
 
-`render` 的 `body`：第一个分支改为 `if self.sources.is_empty() && self.loading { self.message(crate::i18n::text("加载中…", "Loading…").into(), window, cx) } else if self.sources.is_empty() { …「没有改动」… }`（与本地还没载入完时的文字相同）。
+`render` 的 `body`：第一个分支改为 `if self.sources.is_empty() && self.loading { self.message(crate::remote::fs::loading_text().into(), window, cx) } else if self.sources.is_empty() { …「没有改动」… }`（所有等待文字都用 `loading_text()`，与 Global Constraints 一致）。
 
 **`workspace.rs`**（`open_preview` 之后）：
 
@@ -3158,6 +3316,61 @@ pub fn open(host: &str, pane: u64, request: Request, cx: &mut App) {
                 }
 ```
 
+**`crates/gilvt-remote/src/entry.rs`**（Task 5 没有碰它，远端 `gilvt view` / `gilvt diff` 此前一直是「远端不支持这个命令」；app 现在处理 `Open`，所以在这个提交里接上）：
+
+```rust
+        Some("view") | Some("diff") => view(args),
+```
+
+（加在 `Some("hook")` 分支之后），以及：
+
+```rust
+/// `gilvt view` / `gilvt diff` on the ssh host (R2a §8.2): checked here, against this host's files, then asked of
+/// `run/gilvt.sock` with this shell's link. The app answers by opening a preview of the remote file.
+fn view(args: &[String]) -> ExitCode {
+    use gilvt_client::view::{args::parse, not_linked_text, open_error_text, read_stdin, request_for};
+    let cmd = match parse(args) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("gilvt: {e}\n{REMOTE_USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    let fail = |msg: &str| {
+        eprintln!("gilvt: {msg}");
+        ExitCode::from(1)
+    };
+    let (Some(socket), Some(link)) = (std::env::var_os("GILVT_SOCKET"), std::env::var("GILVT_LINK").ok()) else { return fail(not_linked_text()) };
+    let Ok(cwd) = std::env::current_dir() else { return fail("current directory is gone") };
+    let req = match request_for(&cmd, &cwd, || read_stdin(std::io::stdin()), None, Some(link)) {
+        Ok(Some(req)) => req,
+        Ok(None) => {
+            print!("{REMOTE_USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Err(e) => return fail(&e),
+    };
+    // A line the daemon cannot read whole (10 MB of stdin can grow past 16 MB as JSON) is refused here, not cut off there.
+    if serde_json::to_vec(&req).map_or(true, |v| v.len() as u64 + 256 > gilvt_ipc::MAX_MESSAGE_BYTES) {
+        return fail(&open_error_text(gilvt_ipc::remote::OPEN_TOO_LARGE));
+    }
+    match gilvt_ipc::send(std::path::Path::new(&socket), &req) {
+        Ok(gilvt_ipc::Response::Ok) => ExitCode::SUCCESS,
+        Ok(gilvt_ipc::Response::Error { message }) => fail(&open_error_text(&message)),
+        Ok(_) | Err(_) => fail(not_linked_text()),
+    }
+}
+
+const REMOTE_USAGE: &str = "\
+usage:
+  gilvt view [--pin] [--as TYPE] <file>[:line[:col]]   preview a file of this host in gilvt
+  gilvt view --as TYPE -                             preview standard input
+  gilvt diff [REV]                                   preview changes against REV (default HEAD)
+";
+```
+
+（`gilvt-remote/Cargo.toml` 已依赖 `gilvt-client`、`gilvt-ipc`。`main.rs` 与 `entry.rs` 的模块文档把「R2a's second plan adds view / diff」改为「and `view` / `diff` (R2a §8.2)」。）
+
 **`CHANGELOG.md`**，`### Added` 第一条之后加：
 
 ```markdown
@@ -3167,7 +3380,7 @@ pub fn open(host: &str, pane: u64, request: Request, cx: &mut App) {
 
 - [ ] **Step 4: 运行测试，确认通过**
 
-Run: `cargo test -p gilvt-app 2>&1 | grep -E "test result|FAILED|panicked" && cargo clippy -p gilvt-app --no-deps 2>&1 | grep -c "^error"`
+Run: `cargo test -p gilvt-app 2>&1 | grep -E "test result|FAILED|panicked" && cargo clippy -p gilvt-app --no-deps 2>&1 | grep -c "^error" ; cargo test -p gilvt-remote 2>&1 | grep -E "test result|FAILED"`
 Expected: 全部 `ok`；`0`。
 
 - [ ] **Step 5: 手动冒烟（可选，需要测试远端）**
@@ -3186,8 +3399,8 @@ tests/gui/sandbox.sh down
 - [ ] **Step 6: 提交**
 
 ```bash
-git add crates/gilvt-app/src CHANGELOG.md
-git commit -m "app: remote previews; gilvt view / gilvt diff in a remote shell open Quick Look on the remote files
+git add crates/gilvt-app/src crates/gilvt-remote CHANGELOG.md
+git commit -m "app: remote previews; gilvt view / gilvt diff in a remote shell open Quick Look on the remote files (CLI wired up here)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
@@ -3203,7 +3416,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 - Create: `crates/gilvt-app/src/markdown/remote.rs`（`RemoteProbes`、`MdOverrides`、`Fetch`、`apply_stats`、图片缓存、`PreviewView::probe_remote_markdown`）
 - Modify: `crates/gilvt-app/src/markdown/view.rs`（`MdState.overrides`；`set_markdown` 之后发起探测；`follow_link` 的远端分支；`show_banner` 改为 `pub(crate)`）
 - Modify: `crates/gilvt-app/src/markdown/render.rs`（`RowRenderer.overrides`；图片与 ↗ 读覆盖）
-- Modify: `crates/gilvt-app/src/preview_view.rs`（字段 `_probe: Option<Task<()>>`）
+- Modify: `crates/gilvt-app/src/preview_view.rs`（字段 `pub(crate) _probe: Option<Task<()>>`：`markdown/remote.rs` 的 `impl PreviewView` 在另一个模块里写它）
 
 **Interfaces:**
 - Consumes: Task 6 的 `RemoteFs::{stat, read_file}`、`fs::{too_large_text, loading_text, no_such_file}`；Task 8 的远端 `spawn_load`（它调用 `MdDoc::build_remote`）。
@@ -3756,7 +3969,7 @@ impl PreviewView {
 }
 ```
 
-`preview_view.rs`：字段 `_probe: Option<Task<()>>,`（`new` 里 `None`）。`apply_load` 的 `Ok` 分支在 `self.set_markdown(md, cx);` 之后加 `self.probe_remote_markdown(cx);`（本地文档 `probes` 为空，立即返回）。
+`preview_view.rs`：字段 `pub(crate) _probe: Option<Task<()>>,`（`new` 里 `None`；`pub(crate)` 是因为 `markdown/remote.rs` 里的 `impl PreviewView` 在另一个模块，私有字段在那里写不了）。`apply_load` 的 `Ok` 分支在 `self.set_markdown(md, cx);` 之后加 `self.probe_remote_markdown(cx);`（本地文档 `probes` 为空，立即返回）。
 
 **`markdown/view.rs`**：`MdState` 加 `pub overrides: Rc<super::remote::MdOverrides>,`（`new` 里 `Rc::default()`），`RowRenderer` 构造处（`:375`）加 `overrides: md.overrides.clone(),`；`show_banner` 改为 `pub(crate) fn`。`follow_link` 开头加远端分支：
 
@@ -3802,7 +4015,7 @@ impl PreviewView {
 
 - [ ] **Step 4: 运行测试，确认通过**
 
-Run: `cargo test -p gilvt-app markdown:: preview_view 2>&1 | grep -E "test result|FAILED|panicked"`
+Run: `cargo test -p gilvt-app -- markdown:: preview_view 2>&1 | grep -E "test result|FAILED|panicked"`
 Expected: 全部 `ok`（含原有的 `links` / `images` / `mod` 测试）。
 
 - [ ] **Step 5: 提交**
@@ -3820,7 +4033,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 
 **Files:**
 - Modify: `crates/gilvt-term/src/paths.rs`（`PathProbe`、`path_probe`；`path_at` 改为基于它；`resolve` 多一个 `home` 参数）、`crates/gilvt-term/src/snapshot.rs`（测试辅助 `snapshot_of`）
-- Modify: `crates/gilvt-app/src/terminal_view.rs:41,596-598,634-639`（`TerminalViewEvent::OpenRemotePath`；远端 pane 的点击与悬停）
+- Modify: `crates/gilvt-app/src/terminal_view.rs:41,596-598,634-639,1041-1061`（`TerminalViewEvent::OpenRemotePath`；纯函数 `path_click` 取代 `link_context`，点击与悬停都经过它）
 - Modify: `crates/gilvt-app/src/workspace.rs:466-474`（`OpenPath` 不再拒绝远端；新事件的处理）
 - Create: 无；`Workspace::open_remote_path` 与纯函数 `decide_remote_click` 放进 `crates/gilvt-app/src/workspace/remote_files.rs`（新文件，`mod remote_files;` 加进 `workspace.rs` 的子模块列表）
 - Modify: `CHANGELOG.md`（扩写 Task 8 的那一条）
@@ -3842,6 +4055,9 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   pub fn path_at(snapshot: &Snapshot, row: usize, col: usize, cwd: Option<&Path>, exists: impl Fn(&Path) -> bool) -> Option<PathHit>   // 签名不变
   // app
   TerminalViewEvent::OpenRemotePath { probe: PathProbe, in_editor: bool }
+  /// What ⌘-click on a path does; pure. `remote_home`: Some(host's $HOME or None) for a pane on an ssh host. `exists` (the Mac's disk) is asked for a local pane only.
+  pub(crate) enum PathClick { Local(PathHit), Remote(PathProbe), Nothing }
+  pub(crate) fn path_click(snapshot: &Snapshot, row: usize, col: usize, cwd: Option<&Path>, remote_home: Option<Option<&Path>>, exists: impl Fn(&Path) -> bool) -> PathClick
   pub(crate) enum ClickOutcome { Open(PathHit), Missing, Failed(String) }
   pub(crate) fn decide_remote_click(probe: &PathProbe, stats: Result<Vec<StatEntry>, FsFailure>, display: &str) -> ClickOutcome
   impl Workspace { pub(crate) fn open_remote_path(&mut self, origin: PaneId, probe: PathProbe, in_editor: bool, window: &mut Window, cx: &mut Context<Self>) }
@@ -3893,6 +4109,42 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
     }
 ```
 
+`crates/gilvt-app/src/terminal_view.rs` 的测试（取代 `link_context_tests`）：
+
+```rust
+#[cfg(test)]
+mod path_click_tests {
+    use super::*;
+
+    #[test]
+    fn a_remote_pane_never_asks_the_local_disk() {
+        // The same name exists on this Mac, in the cwd the pane reports: the pane is on a host, so its click produces
+        // candidates for the host to Stat, and `exists` (this Mac's disk) is never called.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("decoy.txt"), "local").unwrap();
+        let snapshot = gilvt_term::snapshot::snapshot_of("decoy.txt", 80, 2);
+        let asked = std::cell::Cell::new(false);
+        let click = path_click(&snapshot, 0, 1, Some(dir.path()), Some(None), |p| {
+            asked.set(true);
+            p.is_file()
+        });
+        assert!(!asked.get(), "a remote click must not look at this Mac's disk");
+        let PathClick::Remote(probe) = click else { panic!("{click:?}") };
+        assert_eq!(probe.paths(), vec![dir.path().join("decoy.txt")], "candidates, to be Stat'ed on the host");
+    }
+
+    #[test]
+    fn a_local_pane_opens_the_existing_local_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("here.txt"), "x").unwrap();
+        let snapshot = gilvt_term::snapshot::snapshot_of("here.txt gone.txt", 80, 2);
+        let click = path_click(&snapshot, 0, 1, Some(dir.path()), None, |p| p.is_file());
+        assert!(matches!(click, PathClick::Local(ref h) if h.path == dir.path().join("here.txt")), "{click:?}");
+        assert!(matches!(path_click(&snapshot, 0, 12, Some(dir.path()), None, |p| p.is_file()), PathClick::Nothing), "a missing local file is not a link");
+    }
+}
+```
+
 `crates/gilvt-app/src/workspace/remote_files.rs` 的测试：
 
 ```rust
@@ -3911,13 +4163,14 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_remote_file_never_falls_back_to_a_local_decoy() {
-        // The same name exists on this Mac: the answer is still the host's.
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("decoy.txt"), "local").unwrap();
-        let probe = probe_for("decoy.txt", dir.path());
+    fn a_missing_remote_file_is_missing_whatever_the_mac_has() {
+        // `decide_remote_click` only reads the host's answer. That the click never looks at this Mac's disk is the
+        // job of `path_click` (terminal_view.rs, `a_remote_pane_never_asks_the_local_disk`).
+        let probe = probe_for("decoy.txt", std::path::Path::new("/home/dev"));
         let missing = vec![entry(false); probe.paths().len()];
         assert_eq!(decide_remote_click(&probe, Ok(missing), "devbox"), ClickOutcome::Missing);
+        let a_directory = vec![StatEntry { exists: true, is_file: false, size: 0, mtime_ns: 1 }; probe.paths().len()];
+        assert_eq!(decide_remote_click(&probe, Ok(a_directory), "devbox"), ClickOutcome::Missing, "only a regular file opens");
     }
 
     #[test]
@@ -4082,26 +4335,59 @@ pub fn path_at(snapshot: &Snapshot, row: usize, col: usize, cwd: Option<&Path>, 
       /// Cmd+click in an ssh pane (R2a §8.3): the token's candidates, to `Stat` on the host. `in_editor` for Cmd+Shift.
       OpenRemotePath { probe: gilvt_term::paths::PathProbe, in_editor: bool },
   ```
-- 新方法：
+- 删掉 `link_context` 与 `link_context_tests`（它们只测一个布尔值），换成纯函数 `path_click`，`mouse_down` 与悬停都经过它：
   ```rust
-      /// The token under (row, col) of a remote pane, read with the host's cwd and `$HOME`; nothing is looked up.
-      fn remote_probe(&self, row: usize, col: usize, cx: &App) -> Option<gilvt_term::paths::PathProbe> {
-          let r = self.remote.as_ref()?;
-          let home = cx.try_global::<crate::remote::RemoteHosts>().and_then(|h| h.hosts.get(&r.remote.host)).and_then(|h| h.home.clone());
-          gilvt_term::paths::path_probe(&self.layout.as_ref()?.snapshot, row, col, r.cwd(), home.as_deref())
+  /// What ⌘-click (and the hover underline) on a path does (R2a §8.3). A pane on an ssh host never consults `exists`
+  /// (this Mac's disk): its token becomes candidates for the host to `Stat`. `remote_home`: Some(the host's `$HOME`,
+  /// from `Welcome.home`) for such a pane.
+  #[derive(Debug)]
+  pub(crate) enum PathClick {
+      Local(PathHit),
+      Remote(gilvt_term::paths::PathProbe),
+      Nothing,
+  }
+
+  pub(crate) fn path_click(snapshot: &Snapshot, row: usize, col: usize, cwd: Option<&Path>, remote_home: Option<Option<&Path>>, exists: impl Fn(&Path) -> bool) -> PathClick {
+      match remote_home {
+          Some(home) => gilvt_term::paths::path_probe(snapshot, row, col, cwd, home).map_or(PathClick::Nothing, PathClick::Remote),
+          None => gilvt_term::paths::path_at(snapshot, row, col, cwd, exists).map_or(PathClick::Nothing, PathClick::Local),
+      }
+  }
+  ```
+- `TerminalView::path_click` 取代旧的 `path_at(&self, row, col)`，`path_at(row, col, cx)` 留给悬停：
+  ```rust
+      fn path_click(&self, row: usize, col: usize, cx: &App) -> PathClick {
+          let Some(layout) = self.layout.as_ref() else { return PathClick::Nothing };
+          match &self.remote {
+              Some(r) => {
+                  let home = cx.try_global::<crate::remote::RemoteHosts>().and_then(|h| h.hosts.get(&r.remote.host)).and_then(|h| h.home.clone());
+                  path_click(&layout.snapshot, row, col, r.cwd(), Some(home.as_deref()), |p| p.is_file())
+              }
+              None => path_click(&layout.snapshot, row, col, self.cwd().as_deref(), None, |p| p.is_file()),
+          }
+      }
+
+      /// The hover underline: a remote pane underlines the shortest reading without asking the host.
+      fn path_at(&self, row: usize, col: usize, cx: &App) -> Option<PathHit> {
+          match self.path_click(row, col, cx) {
+              PathClick::Local(hit) => Some(hit),
+              PathClick::Remote(probe) => probe.first(),
+              PathClick::Nothing => None,
+          }
       }
   ```
-- `path_at`（悬停用）：远端 pane 改为 `self.remote_probe(row, col, cx).and_then(|p| p.first())`，本地照旧（`link_context` 不再需要 `assume`：本地分支 `|p| p.is_file()`；删除 `link_context` 与它的测试，`remote_panes_never_resolve_against_local_disk` 由 Task 10 的 `a_missing_remote_file_never_falls_back_to_a_local_decoy` 取代）。`path_at` 因此多一个 `cx: &App` 参数，两个调用处（`mouse_down`、`update_hovered_link`）传 `cx`。
+  `path_at` 因此多一个 `cx: &App` 参数，`update_hovered_link` 传 `cx`。
 - `mouse_down` 的 ⌘ 分支：
   ```rust
-            } else if self.remote.is_some() {
-                if let Some(probe) = self.remote_probe(row, col, cx) {
-                    cx.emit(TerminalViewEvent::OpenRemotePath { probe, in_editor: m.shift });
+            } else {
+                match self.path_click(row, col, cx) {
+                    PathClick::Local(hit) => cx.emit(TerminalViewEvent::OpenPath { hit, in_editor: m.shift }),
+                    PathClick::Remote(probe) => cx.emit(TerminalViewEvent::OpenRemotePath { probe, in_editor: m.shift }),
+                    PathClick::Nothing => {}
                 }
-            } else if let Some(hit) = self.path_at(row, col, cx) {
-                cx.emit(TerminalViewEvent::OpenPath { hit, in_editor: m.shift });
             }
   ```
+（`remote_panes_never_resolve_against_local_disk` 由上面的 `a_remote_pane_never_asks_the_local_disk` 取代。）
 
 **`workspace.rs`** 的终端事件订阅：`OpenPath` 分支删掉 `if ws.refuse_remote(id, cx) { return; }`（只有本地 pane 会发它），加
 
@@ -4194,7 +4480,7 @@ Expected: 全部 `ok`（`paths.rs` 原有测试不变地通过）。
 - [ ] **Step 5: 提交**
 
 ```bash
-git add crates/gilvt-term/src/paths.rs crates/gilvt-app/src CHANGELOG.md
+git add crates/gilvt-term/src/paths.rs crates/gilvt-term/src/snapshot.rs crates/gilvt-app/src CHANGELOG.md
 git commit -m "app: Cmd+click in an ssh pane stats the path on the host and opens the remote file, never a local one
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -4409,8 +4695,8 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 **Files:**
 - Create: `crates/gilvt-app/src/editor/remote_edit.rs`（纯状态与判定）
 - Modify: `crates/gilvt-app/src/editor/mod.rs`（`pub mod remote_edit;`）
-- Modify: `crates/gilvt-app/src/editor/view.rs`（字段 `remote`、`_remote_op`、`_release`；`SaveOutcome::Pending`；`new_remote_loading`、`finish_remote_open`、`path` / `host_path` / `title`、`save_with` 的远端分支、`run_plan` 的远端分支、`on_external_change` 对远端什么也不做、`on_remote_change`、`on_open_external`、`menu_items`、`render` 的加载状态）
-- Modify: `crates/gilvt-app/src/editor/model_edit.rs`（`reload_from_bytes`、`reload_as_edit_from_bytes`、`reopen_from_bytes`）
+- Modify: `crates/gilvt-app/src/editor/view.rs`（字段 `remote`、`_remote_op`、`_release`；`SaveOutcome::Pending`；本地与远端共用的 `finished_reload` / `finished_reopen`（`on_external_change` 的静默重载、`run_plan` 的 Reload / Reopen 改为调用它们）；`new_remote_loading`、`finish_remote_open`、`path` / `host_path` / `title`、`save_with` 的远端分支、`run_plan` 的远端分支、`on_external_change` 对远端什么也不做、`on_remote_change`、`on_open_external`、`menu_items`、`render` 的加载状态）
+- Modify: `crates/gilvt-app/src/editor/model_edit.rs`（`reload_from_bytes`、`reload_as_edit_from_bytes`、`reopen_from_bytes`；`reopen` 与 `reopen_from_bytes` 共用 `reopen_path` / `replace_buffer`）
 - Modify: `crates/gilvt-app/src/editor/compare.rs`（`decode_disk`、`Compare::from_disk`；`read_disk_for_compare_with_limit` 与 `Compare::open` 改为基于它们）
 - Modify: `crates/gilvt-app/src/workspace/editor.rs`（`find_open` 比较 `HostPath`；`open_editors` 返回 `Option<HostPath>`；`place_editor`；`open_editor_at` 的远端分支 → `open_remote_editor`；`dirty_editors`）
 - Modify: `crates/gilvt-app/src/workspace/live_preview.rs:17,64`（远端编辑器的实时预览显示「这项功能暂不支持远端」）
@@ -4430,6 +4716,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   pub fn remote_change(doc: &RemoteDoc, now: Option<&Fingerprint>) -> RemoteChange
   pub fn save_expect(doc: &RemoteDoc, overwrite: bool) -> Option<Fingerprint>
   pub fn saved_marks_clean(saved_revision: u64, now_revision: u64) -> bool
+  pub fn too_large_to_save(encoded_len: usize) -> bool      // > MAX_REMOTE_EDIT_BYTES：保存前就拒绝，不发请求（裁决 23）
   pub enum SaveResult { Saved(Fingerprint), Modified(Fingerprint), Failed(FsFailure) }
   pub fn finish_save(closing: bool, result: &SaveResult, display: &str) -> (Bar, SaveOutcome, bool)
   // editor::view
@@ -4506,9 +4793,13 @@ mod tests {
     }
 
     #[test]
-    fn edits_made_while_saving_stay_unsaved() {
-        assert!(saved_marks_clean(4, 4));
-        assert!(!saved_marks_clean(4, 5));
+    fn a_buffer_over_the_remote_limit_is_refused_before_anything_is_sent() {
+        assert!(!too_large_to_save(MAX_REMOTE_EDIT_BYTES as usize));
+        assert!(too_large_to_save(MAX_REMOTE_EDIT_BYTES as usize + 1));
+        // The same text when the writer refuses an oversized frame after all (`OPEN_TOO_LARGE` → TooLarge):
+        let (bar, outcome, close) = finish_save(true, &SaveResult::Failed(FsFailure::TooLarge { size: 11_000_000 }), "devbox");
+        assert_eq!(bar, Bar::SaveError { message: "文件太大，远端暂不支持".into(), jump: None });
+        assert_eq!((outcome, close), (SaveOutcome::Failed, false));
     }
 
     #[test]
@@ -4526,6 +4817,69 @@ mod tests {
         assert_eq!((outcome, close), (SaveOutcome::Failed, false));
         let (bar, ..) = finish_save(false, &SaveResult::Failed(FsFailure::Other("Permission denied".into())), "devbox");
         assert_eq!(bar, Bar::SaveError { message: "Permission denied".into(), jump: None });
+    }
+}
+```
+
+`editor/view.rs` 的测试（经过真正的 `finish_remote_save`；初始化与 `settings_window` 的 gpui 测试相同）：
+
+```rust
+#[cfg(test)]
+mod remote_save_tests {
+    use super::*;
+    use crate::editor::remote_edit::{RemoteOp, SaveResult};
+    use crate::remote::fs::FileRead;
+    use gpui::TestAppContext;
+
+    fn fp(n: u64) -> Fingerprint {
+        Fingerprint { mtime_ns: n, size: 4, sha256: format!("{n:064x}") }
+    }
+
+    fn loaded(cx: &mut TestAppContext) -> Entity<EditorView> {
+        cx.update(|cx| {
+            crate::theme::init_for_tests(cx);
+            cx.set_global(crate::remote::watch::RemoteWatches::default());
+        });
+        let view = cx.new(|cx| EditorView::new_remote_loading(HostPath::remote("dev@h:22", "/home/dev/a.txt"), "devbox".into(), cx));
+        view.update(cx, |v, cx| v.finish_remote_open(Ok(FileRead { bytes: b"one\n".to_vec(), fingerprint: fp(1), writable: true }), None, cx).unwrap());
+        view
+    }
+
+    #[gpui::test]
+    fn text_typed_while_saving_stays_unsaved(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            let saving = v.model.buf.revision(); // the bytes on their way to the host
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: false, revision: saving });
+            v.model.insert("B").unwrap(); // typed before the answer
+            v.finish_remote_save(false, saving, SaveResult::Saved(fp(2)), cx);
+            assert!(v.is_dirty(), "the host has \"A\", not \"AB\": the buffer is not clean");
+            assert_eq!(v.remote.as_ref().unwrap().fingerprint, Some(fp(2)), "but what is on the host is now known");
+            assert!(v.remote.as_ref().unwrap().busy.is_none());
+            // an unchanged buffer does become clean
+            let now = v.model.buf.revision();
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: false, revision: now });
+            v.finish_remote_save(false, now, SaveResult::Saved(fp(3)), cx);
+            assert!(!v.is_dirty());
+        });
+    }
+
+    #[gpui::test]
+    fn a_failed_or_refused_save_leaves_the_buffer_dirty_with_its_bar(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            let rev = v.model.buf.revision();
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: true, revision: rev });
+            v.finish_remote_save(true, rev, SaveResult::Failed(FsFailure::NotConnected), cx);
+            assert!(v.is_dirty());
+            assert!(matches!(&v.bar, Bar::SaveError { message, .. } if message == "devbox 未连接，未保存"), "{:?}", v.bar);
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: false, revision: rev });
+            v.finish_remote_save(false, rev, SaveResult::Modified(fp(9)), cx);
+            assert!(v.is_dirty() && matches!(v.bar, Bar::Modified { closing: false }));
+            assert_eq!(v.remote.as_ref().unwrap().conflict, Some(fp(9)), "仍然覆盖 will expect what is there now");
+        });
     }
 }
 ```
@@ -4572,7 +4926,7 @@ mod tests {
 
 - [ ] **Step 2: 运行测试，确认失败**
 
-Run: `cargo test -p gilvt-app remote_edit find_open save_all compare 2>&1 | tail -3`
+Run: `cargo test -p gilvt-app -- remote_edit find_open save_all compare 2>&1 | tail -3`
 Expected: 编译错误。
 
 - [ ] **Step 3: 实现**
@@ -4586,7 +4940,7 @@ Expected: 编译错误。
 
 use gilvt_agent::host::HostPath;
 use gilvt_editor::{EditorError, OpenOptions};
-use gilvt_ipc::remote::Fingerprint;
+use gilvt_ipc::remote::{Fingerprint, MAX_REMOTE_EDIT_BYTES};
 
 use super::view::{save_step, Bar, SaveOutcome};
 use crate::remote::fs::{not_saved, FsFailure};
@@ -4658,6 +5012,12 @@ pub fn save_expect(doc: &RemoteDoc, overwrite: bool) -> Option<Fingerprint> {
 /// Text typed while the save was on its way is not on the host: only an unchanged buffer becomes clean.
 pub fn saved_marks_clean(saved_revision: u64, now_revision: u64) -> bool {
     saved_revision == now_revision
+}
+
+/// base64 grows the bytes by a third and a frame is 16 MiB: a buffer that encodes to more than the remote edit limit
+/// is refused before anything is sent, so a big save can never reach the bridge's writer at all.
+pub fn too_large_to_save(encoded_len: usize) -> bool {
+    encoded_len as u64 > MAX_REMOTE_EDIT_BYTES
 }
 
 pub enum SaveResult {
@@ -4838,12 +5198,7 @@ pub fn finish_save(closing: bool, result: &SaveResult, display: &str) -> (Bar, S
                               doc.writable = f.writable;
                               doc.conflict = None;
                           }
-                          self.close_menu_on_model_change();
-                          self.selecting = false;
-                          self.bar = if as_edit { Bar::None } else { bar_after_reload(&self.bar) };
-                          self.acked = next_acked(self.acked, AckEvent::Resynced);
-                          self.flash(external::flash_updated(), cx);
-                          self.after_edit(cx);
+                          self.finished_reload(!as_edit, cx);
                       }
                       // The silent reload swallows a failure, as the local one does; 重新载入 shows it.
                       Err(e) if as_edit => self.set_bar(bar_for_save_error(&e), cx),
@@ -4856,12 +5211,7 @@ pub fn finish_save(closing: bool, result: &SaveResult, display: &str) -> (Bar, S
                           doc.fingerprint = Some(f.fingerprint);
                           doc.writable = f.writable;
                       }
-                      self.close_menu_on_model_change();
-                      self.marked = None;
-                      self.selecting = false;
-                      self.bar = Bar::None;
-                      self.acked = next_acked(self.acked, AckEvent::Resynced);
-                      self.after_edit(cx);
+                      self.finished_reopen(cx);
                   }
                   Err(e) => self.set_bar(bar_for_save_error(&e), cx),
               },
@@ -4870,6 +5220,35 @@ pub fn finish_save(closing: bool, result: &SaveResult, display: &str) -> (Bar, S
           self.run_deferred(cx);
       }
   ```
+  本地与远端共用的两个收尾（裁决 27：不复制 `on_external_change` 的静默重载与 `run_plan` 的 Reload / Reopen 里的那几行，而是提成方法，本地调用处改为调用它们，行为逐行不变）：
+  ```rust
+      /// After a successful reload of the buffer from disk or from the host. `silent`: the reload of a clean buffer on
+      /// an external change (keeps a bar that `bar_after_reload` keeps); else 重新载入 (clears the bar).
+      fn finished_reload(&mut self, silent: bool, cx: &mut Context<Self>) {
+          self.close_menu_on_model_change();
+          if silent {
+              self.selecting = false;
+              self.bar = bar_after_reload(&self.bar);
+          } else {
+              self.bar = Bar::None;
+          }
+          self.acked = next_acked(self.acked, AckEvent::Resynced);
+          self.flash(external::flash_updated(), cx);
+          self.after_edit(cx);
+      }
+
+      /// After a successful reopen with other options (换编码 / 换读取方式).
+      fn finished_reopen(&mut self, cx: &mut Context<Self>) {
+          self.close_menu_on_model_change();
+          self.marked = None;
+          self.selecting = false;
+          self.bar = Bar::None;
+          self.acked = next_acked(self.acked, AckEvent::Resynced);
+          self.after_edit(cx);
+      }
+  ```
+  本地调用处：`on_external_change` 的 `if self.model.reload().is_ok() { … }` 里的五行换成 `self.finished_reload(true, cx);`；`run_plan` 的 `Plan::Reload` 的 `Ok(())` 分支换成 `Ok(()) => self.finished_reload(false, cx),`；`Plan::Reopen` 的 `Ok(())` 分支换成 `Ok(()) => self.finished_reopen(cx),`。
+
   `open_compare` 的「成功打开浮层」那几行提成 `fn show_compare(&mut self, disk: compare::DiskText, cx)`：
   ```rust
       fn show_compare(&mut self, disk: compare::DiskText, cx: &mut Context<Self>) {
@@ -4887,7 +5266,7 @@ pub fn finish_save(closing: bool, result: &SaveResult, display: &str) -> (Bar, S
 - 保存：`save_with` 在 `read_only` 检查之后加 `if self.remote.is_some() { return self.save_remote(overwrite, closing, cx); }`，并新增：
   ```rust
       fn save_remote(&mut self, overwrite: bool, closing: bool, cx: &mut Context<Self>) -> SaveOutcome {
-          use super::remote_edit::{save_expect, RemoteOp, SaveResult};
+          use super::remote_edit::{finish_save, save_expect, RemoteOp, SaveResult};
           let bytes = match self.model.buf.encode_for_save() {
               Ok(b) => b,
               Err(e) => {
@@ -4901,6 +5280,14 @@ pub fn finish_save(closing: bool, result: &SaveResult, display: &str) -> (Bar, S
           let Some(doc) = self.remote.as_mut() else { return SaveOutcome::Failed };
           if doc.loading || doc.busy.is_some() {
               return SaveOutcome::Pending;
+          }
+          // base64 makes the frame a third larger: a buffer over the remote limit would never fit in one. Refuse it here
+          // (nothing is sent, the buffer stays unsaved); the bridge's writer is the second line of defence (Task 6).
+          if super::remote_edit::too_large_to_save(bytes.len()) {
+              let (bar, outcome, _) = finish_save(closing, &SaveResult::Failed(FsFailure::TooLarge { size: bytes.len() as u64 }), &doc.display);
+              self.bar = bar;
+              cx.notify();
+              return outcome;
           }
           let expect = save_expect(doc, overwrite);
           doc.busy = Some(RemoteOp::Saving { closing, revision });
@@ -4978,13 +5365,33 @@ pub fn finish_save(closing: bool, result: &SaveResult, display: &str) -> (Bar, S
 
     /// [`Self::reopen`] from bytes read elsewhere: a detached buffer with `opts`.
     pub fn reopen_from_bytes(&mut self, bytes: &[u8], opts: OpenOptions, writable: bool) -> Result<(), EditorError> {
-        let Some(path) = self.buf.path().map(Path::to_path_buf) else { return Err(EditorError::NoPath) };
+        let path = self.reopen_path()?;
         let buf = Buffer::detached(&path, bytes, opts, writable)?;
+        self.replace_buffer(buf, &path);
+        Ok(())
+    }
+
+    fn reopen_path(&self) -> Result<PathBuf, EditorError> {
+        self.buf.path().map(Path::to_path_buf).ok_or(EditorError::NoPath)
+    }
+
+    /// Swaps in `buf` keeping the wrap width, view height and top line (the tail both reopens share).
+    fn replace_buffer(&mut self, buf: Buffer, path: &Path) {
         let (cols, rows) = (self.viewport_cols(), self.view_rows());
         let top = self.row(self.scroll_row()).line;
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         *self = EditorModel::new(buf, &name, cols, rows);
         self.scroll_to_line(top);
+    }
+```
+
+并把现有的 `reopen` 改为共用同样两个函数（行为不变）：
+
+```rust
+    pub fn reopen(&mut self, opts: OpenOptions) -> Result<(), EditorError> {
+        let path = self.reopen_path()?;
+        let buf = Buffer::open_with(&path, opts)?;
+        self.replace_buffer(buf, &path);
         Ok(())
     }
 ```
@@ -5032,7 +5439,7 @@ pub(super) fn find_open(panes: &[(usize, PaneId, Option<HostPath>)], want: &Host
 - `open_editor_at` 的远端分支改为 `None => self.open_remote_editor(path, line, origin, flip, window, cx),`，并新增：
 
 ```rust
-    /// R2a §8.3: the pane shows at once (加载中), the buffer is built when the host answers. Focused if already open.
+    /// R2a §8.3: the pane shows at once (「正在读取…」), the buffer is built when the host answers. Focused if already open.
     fn open_remote_editor(&mut self, path: HostPath, line: Option<u32>, origin: Option<PaneId>, flip: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.ended_confirm = None;
         self.finder = None;
@@ -5117,7 +5524,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
 - Modify: `crates/gilvt-app/src/debug_state/map.rs`（`editor_bar_message`）
 - Modify: `crates/gilvt-app/src/preview_view.rs:372-387`（`debug_overlay` 填新字段；`debug_host`、`debug_size`）
 - Modify: `crates/gilvt-app/src/workspace/debug.rs:154-205,224-290`（编辑器与 pane 的新字段）
-- Modify: `crates/gilvt-app/src/debug_state/tests.rs`、`map_tests.rs`（字面量补字段；新测试）
+- Modify: `crates/gilvt-app/src/debug_state/tests.rs`、`map_tests.rs`（字面量补字段；三个按字面比较整段 JSON 的既有测试 `window_json_shape`、`overlay_kinds_serialize_with_their_fields`、`pane_remote_and_hosts_shape` 的期望值补字段；新测试）
 - Modify: `docs/debug-state.md`
 
 **Interfaces:**
@@ -5126,7 +5533,7 @@ Claude-Session: https://claude.ai/code/session_015JmaEnjQqHd3Kffisa4JoN"
   - `windows[].overlay`（`kind == "quicklook"`）：`host`（`"local"`、ssh 主机的 `user@hostname:port`；stdin 与没有文件时为 `null`）、`loading`（布尔：在等远端）、`size`（已载入文档的字节数；载入前与 stdin 之外没有文档时为 `null`）。
   - `windows[].tabs[].panes[]`：`host` 对预览与编辑器 pane 也填（规则同上；终端不变；监控官 pane 仍为 `null`）；新增 `loading`（预览 / 编辑器在等远端；终端为 `false`）、`size`（固定预览已载入文档的字节数；其他为 `null`）。
   - `windows[].editors[]`：`host`（`"local"` 或 `HostId`）、`loading`、`bar_message`（`bar == "save_error"` 时横条的文字，如「devbox 未连接，未保存」；其他为 `null`）；远端编辑器的 `path` 是远端路径。
-  - `hosts[]`：`watches`（app 在这台主机上监视的不同文件数）。
+  - `hosts[]`：`watches`（daemon **已确认** 的被监视文件数：`Watch` 得到 `Ok` 才计入，bridge 断开后归零，重连后随重新发出的 `Watch` 逐个回来；不是 app 想要监视的数目，所以验收用例等到它 ≥ 1 时 daemon 的基线已经取好，之后的改动一定会被推送，裁决 25）。
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -5149,17 +5556,23 @@ fn remote_file_fields_serialize() {
 }
 ```
 
-`map_tests.rs` 追加：
+`map_tests.rs` 追加（它是 `map` 的子模块，`use super::*;` 已带进 `editor_bar_message`，不再写 `map::` 前缀）：
 
 ```rust
 #[test]
 fn the_bar_message_is_the_save_error_text_only() {
     use crate::editor::view::Bar;
-    assert_eq!(map::editor_bar_message(&Bar::SaveError { message: "devbox 未连接，未保存".into(), jump: None }), Some("devbox 未连接，未保存".to_string()));
-    assert_eq!(map::editor_bar_message(&Bar::Modified { closing: false }), None);
-    assert_eq!(map::editor_bar_message(&Bar::None), None);
+    assert_eq!(editor_bar_message(&Bar::SaveError { message: "devbox 未连接，未保存".into(), jump: None }), Some("devbox 未连接，未保存".to_string()));
+    assert_eq!(editor_bar_message(&Bar::Modified { closing: false }), None);
+    assert_eq!(editor_bar_message(&Bar::None), None);
 }
 ```
+
+三个按字面比较整段 JSON 的既有测试在加字段后会在运行时失败（不是编译错误），期望值要一起改：
+
+- `window_json_shape`：`window()` 里的 `Pane` 字面量加 `loading: false, size: None`，`EditorState` 字面量加 `host: "local".into(), loading: false, bar_message: None`；期望的 JSON：终端 pane 对象末尾 `"host": "local", "remote": null` 改为 `"host": "local", "remote": null, "loading": false, "size": null`；`editors` 数组的对象在 `"status_flash": null,` 之后加 `"host": "local", "loading": false, "bar_message": null,`。
+- `overlay_kinds_serialize_with_their_fields`：`Overlay::Quicklook` 字面量末尾加 `host: Some("local".into()), loading: false, size: Some(1234)`，期望 JSON 末尾加 `"host": "local", "loading": false, "size": 1234`。
+- `pane_remote_and_hosts_shape`：`HostState` 字面量末尾加 `watches: 0`，期望 JSON 末尾加 `"watches":0`；同一文件里 `r2a_fields_serialize_with_their_documented_names` 的 `HostState` 字面量也加 `watches: 0`。
 
 - [ ] **Step 2: 运行测试，确认失败**
 
@@ -5189,7 +5602,7 @@ Expected: 编译错误（字段不存在）。
       /// The red save-error bar's text (`bar == "save_error"`); null otherwise.
       pub bar_message: Option<String>,
   ```
-- `HostState` 在 `follows` 之后加 `/// Remote files the app watches on this host. pub watches: usize,`；`host_states` 的签名加 `watches: &dyn Fn(&str) -> usize`，字面量加 `watches: watches(id)`；`collect`（`:1607`）传 `&|h| crate::remote::watch::count(h, cx)`。
+- `HostState` 在 `follows` 之后加 `/// Remote files the daemon has acknowledged watching on this host (R2a plan ruling 25). pub watches: usize,`；`host_states` 的签名加 `watches: &dyn Fn(&str) -> usize`，字面量加 `watches: watches(id)`；`collect`（`:1607`）传 `&|h| crate::remote::watch::count(h, cx)`。
 
 `debug_state/map.rs`：
 
@@ -5242,7 +5655,7 @@ pub fn editor_bar_message(bar: &crate::editor::view::Bar) -> Option<String> {
 测试里的字面量补字段（编译器列出全部）：`tests.rs:73`（`Pane`：`loading: false, size: None`）、`:173` 与 `sample_editor_state`（`host: "local".into(), loading: false, bar_message: None`）、`:322`（`Quicklook`：`host: None, loading: false, size: None`）、`:908`、`:915`（`HostState`：`watches: 0`）。
 
 `docs/debug-state.md`：
-- `hosts` 那一行的字段列表末尾加 `, watches`，说明末尾加「`watches`：app 在这台主机上监视的远端文件数（固定预览、Quick Look、编辑器；同一个文件只算一次）」。
+- `hosts` 那一行的字段列表末尾加 `, watches`，说明末尾加「`watches`：daemon 已确认的被监视远端文件数（固定预览、Quick Look、编辑器；同一个文件只算一次；`Watch` 得到 `Ok` 才计入，bridge 断开后归零。用例等 `watches` 达到预期，就表示之后的改动一定会被推送）」。
 - `tabs[].panes[]` 表：`host` 一行改为「终端：所在的主机；预览、编辑器：所显示文件的主机（`local` 或 `user@hostname:port`；stdin 预览为 `null`）；监控官为 `null`」，并加两行：`| loading | 布尔 | 预览、编辑器在等远端主机的回应（R2a §8）；终端为 false |`、`| size | 数字或 null | 固定预览已载入文档的字节数（只有大小，不含内容）；其他为 null |`。
 - `overlay` 表的 `quicklook` 行末尾加：「`host`（文件所在主机：`local` 或 `user@hostname:port`；stdin / 没有文件为 `null`），`loading`（在等远端主机：⌘点击远端路径或远端 `gilvt diff` 时先出现一个 `loading` 为 true、`path` 为 null 的 Quick Look），`size`（已载入文档的字节数，载入前为 `null`；验收用例用它区分远端文件与 Mac 上的同名文件）」。
 - `editors[]` 表末尾加三行：`host`、`loading`、`bar_message`（说明同 Interfaces）；`path` 一行补「远端编辑器为远端路径」。
@@ -5418,7 +5831,7 @@ requires: remote
 checklist: AC32
 scenarios: []
 
-远端仓库：提交 `a.txt`（`one`），再追加 `two`、新建未跟踪的 `n.txt`。`gilvt diff` 先显示加载中的 Quick Look，`GitChanges` 回来后是两个文件的组，每个文件切到时才读取。
+远端仓库：提交 `a.txt`（`one`），再追加 `two`、新建未跟踪的 `n.txt`。`gilvt diff` 先显示「正在读取…」的 Quick Look，`GitChanges` 回来后是两个文件的组，每个文件切到时才读取。
 
 ## steps
 ```gilvt-steps
@@ -5620,7 +6033,7 @@ Expected: 通过（清单每一行都有用例、条件能解析、`rect(…)` �
 
 - [ ] **Step 5: spec 回写**
 
-`docs/design/2026-10-12-gilvt-ssh-remote-r2a-design.md` 的 §9 末尾新增「### 9.4 第二份计划的裁决（§8）」，把本计划开头「与 spec 的差异和裁决」的 22 条按原文编号续写为第 41–62 条（第 1 条 → 41，依此类推），再加实施过程中出现的新裁决（没有就不加）。
+`docs/design/2026-10-12-gilvt-ssh-remote-r2a-design.md` 的 §9 末尾新增「### 9.4 第二份计划的裁决（§8）」，把本计划开头「与 spec 的差异和裁决」的 27 条按原文编号续写为第 41–67 条（第 1 条 → 41，依此类推；其中第 23–27 条是预飞行之后加的行为裁决，必须写进去），再加实施过程中出现的新裁决（没有就不加）。
 
 - [ ] **Step 6: 合入前检查**
 
