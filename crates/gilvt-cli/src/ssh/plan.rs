@@ -66,7 +66,6 @@ pub fn norm_arch(m: &str) -> Option<&'static str> {
 pub enum Os { Linux, Darwin }
 
 impl Os {
-    #[allow(dead_code)] // used from Task 2/4 on
     pub fn name(self) -> &'static str {
         match self { Os::Linux => "Linux", Os::Darwin => "Darwin" }
     }
@@ -87,7 +86,6 @@ pub struct Platform { pub os: Os, pub arch: &'static str }
 
 impl Platform {
     /// The directory under `Contents/Resources/remote/`: `linux-x86_64`, `linux-aarch64`, `darwin-aarch64`.
-    #[allow(dead_code)] // used from Task 2/4 on
     pub fn key(self) -> String {
         format!("{}-{}", self.os.name().to_ascii_lowercase(), self.arch)
     }
@@ -179,22 +177,22 @@ pub fn shown_versions(old: &str, new: &str) -> (String, String) {
     if o == n { (old.to_string(), new.to_string()) } else { (o, n) }
 }
 
-/// The first-install question (R1).
-pub fn install_prompt(display: &str) -> String {
+/// The first-install question (R1); `mb`: the helper's unpacked size.
+pub fn install_prompt(display: &str, mb: u64) -> String {
     if gilvt_i18n::english() {
-        format!("gilvt: Install the remote helper on {display}? (~/.gilvt-server, about 4 MB, keeps one daemon running)\r\n       It brings agent detection, the inspector, ⌘P and editing to ssh panes.\r\n       [Y] Install  [n] Not now  [N] Never on this host ")
+        format!("gilvt: Install the remote helper on {display}? (~/.gilvt-server, about {mb} MB, keeps one daemon running)\r\n       It brings agent detection, the inspector, ⌘P and editing to ssh panes.\r\n       [Y] Install  [n] Not now  [N] Never on this host ")
     } else {
-        format!("gilvt: 要在 {display} 上安装远端组件吗？（~/.gilvt-server，约 4 MB，常驻一个 daemon）\r\n       安装后可在 ssh 里使用 Agent 检测、检查器、⌘P、编辑等功能。\r\n       [Y] 安装  [n] 这次不用  [N] 这台主机永不安装 ")
+        format!("gilvt: 要在 {display} 上安装远端组件吗？（~/.gilvt-server，约 {mb} MB，常驻一个 daemon）\r\n       安装后可在 ssh 里使用 Agent 检测、检查器、⌘P、编辑等功能。\r\n       [Y] 安装  [n] 这次不用  [N] 这台主机永不安装 ")
     }
 }
 
 /// The update question (R2a §2): `old` is the newest build installed there, `new` this gilvt's.
-pub fn upgrade_prompt(display: &str, old: &str, new: &str) -> String {
+pub fn upgrade_prompt(display: &str, old: &str, new: &str, mb: u64) -> String {
     let (o, n) = shown_versions(old, new);
     if gilvt_i18n::english() {
-        format!("gilvt: the remote helper on {display} is {o}; this gilvt is {n}. Update it? (about 4 MB)\r\n       Without the update this login is plain (the old helper does not work with this gilvt).\r\n       [Y] update  [n] not now  [N] never install on this host ")
+        format!("gilvt: the remote helper on {display} is {o}; this gilvt is {n}. Update it? (about {mb} MB)\r\n       Without the update this login is plain (the old helper does not work with this gilvt).\r\n       [Y] update  [n] not now  [N] never install on this host ")
     } else {
-        format!("gilvt: {display} 上的远端组件是 {o}，当前 gilvt 是 {n}，要更新吗？（约 4 MB）\r\n       不更新的话这次以普通方式登录（旧版本与当前 gilvt 不兼容）。\r\n       [Y] 更新  [n] 这次不用  [N] 这台主机永不安装 ")
+        format!("gilvt: {display} 上的远端组件是 {o}，当前 gilvt 是 {n}，要更新吗？（约 {mb} MB）\r\n       不更新的话这次以普通方式登录（旧版本与当前 gilvt 不兼容）。\r\n       [Y] 更新  [n] 这次不用  [N] 这台主机永不安装 ")
     }
 }
 
@@ -393,17 +391,18 @@ mod tests {
         assert_eq!(shown_versions("0.3.0-bbbbbbbb", "0.3.0-aaaaaaaa"), ("0.3.0-bbbbbbbb".into(), "0.3.0-aaaaaaaa".into()));
         gilvt_i18n::with_language(gilvt_i18n::Language::Chinese, || {
             assert_eq!(
-                upgrade_prompt("devbox", "0.2.1-bbbbbbbb", "0.3.0-aaaaaaaa"),
-                "gilvt: devbox 上的远端组件是 0.2.1，当前 gilvt 是 0.3.0，要更新吗？（约 4 MB）\r\n       不更新的话这次以普通方式登录（旧版本与当前 gilvt 不兼容）。\r\n       [Y] 更新  [n] 这次不用  [N] 这台主机永不安装 "
+                upgrade_prompt("devbox", "0.2.1-bbbbbbbb", "0.3.0-aaaaaaaa", 7),
+                "gilvt: devbox 上的远端组件是 0.2.1，当前 gilvt 是 0.3.0，要更新吗？（约 7 MB）\r\n       不更新的话这次以普通方式登录（旧版本与当前 gilvt 不兼容）。\r\n       [Y] 更新  [n] 这次不用  [N] 这台主机永不安装 "
             );
             assert_eq!(not_updating_reason(), "这次不更新远端组件");
         });
         gilvt_i18n::with_language(gilvt_i18n::Language::English, || {
             assert_eq!(
-                upgrade_prompt("devbox", "0.2.1-bbbbbbbb", "0.3.0-aaaaaaaa"),
-                "gilvt: the remote helper on devbox is 0.2.1; this gilvt is 0.3.0. Update it? (about 4 MB)\r\n       Without the update this login is plain (the old helper does not work with this gilvt).\r\n       [Y] update  [n] not now  [N] never install on this host "
+                upgrade_prompt("devbox", "0.2.1-bbbbbbbb", "0.3.0-aaaaaaaa", 7),
+                "gilvt: the remote helper on devbox is 0.2.1; this gilvt is 0.3.0. Update it? (about 7 MB)\r\n       Without the update this login is plain (the old helper does not work with this gilvt).\r\n       [Y] update  [n] not now  [N] never install on this host "
             );
-            assert!(!gilvt_i18n::has_chinese(&install_prompt("devbox")));
+            assert!(!gilvt_i18n::has_chinese(&install_prompt("devbox", 7)));
+            assert!(install_prompt("devbox", 7).contains("about 7 MB"));
         });
     }
 

@@ -146,13 +146,16 @@ pub fn run(argv: &[String]) -> ExitCode {
 
     let rdir = bundle::remote_dir();
     let cached = match (&installed, &arch, &rdir) {
-        (Some(i), Some(ar), Some(d)) if bundle::build_id(d, ar).as_deref() == Some(i.as_str()) => Some((i.clone(), ar.clone())),
+        (Some(i), Some(ar), Some(d)) => plan::platform("Linux", ar)
+            .ok()
+            .filter(|p| bundle::build_id(d, &p.key()).as_deref() == Some(i.as_str()))
+            .map(|_| (i.clone(), "Linux".to_string(), ar.clone())),
         _ => None,
     };
     let (probe, hostname) = match cached {
-        Some((i, ar)) => {
+        Some((i, o, ar)) => {
             let h = hostname.clone().unwrap_or_default();
-            (plan::Probe { os: "Linux".into(), arch: ar, hostname: h, home: None, installed: vec![i] }, hostname)
+            (plan::Probe { os: o, arch: ar, hostname: h, home: None, installed: vec![i] }, hostname)
         }
         None => {
             let out = Command::new(&ssh).args(via(plan::probe_command())).stdin(Stdio::null()).stderr(Stdio::null()).output();
@@ -174,8 +177,9 @@ pub fn run(argv: &[String]) -> ExitCode {
             (p, h)
         }
     };
-    let narch = plan::norm_arch(&probe.arch).unwrap_or("x86_64");
-    let build_id = rdir.as_deref().and_then(|d| bundle::build_id(d, narch));
+    let key = plan::platform(&probe.os, &probe.arch).ok().map(|p| p.key());
+    let build_id = rdir.as_deref().zip(key.as_deref()).and_then(|(d, k)| bundle::build_id(d, k));
+    let mb = rdir.as_deref().zip(key.as_deref()).and_then(|(d, k)| bundle::unpacked_mb(d, k)).unwrap_or(4);
     let upgrade = match plan::decide(&install, &probe, build_id.as_deref()) {
         plan::Decision::UseInstalled => None,
         plan::Decision::Plain(r) => return plain(&r, Some(&ctl), hostname),
@@ -183,8 +187,8 @@ pub fn run(argv: &[String]) -> ExitCode {
         plan::Decision::Ask { upgrade, old } => {
             let new = build_id.as_deref().unwrap_or_default();
             let prompt = match &old {
-                Some(old) => plan::upgrade_prompt(&a.destination, old, new),
-                None => plan::install_prompt(&a.destination),
+                Some(old) => plan::upgrade_prompt(&a.destination, old, new, mb),
+                None => plan::install_prompt(&a.destination, mb),
             };
             match ask(&prompt) {
                 plan::Answer::Yes => {
@@ -200,12 +204,12 @@ pub fn run(argv: &[String]) -> ExitCode {
             }
         }
     };
-    // decide() answers Plain whenever there is no bundled build for this arch; this is only belt and braces.
-    let (Some(build_id), Some(rdir)) = (build_id, rdir) else { return plain(plan::no_helper_reason(), Some(&ctl), hostname) };
+    // decide() answers Plain whenever there is no bundled build for this platform; this is only belt and braces.
+    let (Some(build_id), Some(rdir), Some(key)) = (build_id, rdir, key) else { return plain(plan::no_helper_reason(), Some(&ctl), hostname) };
     if let Some(upgrade) = upgrade {
         eprint!("gilvt: {}", if upgrade { gilvt_i18n::text("正在更新远端组件…", "updating the remote helper…") } else { gilvt_i18n::text("正在安装远端组件…", "installing the remote helper…") });
         let _ = std::io::stderr().flush();
-        let ok = std::fs::File::open(bundle::gz(&rdir, narch))
+        let ok = std::fs::File::open(bundle::gz(&rdir, &key))
             .ok()
             .and_then(|f| Command::new(&ssh).args(via(plan::upload_command(&build_id))).stdin(f).stdout(Stdio::null()).stderr(Stdio::null()).status().ok())
             .is_some_and(|s| s.success());
@@ -214,7 +218,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         if !ok {
             return plain(gilvt_i18n::text("远端组件上传失败", "uploading the remote helper failed"), Some(&ctl), hostname);
         }
-        tell(&socket, &record(&host, None, Some(&build_id), Some(narch), hostname.clone()));
+        tell(&socket, &record(&host, None, Some(&build_id), plan::norm_arch(&probe.arch), hostname.clone()));
     }
 
     let mut dest_args = a.opts.clone();

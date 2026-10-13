@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # End-to-end smoke for `gilvt ssh` (no GUI): the real gilvt CLI + a fake app socket + a real sshd.
 # Container mode (default): the docker test remote (tests/gui/remote.sh up) with an isolated fake HOME.
-# Real-host mode: SMOKE_HOST=user@host SMOKE_REAL=1 [SMOKE_ARCH=x86_64]  uses your real ~/.ssh, refuses a host that
+# Real-host mode: SMOKE_HOST=user@host SMOKE_REAL=1 [SMOKE_PLATFORM=linux-x86_64|darwin-aarch64]  uses your real ~/.ssh, refuses a host that
 #   already has ~/.gilvt-server, and always removes ~/.gilvt-server and stops gilvt-remote there afterwards.
 # `gilvt ssh` only acts on a tty: logins run under a python pty (works without a controlling terminal).
-# Needs: scripts/build-remote.sh --arch all (or the host's arch), cargo build -p gilvt-cli, python3.
+# Needs: scripts/build-remote.sh --platform all (or the host's platform), cargo build -p gilvt-cli, python3.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 target="${CARGO_TARGET_DIR:-$root/target}"
 real="${SMOKE_REAL:-}"
 [ -z "$real" ] || [ -n "${SMOKE_HOST:-}" ] || { echo "smoke: SMOKE_REAL=1 needs SMOKE_HOST=user@host" >&2; exit 2; }
 host="${SMOKE_HOST:-devbox-test}"
-arch="${SMOKE_ARCH:-$([ -n "$real" ] && echo x86_64 || echo aarch64)}"
+platform="${SMOKE_PLATFORM:-$([ -n "$real" ] && echo linux-x86_64 || echo linux-aarch64)}"
+arch="${platform#*-}"
 gilvt="${GILVT_BIN:-$target/debug/gilvt}"
 srv="" real_home="$HOME" remote_armed=""   # remote_armed: the remote may be reset/cleaned (set only once it is proven ours to touch)
 work="$(mktemp -d)"; cm="/tmp/gsm-$$"
@@ -36,8 +37,8 @@ trap cleanup EXIT
 bin="$work/bin"; mkdir -p "$bin"; install -d -m 700 "$cm"
 fail() { echo "smoke: $*" >&2; exit 1; }
 [ -x "$gilvt" ] || fail "no $gilvt (cargo build -p gilvt-cli)"
-bid_file="$target/remote-dist/remote/$arch/build-id"
-[ -f "$bid_file" ] || fail "no $bid_file (scripts/build-remote.sh --arch $arch)"
+bid_file="$target/remote-dist/remote/$platform/build-id"
+[ -f "$bid_file" ] || fail "no $bid_file (scripts/build-remote.sh --platform $platform)"
 build_id="$(cat "$bid_file")"
 
 if [ -z "$real" ]; then
