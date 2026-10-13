@@ -7,7 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gilvt_ipc::remote::{read_frame, write_frame, AppMsg, DaemonMsg, LocalMsg, RemoteEvent, RemoteRequest, RemoteResponse};
+use gilvt_ipc::remote::{is_frame_too_large, read_frame, write_frame, AppMsg, DaemonMsg, LocalMsg, RemoteEvent, RemoteRequest, RemoteResponse, OPEN_TOO_LARGE};
 use gilvt_ipc::BridgeSpec;
 use gpui::{App, Global};
 
@@ -53,6 +53,13 @@ pub enum RequestError {
     TimedOut,
     /// The daemon answered `Error`.
     Remote(String),
+}
+
+/// [`request`] as a future (resolves on the main thread's executor with the same answer / error / timeout).
+pub fn request_async(host: &str, req: RemoteRequest, timeout: Duration, cx: &mut App) -> impl std::future::Future<Output = Result<RemoteResponse, RequestError>> + 'static {
+    let (tx, rx) = async_channel::bounded(1);
+    request(host, req, timeout, Box::new(move |r, _| { let _ = tx.try_send(r); }), cx);
+    async move { rx.recv().await.unwrap_or(Err(RequestError::Disconnected)) }
 }
 
 /// Sends `req` on `host`'s bridge; `reply` runs on the main thread exactly once (answer, error, timeout).
@@ -162,14 +169,24 @@ pub fn ensure(host: &str, cx: &mut App) {
     let (tx, rx) = mpsc::channel::<AppMsg>();
     let (cursor, epoch) = cx.global::<RemoteHosts>().hosts.get(host).map_or((0, None), |h| (h.cursor, h.epoch));
     let hello = LocalMsg::Bridge { hello: AppMsg::Hello { build_id: spec.build_id.clone(), app_instance: instance, cursor, epoch } };
+    let (writer_events, writer_host) = (events.clone(), host.to_string());
     std::thread::spawn(move || {
         let mut w = BufWriter::new(stdin);
         if write_frame(&mut w, &hello).is_err() {
             return;
         }
         for m in rx {
-            if write_frame(&mut w, &m).is_err() {
-                break;
+            match write_frame(&mut w, &m) {
+                Ok(()) => {}
+                // Refused before a byte was written: this request fails, the bridge (and the host's hooks) go on.
+                Err(e) if is_frame_too_large(&e) => {
+                    if let Some(reply) = too_large_reply(&m) {
+                        if writer_events.send_blocking((writer_host.clone(), generation, Some(reply))).is_err() {
+                            return;
+                        }
+                    }
+                }
+                Err(_) => break,
             }
         }
     });
@@ -185,6 +202,14 @@ pub fn ensure(host: &str, cx: &mut App) {
     });
     cx.global_mut::<BridgeHandles>().map.insert(host.to_string(), BridgeHandle { child, tx, generation, pending: Pending::default() });
     set_status(host, BridgeStatus::Connecting, cx);
+}
+
+/// What the main thread should hear when `write_frame` refused `m` for being over the frame cap (R2a plan ruling 23).
+fn too_large_reply(m: &AppMsg) -> Option<DaemonMsg> {
+    match m {
+        AppMsg::Request { id, .. } => Some(DaemonMsg::Response { id: *id, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }),
+        _ => None,
+    }
 }
 
 fn set_status(host: &str, s: BridgeStatus, cx: &mut App) {
@@ -222,15 +247,17 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
         return;
     }
     match msg {
-        Some(DaemonMsg::Welcome { hostname, epoch, gap, .. }) => {
+        Some(DaemonMsg::Welcome { hostname, epoch, gap, home, .. }) => {
             set_status(host, BridgeStatus::Up, cx);
             cx.global_mut::<BridgeHandles>().attempts.remove(host);
             if let Some(h) = cx.global_mut::<RemoteHosts>().hosts.get_mut(host) {
                 h.welcomed(epoch, gap);
+                h.home = home;
             }
             for (pane, pr) in cx.global_mut::<RemoteHosts>().set_hostname(host, hostname) {
                 super::apply_to_pane(pane, Some(pr), cx);
             }
+            super::watch::rewatch(host, cx);
             crate::agents::Agents::remote_reconnected(host, cx);
         }
         Some(DaemonMsg::Mismatch { .. }) => {
@@ -271,7 +298,7 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
                 crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Append { offset, bytes }, cx);
             }
         }
-        Some(DaemonMsg::FileChanged { .. }) => {}
+        Some(DaemonMsg::FileChanged { path, fingerprint }) => super::watch::file_changed(host, &path, fingerprint, cx),
         Some(DaemonMsg::TranscriptReset { agent, session_id, size }) => {
             crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Reset { size }, cx);
         }
@@ -279,6 +306,7 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
             if let Some(h) = cx.global_mut::<BridgeHandles>().map.remove(host) {
                 retire(h, cx);
             }
+            super::watch::bridge_down(host, cx);
             let was = cx.global::<RemoteHosts>().hosts.get(host).map(|h| h.bridge);
             if was == Some(BridgeStatus::Mismatch) {
                 return;
@@ -321,6 +349,15 @@ pub fn link_count_changed(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_oversized_request_fails_only_itself() {
+        let big = AppMsg::Request { id: 7, req: RemoteRequest::WriteFile { path: "/x".into(), bytes: "A".repeat(gilvt_ipc::remote::MAX_FRAME as usize), expect: None } };
+        let mut out = Vec::new();
+        let e = write_frame(&mut out, &big).unwrap_err();
+        assert!(is_frame_too_large(&e) && out.is_empty(), "refused whole, nothing written");
+        assert_eq!(too_large_reply(&big), Some(DaemonMsg::Response { id: 7, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }));
+    }
 
     #[test]
     fn argv_reuses_the_master_and_never_prompts() {

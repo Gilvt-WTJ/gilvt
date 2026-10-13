@@ -117,6 +117,31 @@ impl Preview {
         Preview { doc, repo_root: None, base: DiffBase::None, diff: Some(diff), is_new: false, changed_since: false }
     }
 
+    /// A file read on an ssh host (R2a §8.3): `bytes` as read there, `repo_root` / `base_text` as that host's git found
+    /// them (`base_text` None inside a repository: the file is new at the base). No disk is read and no git is run
+    /// here. `base_skipped`: the base was too large to send; the file is shown on its own.
+    pub fn from_remote(path: &Path, bytes: Vec<u8>, repo_root: Option<PathBuf>, base: &DiffBase, base_text: Option<String>, base_skipped: bool) -> Preview {
+        let doc = Document::from_bytes(path, bytes);
+        let mut preview = Preview { doc, repo_root, base: DiffBase::None, diff: None, is_new: false, changed_since: false };
+        let Some(text) = preview.doc.text().map(str::to_string) else { return preview };
+        let compare = preview.repo_root.is_some() && base.rev().is_some() && !base_skipped;
+        preview.diff = Some(if compare {
+            preview.base = base.clone();
+            preview.is_new = base_text.is_none();
+            diff_texts(base_text.as_deref().unwrap_or(""), &text)
+        } else {
+            Diff::unchanged(&text)
+        });
+        preview
+    }
+
+    /// A file over the preview limit, shown as the local view shows one (its size, nothing read).
+    pub fn too_large(path: &Path, size: u64) -> Preview {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+        let doc = Document { path: Some(path.to_path_buf()), name, type_hint: None, content: Content::TooLarge(size), size };
+        Preview { doc, repo_root: None, base: DiffBase::None, diff: None, is_new: false, changed_since: false }
+    }
+
     /// `path` as the turn's second snapshot has it, diffed against the first. The disk is only read to tell
     /// whether the file changed since (a file the turn deleted need not exist any more).
     fn load_turn(path: &Path, range: &TurnRange) -> io::Result<Preview> {
@@ -217,6 +242,33 @@ mod tests {
         assert_eq!(labels, ["vs HEAD", "vs main", "File only"]);
         assert!(labels.iter().all(|l| !has_chinese(l)));
         assert_eq!(DiffBase::None.label(), "仅文件");
+    }
+
+    #[test]
+    fn from_remote_matches_a_local_load() {
+        let repo = testrepo::make();
+        let file = repo.path().join("a.txt");
+        std::fs::write(&file, "one\nTWO\nthree\n").unwrap();
+        let local = Preview::load(&file, &DiffBase::Head).unwrap();
+        let (root, base) = git::preview_base(&file, "HEAD").unwrap().unwrap();
+        let remote = Preview::from_remote(&file, std::fs::read(&file).unwrap(), Some(root), &DiffBase::Head, base, false);
+        assert_eq!((remote.base.clone(), remote.is_new), (local.base.clone(), local.is_new));
+        assert_eq!(remote.diff.unwrap().stats(), local.diff.unwrap().stats());
+        assert_eq!(remote.doc.name, "a.txt");
+    }
+
+    #[test]
+    fn from_remote_new_skipped_and_outside() {
+        let p = Path::new("/home/dev/r/n.txt");
+        let new = Preview::from_remote(p, b"x\n".to_vec(), Some("/home/dev/r".into()), &DiffBase::Head, None, false);
+        assert!(new.is_new && new.base == DiffBase::Head);
+        let skipped = Preview::from_remote(p, b"x\n".to_vec(), Some("/home/dev/r".into()), &DiffBase::Head, None, true);
+        assert_eq!(skipped.base, DiffBase::None, "a skipped base shows the file only");
+        assert!(!skipped.diff.unwrap().has_changes());
+        let outside = Preview::from_remote(p, b"x\n".to_vec(), None, &DiffBase::Head, None, false);
+        assert_eq!((outside.base, outside.repo_root), (DiffBase::None, None));
+        let big = Preview::too_large(p, 6_000_000);
+        assert_eq!(big.doc.content, Content::TooLarge(6_000_000));
     }
 
     #[test]

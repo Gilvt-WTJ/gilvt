@@ -2,11 +2,13 @@
 //! to it over the IPC socket, bridges feed it from the remote daemon.
 
 pub mod bridge;
+pub mod fs;
 pub mod history;
 pub mod pane;
 pub mod prefs;
 pub mod requests;
 pub mod resume;
+pub mod watch;
 
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -42,6 +44,8 @@ pub struct HostEntry {
     pub epoch: Option<u64>,
     /// A Welcome reported lost hooks at least once (R2a §4.3; only shown in DebugState).
     pub gap: bool,
+    /// The remote `$HOME` from the last Welcome (R2a §8.1).
+    pub home: Option<std::path::PathBuf>,
 }
 
 impl HostEntry {
@@ -88,7 +92,7 @@ impl RemoteHosts {
         self.next += 1;
         let link = format!("{}-{}", self.instance, self.next);
         let hostname = self.prefs.hosts.get(&host).and_then(|h| h.hostname.clone());
-        self.hosts.entry(host.clone()).or_insert(HostEntry { display: display.clone(), hostname: hostname.clone(), bridge: BridgeStatus::None, spec: None, last_link_end: None, cursor: 0, epoch: None, gap: false });
+        self.hosts.entry(host.clone()).or_insert(HostEntry { display: display.clone(), hostname: hostname.clone(), bridge: BridgeStatus::None, spec: None, last_link_end: None, cursor: 0, epoch: None, gap: false, home: None });
         self.links.insert(link.clone(), LinkEntry { pane, host, display, hostname, enhanced: false, note: None });
         link
     }
@@ -149,6 +153,7 @@ pub fn init(cx: &mut App) {
     let prefs = crate::agents::state_dir().map(|d| RemotePrefs::load(&d)).unwrap_or_default();
     let instance = format!("{:08x}", std::process::id() ^ (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0)));
     cx.set_global(RemoteHosts::new(instance, prefs));
+    cx.set_global(watch::RemoteWatches::default());
 }
 
 pub fn answer_begin(q: Query, cx: &mut App) {

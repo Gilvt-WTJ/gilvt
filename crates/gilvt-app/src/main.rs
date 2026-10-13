@@ -6,6 +6,7 @@ mod drop;
 mod editor;
 mod external_navigation;
 mod finder;
+mod hostfs;
 mod i18n;
 mod inspector;
 mod install_notice;
