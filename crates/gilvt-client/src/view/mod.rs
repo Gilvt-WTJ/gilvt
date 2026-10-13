@@ -49,6 +49,14 @@ pub fn request_for(cmd: &Command, cwd: &Path, stdin: impl FnOnce() -> Result<Str
     }))
 }
 
+/// The file of `gilvt view <file>` as the user typed it (without `:line:col`): what an error about it names.
+pub fn typed_file(cmd: &Command, cwd: &Path) -> Option<String> {
+    match cmd {
+        Command::View { target: Target::Path(raw), .. } => Some(args::split_location(raw, |p| cwd.join(p).exists()).0),
+        _ => None,
+    }
+}
+
 pub fn not_linked_text() -> &'static str {
     gilvt_i18n::text("这个 shell 没有连着 gilvt", "this shell is not connected to gilvt")
 }
@@ -69,6 +77,16 @@ mod tests {
 
     fn no_stdin() -> Result<String, String> {
         panic!("stdin must not be read")
+    }
+
+    #[test]
+    fn the_typed_file_is_what_errors_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "x").unwrap();
+        let view = |raw: &str| Command::View { target: Target::Path(raw.into()), pin: false, as_type: None };
+        assert_eq!(typed_file(&view("a.rs:3:2"), dir.path()).as_deref(), Some("a.rs"));
+        assert_eq!(typed_file(&view("../x/b.md"), dir.path()).as_deref(), Some("../x/b.md"));
+        assert_eq!(typed_file(&Command::View { target: Target::Stdin, pin: false, as_type: None }, dir.path()), None);
     }
 
     #[test]

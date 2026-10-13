@@ -54,6 +54,8 @@ fn pane() -> Option<u64> {
 fn run(cmd: Command) -> Result<(), String> {
     let cwd = std::env::current_dir().map_err(|e| format!("current directory: {e}"))?;
     let stdin = || gilvt_client::view::read_stdin(std::io::stdin());
+    // Errors name the file as typed, not the absolute path the request carries.
+    let typed = gilvt_client::view::typed_file(&cmd, &cwd);
     let Some(req) = gilvt_client::view::request_for(&cmd, &cwd, stdin, pane(), None)? else {
         print!("{USAGE}");
         return Ok(());
@@ -65,7 +67,7 @@ fn run(cmd: Command) -> Result<(), String> {
     match req {
         Request::View { content: Some(content), as_type, .. } => print_preview(&Preview::from_content(content, as_type)),
         Request::View { path: Some(path), .. } => {
-            let preview = Preview::load(&path, &DiffBase::None).map_err(|e| format!("{}: {e}", path.display()))?;
+            let preview = Preview::load(&path, &DiffBase::None).map_err(|e| format!("{}: {e}", typed.unwrap_or_else(|| path.display().to_string())))?;
             print_preview(&preview);
         }
         Request::Diff { cwd, rev, .. } => {
