@@ -21,7 +21,7 @@ pub fn control_path(dir: &Path, host_id: &str) -> PathBuf {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Probe { pub os: String, pub arch: String, pub hostname: String, pub installed: Vec<String> }
+pub struct Probe { pub os: String, pub arch: String, pub hostname: String, pub home: Option<String>, pub installed: Vec<String> }
 
 pub const PROBE_SENTINEL: &str = "GILVT-PROBE-1";
 
@@ -32,11 +32,12 @@ pub fn parse_probe(out: &str) -> Option<Probe> {
     let os = lines.next()?.trim().to_string();
     let arch = lines.next()?.trim().to_string();
     let hostname = lines.next()?.trim().to_string();
+    let home = Some(lines.next()?.trim().to_string()).filter(|h| !h.is_empty());
     let installed = lines
         .filter_map(|l| Path::new(l.trim().trim_end_matches('/')).file_name()?.to_str().map(str::to_string))
         .filter(|n| gilvt_ipc::remote::is_build_id(n))
         .collect();
-    Some(Probe { os, arch, hostname, installed })
+    Some(Probe { os, arch, hostname, home, installed })
 }
 
 /// True when `ssh -G` output shows the user configured session behaviour we must not alter.
@@ -60,15 +61,87 @@ pub fn norm_arch(m: &str) -> Option<&'static str> {
     match m { "x86_64" | "amd64" => Some("x86_64"), "aarch64" | "arm64" => Some("aarch64"), _ => None }
 }
 
+/// The remote's `uname -s`, for the systems gilvt-remote is built for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Os { Linux, Darwin }
+
+impl Os {
+    #[allow(dead_code)] // used from Task 2/4 on
+    pub fn name(self) -> &'static str {
+        match self { Os::Linux => "Linux", Os::Darwin => "Darwin" }
+    }
+
+    pub fn from_name(s: &str) -> Option<Os> {
+        match s { "Linux" => Some(Os::Linux), "Darwin" => Some(Os::Darwin), _ => None }
+    }
+
+    /// The longest socket path `bind` accepts (sun_path: 108 bytes on Linux, 104 on macOS, the NUL included).
+    pub fn socket_max(self) -> usize {
+        match self { Os::Linux => 107, Os::Darwin => 103 }
+    }
+}
+
+/// A host platform gilvt carries a helper for (spec macOS §2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Platform { pub os: Os, pub arch: &'static str }
+
+impl Platform {
+    /// The directory under `Contents/Resources/remote/`: `linux-x86_64`, `linux-aarch64`, `darwin-aarch64`.
+    #[allow(dead_code)] // used from Task 2/4 on
+    pub fn key(self) -> String {
+        format!("{}-{}", self.os.name().to_ascii_lowercase(), self.arch)
+    }
+}
+
+/// The platform of a probed host, or why its login stays plain.
+pub fn platform(os: &str, arch: &str) -> Result<Platform, String> {
+    let english = gilvt_i18n::english();
+    let Some(o) = Os::from_name(os) else {
+        return Err(if english { format!("the remote host runs {os}, not supported yet") } else { format!("远端系统 {os} 暂不支持") });
+    };
+    match (o, norm_arch(arch)) {
+        (Os::Linux, Some(a)) | (Os::Darwin, Some(a @ "aarch64")) => Ok(Platform { os: o, arch: a }),
+        (Os::Darwin, Some("x86_64")) => Err(if english { "the remote host is an Intel Mac (x86_64), not supported yet".into() } else { "远端是 Intel Mac（x86_64），暂不支持".into() }),
+        _ => Err(if english { format!("the remote architecture {arch} is not supported yet") } else { format!("远端架构 {arch} 暂不支持") }),
+    }
+}
+
+/// Why the daemon's sockets would not fit under `home` (spec macOS §8.2), or None.
+pub fn socket_too_long(os: Os, home: &str) -> Option<String> {
+    let len = home.trim_end_matches('/').len() + "/.gilvt-server/run/daemon.sock".len();
+    let max = os.socket_max();
+    (len > max).then(|| {
+        if gilvt_i18n::english() {
+            format!("the remote home directory is too long: gilvt's socket path would be {len} bytes (limit {max})")
+        } else {
+            format!("远端主目录太长：gilvt 的 socket 路径有 {len} 字节，超过上限 {max}")
+        }
+    })
+}
+
+/// `GILVT_PROBE_OVERRIDE=<os>/<arch>` (acceptance AD9). Applied only when the result is unsupported, so it can turn a
+/// login plain but never change which binary is uploaded.
+#[allow(dead_code)] // used from Task 2/4 on
+pub fn apply_override(mut probe: Probe, ov: Option<&str>) -> Probe {
+    if let Some((os, arch)) = ov.and_then(|v| v.split_once('/')) {
+        if platform(os, arch).is_err() {
+            probe.os = os.to_string();
+            probe.arch = arch.to_string();
+        }
+    }
+    probe
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision { UseInstalled, Ask { upgrade: bool, old: Option<String> }, Install { upgrade: bool }, Plain(String) }
 
 pub fn decide(policy: &str, probe: &Probe, build_id: Option<&str>) -> Decision {
-    if probe.os != "Linux" {
-        return Decision::Plain(if gilvt_i18n::english() { format!("the remote host is not Linux ({}), not supported yet", probe.os) } else { format!("远端不是 Linux（{}），暂不支持", probe.os) });
-    }
-    if norm_arch(&probe.arch).is_none() {
-        return Decision::Plain(if gilvt_i18n::english() { format!("the remote architecture {} is not supported yet", probe.arch) } else { format!("远端架构 {} 暂不支持", probe.arch) });
+    let p = match platform(&probe.os, &probe.arch) {
+        Ok(p) => p,
+        Err(reason) => return Decision::Plain(reason),
+    };
+    if let Some(reason) = probe.home.as_deref().and_then(|h| socket_too_long(p.os, h)) {
+        return Decision::Plain(reason);
     }
     let Some(build_id) = build_id else { return Decision::Plain(no_helper_reason().into()) };
     if policy == "never" { return Decision::Plain(never_reason().into()); }
@@ -90,7 +163,7 @@ fn sh(script: &str) -> String {
 }
 
 pub fn probe_command() -> String {
-    sh(r#"echo GILVT-PROBE-1; uname -s; uname -m; uname -n; ls -1dt "$HOME"/.gilvt-server/*/ 2>/dev/null | while IFS= read -r d; do [ -x "$d/gilvt-remote" ] && echo "$d"; done; true"#)
+    sh(r#"echo GILVT-PROBE-1; uname -s; uname -m; uname -n; echo "$HOME"; ls -1dt "$HOME"/.gilvt-server/*/ 2>/dev/null | while IFS= read -r d; do [ -x "$d/gilvt-remote" ] && echo "$d"; done; true"#)
 }
 
 pub fn upload_command(build_id: &str) -> String {
@@ -188,17 +261,79 @@ mod tests {
 
     #[test]
     fn probe_output() {
-        let out = "welcome banner\nGILVT-PROBE-1\nLinux\nx86_64\nn37-026-177\n/home/u/.gilvt-server/0.1.0-aaaaaaaa/\n/home/u/.gilvt-server/0.0.9-bbbbbbbb/\n";
+        let out = "welcome banner\nGILVT-PROBE-1\nLinux\nx86_64\nn37-026-177\n/home/u\n/home/u/.gilvt-server/0.1.0-aaaaaaaa/\n/home/u/.gilvt-server/0.0.9-bbbbbbbb/\n";
         let p = parse_probe(out).unwrap();
         assert_eq!((p.os.as_str(), p.arch.as_str(), p.hostname.as_str()), ("Linux", "x86_64", "n37-026-177"));
+        assert_eq!(p.home.as_deref(), Some("/home/u"));
         assert_eq!(p.installed, ["0.1.0-aaaaaaaa", "0.0.9-bbbbbbbb"]);
         assert!(parse_probe("Linux\n").is_none() && parse_probe("GILVT-PROBE-1\nLinux\n").is_none());
         assert_eq!(norm_arch("arm64"), Some("aarch64"));
         assert_eq!(norm_arch("armv7l"), None);
     }
 
+    #[test]
+    fn probe_home_line() {
+        // An empty $HOME is no home (and never an installed build); the command prints it right after uname -n.
+        let p = parse_probe("GILVT-PROBE-1\nDarwin\narm64\nmac\n\n").unwrap();
+        assert_eq!((p.home, p.installed.len()), (None, 0));
+        assert!(probe_command().contains(r#"uname -n; echo "$HOME"; ls -1dt"#), "{}", probe_command());
+    }
+
+    #[test]
+    fn platform_matrix() {
+        let key = |os: &str, arch: &str| platform(os, arch).map(|p| p.key());
+        assert_eq!(key("Linux", "x86_64").as_deref(), Ok("linux-x86_64"));
+        assert_eq!(key("Linux", "amd64").as_deref(), Ok("linux-x86_64"));
+        assert_eq!(key("Linux", "aarch64").as_deref(), Ok("linux-aarch64"));
+        assert_eq!(key("Linux", "arm64").as_deref(), Ok("linux-aarch64"));
+        assert_eq!(key("Darwin", "arm64").as_deref(), Ok("darwin-aarch64"));
+        assert_eq!(key("Darwin", "aarch64").as_deref(), Ok("darwin-aarch64"));
+        gilvt_i18n::with_language(gilvt_i18n::Language::Chinese, || {
+            assert_eq!(platform("Darwin", "x86_64"), Err("远端是 Intel Mac（x86_64），暂不支持".into()));
+            assert_eq!(platform("FreeBSD", "amd64"), Err("远端系统 FreeBSD 暂不支持".into()));
+            assert_eq!(platform("Linux", "riscv64"), Err("远端架构 riscv64 暂不支持".into()));
+        });
+        gilvt_i18n::with_language(gilvt_i18n::Language::English, || {
+            assert_eq!(platform("Darwin", "x86_64"), Err("the remote host is an Intel Mac (x86_64), not supported yet".into()));
+            assert_eq!(platform("FreeBSD", "amd64"), Err("the remote host runs FreeBSD, not supported yet".into()));
+        });
+        assert_eq!(Os::from_name("Darwin").map(Os::name), Some("Darwin"));
+        assert_eq!(Os::from_name("darwin"), None, "uname -s spelling only");
+    }
+
+    #[test]
+    fn socket_limit_per_os() {
+        // "/.gilvt-server/run/daemon.sock" is 30 bytes: Darwin allows a 73-byte home, Linux 77.
+        let home = |n: usize| format!("/{}", "h".repeat(n - 1));
+        assert_eq!(socket_too_long(Os::Darwin, &home(73)), None);
+        assert!(socket_too_long(Os::Darwin, &home(74)).is_some());
+        assert_eq!(socket_too_long(Os::Linux, &home(77)), None);
+        assert!(socket_too_long(Os::Linux, &home(78)).is_some());
+        assert_eq!(socket_too_long(Os::Darwin, &format!("{}/", home(73))), None, "a trailing slash does not count");
+        gilvt_i18n::with_language(gilvt_i18n::Language::English, || {
+            assert_eq!(socket_too_long(Os::Darwin, &home(74)).unwrap(), "the remote home directory is too long: gilvt's socket path would be 104 bytes (limit 103)");
+        });
+        let mut p = probe("Darwin", "arm64", &[]);
+        p.home = Some(home(74));
+        assert!(matches!(decide("always", &p, Some("0.3.1-aaaaaaaa")), Decision::Plain(_)), "checked before installing");
+        p.home = None;
+        assert_eq!(decide("always", &p, Some("0.3.1-aaaaaaaa")), Decision::Install { upgrade: false }, "unknown home: not checked");
+    }
+
+    #[test]
+    fn override_only_turns_plain() {
+        let real = probe("Linux", "x86_64", &[]);
+        let intel = apply_override(real.clone(), Some("Darwin/x86_64"));
+        assert_eq!((intel.os.as_str(), intel.arch.as_str()), ("Darwin", "x86_64"));
+        assert!(matches!(decide("always", &intel, Some("0.3.1-aaaaaaaa")), Decision::Plain(_)));
+        // A supported platform is ignored: the override never changes which binary is uploaded.
+        assert_eq!(apply_override(real.clone(), Some("Darwin/arm64")), real);
+        assert_eq!(apply_override(real.clone(), Some("garbage")), real);
+        assert_eq!(apply_override(real.clone(), None), real);
+    }
+
     fn probe(os: &str, arch: &str, installed: &[&str]) -> Probe {
-        Probe { os: os.into(), arch: arch.into(), hostname: "h".into(), installed: installed.iter().map(|s| s.to_string()).collect() }
+        Probe { os: os.into(), arch: arch.into(), hostname: "h".into(), home: None, installed: installed.iter().map(|s| s.to_string()).collect() }
     }
 
     #[test]
@@ -207,11 +342,11 @@ mod tests {
             let id = Some("0.1.0-aaaaaaaa");
             let reasons = [
                 decide("never", &probe("Linux", "x86_64", &[]), id),
-                decide("ask", &probe("Darwin", "arm64", &[]), id),
+                decide("ask", &probe("Darwin", "x86_64", &[]), id),
                 decide("ask", &probe("Linux", "riscv64", &[]), id),
                 decide("ask", &probe("Linux", "x86_64", &[]), None),
             ];
-            assert_eq!(reasons[1], Decision::Plain("the remote host is not Linux (Darwin), not supported yet".into()));
+            assert_eq!(reasons[1], Decision::Plain("the remote host is an Intel Mac (x86_64), not supported yet".into()));
             for r in reasons {
                 let Decision::Plain(text) = r else { panic!("{r:?}") };
                 assert!(!gilvt_i18n::has_chinese(&text), "{text}");
@@ -246,7 +381,8 @@ mod tests {
             assert_eq!(decide(policy, p, id), want, "{policy} {:?}", p.installed);
         }
         // The plain reasons (moved from the old `decisions()`; the English ones are tested above).
-        assert_eq!(decide("ask", &probe("Darwin", "arm64", &[]), id), Decision::Plain("远端不是 Linux（Darwin），暂不支持".into()));
+        assert_eq!(decide("ask", &probe("Darwin", "x86_64", &[]), id), Decision::Plain("远端是 Intel Mac（x86_64），暂不支持".into()));
+        assert_eq!(decide("ask", &probe("Darwin", "arm64", &[]), id), Decision::Ask { upgrade: false, old: None });
         assert_eq!(decide("ask", &probe("Linux", "riscv64", &[]), id), Decision::Plain("远端架构 riscv64 暂不支持".into()));
         assert_eq!(decide("ask", &none, None), Decision::Plain("这个 gilvt 构建没有包含远端组件".into()));
     }
@@ -273,7 +409,7 @@ mod tests {
 
     #[test]
     fn probe_keeps_only_build_ids_newest_first() {
-        let out = "GILVT-PROBE-1\nLinux\nx86_64\nh\n/home/u/.gilvt-server/0.2.1-bbbbbbbb/\n/home/u/.gilvt-server/bin/\n/home/u/.gilvt-server/0.2.0-cccccccc/\n";
+        let out = "GILVT-PROBE-1\nLinux\nx86_64\nh\n/home/u\n/home/u/.gilvt-server/0.2.1-bbbbbbbb/\n/home/u/.gilvt-server/bin/\n/home/u/.gilvt-server/0.2.0-cccccccc/\n";
         assert_eq!(parse_probe(out).unwrap().installed, ["0.2.1-bbbbbbbb", "0.2.0-cccccccc"]);
         assert!(probe_command().contains("ls -1dt"), "newest (by directory mtime) first");
     }

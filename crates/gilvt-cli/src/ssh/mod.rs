@@ -152,7 +152,7 @@ pub fn run(argv: &[String]) -> ExitCode {
     let (probe, hostname) = match cached {
         Some((i, ar)) => {
             let h = hostname.clone().unwrap_or_default();
-            (plan::Probe { os: "Linux".into(), arch: ar, hostname: h, installed: vec![i] }, hostname)
+            (plan::Probe { os: "Linux".into(), arch: ar, hostname: h, home: None, installed: vec![i] }, hostname)
         }
         None => {
             let out = Command::new(&ssh).args(via(plan::probe_command())).stdin(Stdio::null()).stderr(Stdio::null()).output();
