@@ -168,6 +168,10 @@ pub enum LocalMsg {
     Bridge { hello: AppMsg },
     /// A daemon of another build asks this one to hand over its state and exit.
     Takeover { build_id: String },
+    /// `ensure_daemon`: is a daemon of `build_id` serving? Answered `Ok` by one; a daemon of another build closes the
+    /// connection without a reply (an older daemon cannot parse it and closes too). Unlike a `Bridge` hello it
+    /// registers nothing and replays nothing (R2a §9).
+    Probe { build_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,6 +233,15 @@ mod tests {
             })
         );
         assert_eq!(read_frame::<AppMsg>(&mut r).unwrap(), None);
+    }
+
+    #[test]
+    fn probe_is_a_tagged_local_message() {
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &LocalMsg::Probe { build_id: "0.1.0-abcd1234".into() }).unwrap();
+        assert_eq!(&buf[4..], br#"{"type":"probe","build_id":"0.1.0-abcd1234"}"#);
+        let mut r = &buf[..];
+        assert_eq!(read_frame::<LocalMsg>(&mut r).unwrap(), Some(LocalMsg::Probe { build_id: "0.1.0-abcd1234".into() }));
     }
 
     #[test]

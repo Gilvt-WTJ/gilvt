@@ -34,7 +34,6 @@ impl Layout {
     }
 
     /// `$HOME` (the parent of `~/.gilvt-server`).
-    #[allow(dead_code)] // used by the history index / view commands (R2a plan 2)
     pub fn home(&self) -> PathBuf {
         self.root.parent().map(Path::to_path_buf).unwrap_or_else(|| self.root.clone())
     }

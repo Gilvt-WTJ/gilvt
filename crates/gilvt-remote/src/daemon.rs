@@ -13,7 +13,7 @@ use gilvt_ipc::remote::*;
 
 use crate::follow::{check_path, Follower, Push, FOLLOW_POLL, MAX_FOLLOWS};
 use crate::history::{self, fit_entries, HistoryWorker, HISTORY_BYTES};
-use crate::hooklog::{attribute, HookLog, HOOK_LOG_MAX};
+use crate::hooklog::{attribute, hook_size, HookLog, HOOK_LOG_BYTES, HOOK_LOG_MAX};
 use crate::links::Links;
 use crate::paths::Layout;
 use crate::peer::peer_uid;
@@ -27,11 +27,27 @@ pub struct Config {
     pub idle_exit: Duration,
 }
 
+/// What a bridge's writer thread sends. Events are shared (`Arc`), so a hook of up to 1 MB is not copied per bridge
+/// or for the replay buffer under the State lock: the writer builds its frame outside the lock.
+enum Out {
+    Msg(DaemonMsg),
+    Event(u64, Arc<RemoteEvent>),
+}
+
+impl Out {
+    fn write(self, w: &mut UnixStream) -> io::Result<()> {
+        match self {
+            Out::Msg(m) => write_frame(w, &m),
+            Out::Event(seq, event) => write_frame(w, &DaemonMsg::Event { seq, event: Arc::unwrap_or_clone(event) }),
+        }
+    }
+}
+
 struct State {
     links: Links,
     seq: u64,
     next_bridge: u64,
-    bridges: Vec<(u64, Sender<DaemonMsg>)>,
+    bridges: Vec<(u64, Sender<Out>)>,
     last_activity: Instant,
     /// This daemon's start time in ms (R2a §4.3).
     epoch: u64,
@@ -43,16 +59,25 @@ struct State {
 impl State {
     fn new(links: Links) -> State {
         let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_millis() as u64);
-        State { links, seq: 0, next_bridge: 0, bridges: Vec::new(), last_activity: Instant::now(), epoch, hooks: HookLog::new(HOOK_LOG_MAX), follows: 0 }
+        State { links, seq: 0, next_bridge: 0, bridges: Vec::new(), last_activity: Instant::now(), epoch, hooks: HookLog::new(HOOK_LOG_MAX, HOOK_LOG_BYTES), follows: 0 }
     }
 
+    /// A link event (not kept for replay).
     fn broadcast(&mut self, event: RemoteEvent) {
+        self.send(Arc::new(event));
+    }
+
+    /// A hook: kept for replay (`size`: [`hook_size`], computed before the lock was taken) and sent.
+    fn broadcast_hook(&mut self, event: RemoteEvent, size: usize) {
+        let event = Arc::new(event);
+        self.send(event.clone());
+        self.hooks.push(self.seq, event, size);
+    }
+
+    fn send(&mut self, event: Arc<RemoteEvent>) {
         self.seq += 1;
-        if matches!(event, RemoteEvent::Hook { .. }) {
-            self.hooks.push(self.seq, event.clone());
-        }
-        let msg = DaemonMsg::Event { seq: self.seq, event };
-        self.bridges.retain(|(_, tx)| tx.send(msg.clone()).is_ok());
+        let seq = self.seq;
+        self.bridges.retain(|(_, tx)| tx.send(Out::Event(seq, event.clone())).is_ok());
         self.last_activity = Instant::now();
     }
 }
@@ -140,9 +165,10 @@ fn serve_gilvt_sock(listener: UnixListener, state: &Arc<Mutex<State>>) {
         let _ = conn.set_read_timeout(Some(HOOK_READ_TIMEOUT));
         // A client that connects and then says nothing fails the read at the timeout and is dropped.
         if let Ok(gilvt_ipc::Request::Hook { agent, event, payload, link, tmux, .. }) = gilvt_ipc::read_request(&conn) {
+            let size = hook_size(&payload);
             let mut s = state.lock().unwrap();
             if let Some(link) = attribute(&s.links, link.as_deref(), tmux) {
-                s.broadcast(RemoteEvent::Hook { link, agent, event, payload });
+                s.broadcast_hook(RemoteEvent::Hook { link, agent, event, payload }, size);
             }
         }
     }
@@ -188,6 +214,9 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
             write_frame(&mut conn, &LocalReply::Ok)
         }
         Some(LocalMsg::Takeover { build_id }) if build_id == cfg.build_id => write_frame(&mut conn, &LocalReply::Ok),
+        // `ensure_daemon`: registers nothing and replays nothing; another build gets no reply (it starts its own).
+        Some(LocalMsg::Probe { build_id }) if build_id == cfg.build_id => write_frame(&mut conn, &LocalReply::Ok),
+        Some(LocalMsg::Probe { .. }) => Ok(()),
         Some(LocalMsg::Takeover { .. }) => {
             let links = state.lock().unwrap().links.all();
             write_frame(&mut conn, &LocalReply::Handover { links })?;
@@ -199,15 +228,16 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
             if build_id != cfg.build_id {
                 return write_frame(&mut conn, &DaemonMsg::Mismatch { build_id: cfg.build_id.clone() });
             }
-            let (tx, rx) = channel::<DaemonMsg>();
+            let (tx, rx) = channel::<Out>();
             let id = {
                 let mut s = state.lock().unwrap();
-                // Welcome, the replay and the registration happen under one lock: no hook is lost or doubled.
-                let replay = s.hooks.replay(s.epoch, epoch, cursor);
+                // Welcome, the replay and the registration happen under one lock: no hook is lost or doubled. The
+                // replay holds shared events (no payload is copied here), and only those of links still registered.
+                let replay = s.hooks.replay(s.epoch, epoch, cursor, |l| s.links.contains(l));
                 let welcome = DaemonMsg::Welcome { build_id: cfg.build_id.clone(), hostname: cfg.hostname.clone(), uname: cfg.uname.clone(), links: s.links.all(), seq: s.seq, epoch: s.epoch, gap: replay.gap };
-                tx.send(welcome).ok();
+                tx.send(Out::Msg(welcome)).ok();
                 for (seq, event) in replay.events {
-                    tx.send(DaemonMsg::Event { seq, event }).ok();
+                    tx.send(Out::Event(seq, event)).ok();
                 }
                 s.next_bridge += 1;
                 let id = s.next_bridge;
@@ -216,7 +246,7 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
                 id
             };
             let mut writer = conn.try_clone()?;
-            std::thread::spawn(move || { for msg in rx { if write_frame(&mut writer, &msg).is_err() { break; } } });
+            std::thread::spawn(move || { for out in rx { if out.write(&mut writer).is_err() { break; } } });
             type Follows = Arc<Mutex<std::collections::HashMap<(String, String), Follower>>>;
             let follows: Follows = Arc::default();
             let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -234,7 +264,7 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
                                 Push::Append { offset, bytes } => DaemonMsg::TranscriptAppend { agent: agent.clone(), session_id: session_id.clone(), offset, bytes: encode_bytes(&bytes) },
                                 Push::Reset { size } => DaemonMsg::TranscriptReset { agent: agent.clone(), session_id: session_id.clone(), size },
                             };
-                            if tx.send(msg).is_err() {
+                            if tx.send(Out::Msg(msg)).is_err() {
                                 return;
                             }
                         }
@@ -267,7 +297,7 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
                                             let fl = Follower::new(path, from);
                                             let size = fl.size();
                                             f.insert(key, fl);
-                                            if tx.send(DaemonMsg::Response { id: rid, resp: RemoteResponse::Following { size } }).is_err() {
+                                            if tx.send(Out::Msg(DaemonMsg::Response { id: rid, resp: RemoteResponse::Following { size } })).is_err() {
                                                 break;
                                             }
                                             None
@@ -288,13 +318,13 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
                                         Ok(entries) => RemoteResponse::HistoryList { entries: fit_entries((*entries).clone(), HISTORY_BYTES) },
                                         Err(message) => RemoteResponse::Error { message },
                                     };
-                                    let _ = tx.send(DaemonMsg::Response { id: rid, resp });
+                                    let _ = tx.send(Out::Msg(DaemonMsg::Response { id: rid, resp }));
                                 });
                                 None
                             }
                         };
                         if let Some(resp) = resp {
-                            if tx.send(DaemonMsg::Response { id: rid, resp }).is_err() { break; }
+                            if tx.send(Out::Msg(DaemonMsg::Response { id: rid, resp })).is_err() { break; }
                         }
                     }
                 }
@@ -443,6 +473,78 @@ mod tests {
         let mut other = bridge_at(home.path(), "0.1.0-aaaaaaaa", seen, Some(epoch + 1));
         let Some(DaemonMsg::Welcome { gap, .. }) = read_frame::<DaemonMsg>(&mut other).unwrap() else { panic!() };
         assert!(gap, "another epoch: a gap");
+    }
+
+    #[test]
+    fn a_probe_registers_nothing_and_gets_no_replay() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        login(home.path(), "t-1", std::process::id());
+        send_hook(home.path(), Some("t-1"), false, "One");
+        wait_for_seq(home.path(), "0.1.0-aaaaaaaa", 2);
+        let probe = |build: &str| {
+            let mut s = UnixStream::connect(Layout::from_home(home.path()).socket()).unwrap();
+            s.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            write_frame(&mut s, &LocalMsg::Probe { build_id: build.into() }).unwrap();
+            let reply = read_frame::<LocalReply>(&mut s).unwrap();
+            let more = read_frame::<DaemonMsg>(&mut s).unwrap();
+            (reply, more)
+        };
+        assert_eq!(probe("0.1.0-aaaaaaaa"), (Some(LocalReply::Ok), None), "Ok, then EOF: no Welcome, no replayed hook");
+        assert_eq!(probe("0.2.0-bbbbbbbb"), (None, None), "another build: closed without a reply");
+        // ensure_daemon uses the probe: with a daemon of this build serving it never tries to start one.
+        let layout = Layout::from_home(home.path());
+        crate::client::ensure_daemon(&layout, std::path::Path::new("/nonexistent/gilvt-remote"), "0.1.0-aaaaaaaa").unwrap();
+    }
+
+    #[test]
+    fn a_probe_leaves_the_bridge_table_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg = cfg(home.path(), "0.1.0-aaaaaaaa");
+        let state = Arc::new(Mutex::new(State::new(Links::default())));
+        let (mut client, server) = UnixStream::pair().unwrap();
+        write_frame(&mut client, &LocalMsg::Probe { build_id: "0.1.0-aaaaaaaa".into() }).unwrap();
+        serve(server, &state, &cfg, &Arc::new(HistoryWorker::new(Arc::new(|| Ok(Vec::new()))))).unwrap();
+        assert_eq!(read_frame::<LocalReply>(&mut client).unwrap(), Some(LocalReply::Ok));
+        let s = state.lock().unwrap();
+        assert!(s.bridges.is_empty() && s.next_bridge == 0);
+    }
+
+    #[test]
+    fn hooks_of_an_ended_link_are_not_replayed() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        let mut shell = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+        login(home.path(), "t-live", std::process::id());
+        login(home.path(), "t-gone", shell.id());
+        send_hook(home.path(), Some("t-gone"), false, "Gone");
+        send_hook(home.path(), Some("t-live"), false, "Live");
+        wait_for_seq(home.path(), "0.1.0-aaaaaaaa", 4);
+        shell.kill().unwrap();
+        shell.wait().unwrap();
+        // Until the reaper has ended t-gone (seen in a Welcome's links).
+        let end = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+            b.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            if let Some(DaemonMsg::Welcome { links, .. }) = read_frame::<DaemonMsg>(&mut b).unwrap() {
+                if links.iter().all(|l| l.link != "t-gone") {
+                    break;
+                }
+            }
+            assert!(Instant::now() < end, "t-gone was never reaped");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+        b.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+        assert!(matches!(read_frame::<DaemonMsg>(&mut b).unwrap(), Some(DaemonMsg::Welcome { .. })));
+        let mut replayed = Vec::new();
+        while let Ok(Some(msg)) = read_frame::<DaemonMsg>(&mut b) {
+            if let DaemonMsg::Event { event: RemoteEvent::Hook { event, .. }, .. } = msg {
+                replayed.push(event);
+            }
+        }
+        assert_eq!(replayed, ["Live"]);
     }
 
     #[test]
