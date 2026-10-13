@@ -2225,6 +2225,7 @@ name = "gilvt-client"
 version = "0.2.1"
 dependencies = [
  "gilvt-agent",
+ "gilvt-i18n",
  "gilvt-ipc",
  "serde",
  "serde_json",
@@ -2392,6 +2393,7 @@ dependencies = [
 name = "gilvt-viewer"
 version = "0.2.1"
 dependencies = [
+ "gilvt-client",
  "gilvt-i18n",
  "gilvt-snapshot",
  "similar",

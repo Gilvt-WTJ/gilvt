@@ -78,18 +78,16 @@ impl Preview {
             return Preview::load_turn(path, range);
         }
         let doc = Document::load(path)?;
-        let repo_root = path.parent().and_then(git::repo_root);
-        let mut preview = Preview { doc, repo_root, base: DiffBase::None, diff: None, is_new: false, changed_since: false };
+        let rev = base.rev();
+        let found = match rev {
+            Some(rev) if doc.text().is_some() => git::preview_base(path, rev)?,
+            _ => path.parent().and_then(git::repo_root).map(|root| (root, None)),
+        };
+        let mut preview = Preview { doc, repo_root: found.as_ref().map(|(r, _)| r.clone()), base: DiffBase::None, diff: None, is_new: false, changed_since: false };
         let Some(text) = preview.doc.text().map(str::to_string) else { return Ok(preview) };
-
-        let old = match (&preview.repo_root, base.rev()) {
-            (Some(root), Some(rev)) => {
-                // `git` reports paths relative to the canonical root (e.g. /private/tmp on macOS).
-                let canon_root = root.canonicalize().unwrap_or_else(|_| root.clone());
-                let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-                let rel = canon_path.strip_prefix(&canon_root).unwrap_or(path).to_path_buf();
+        let old = match (found, rev) {
+            (Some((_, old)), Some(_)) => {
                 preview.base = base.clone();
-                let old = git::show_file(&canon_root, rev, &rel)?;
                 preview.is_new = old.is_none();
                 Some(old.unwrap_or_default())
             }
@@ -165,7 +163,7 @@ impl Preview {
 mod tests {
     use super::*;
     use crate::diff::LineKind;
-    use crate::git::testrepo;
+    use crate::testrepo;
     use gilvt_snapshot::ObjectStore;
 
     #[test]
