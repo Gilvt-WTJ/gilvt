@@ -239,6 +239,20 @@ pub fn screen_tail<T: EventListener>(term: &Term<T>, n: usize) -> Vec<String> {
     out
 }
 
+/// A snapshot of `text` fed to a fresh `cols` x `rows` terminal; for other crates' tests.
+#[doc(hidden)]
+pub fn snapshot_of(text: &str, cols: u16, rows: u16) -> Snapshot {
+    use alacritty_terminal::event::VoidListener;
+    use alacritty_terminal::term::Config;
+    use alacritty_terminal::vte::ansi::Processor;
+
+    let size = crate::size::TermSize { cols, rows, cell_width: 8, cell_height: 16 };
+    let mut term = Term::new(Config::default(), &size, VoidListener);
+    let mut parser: Processor = Processor::new();
+    parser.advance(&mut term, text.as_bytes());
+    take_snapshot(&term, &Palette::dark(), None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

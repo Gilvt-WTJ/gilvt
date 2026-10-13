@@ -13,8 +13,8 @@ breaking changes; they are called out under **Changed**.
   ones: status, tab dots, notifications and jumping to an approval (`⇧⌘J`), the close confirmation, the
   inspector's timeline, and the sessions palette (`⇧⌘R`) with the remote host's history and resuming there.
   Agents inside remote tmux are not detected yet.
-- SSH: in a gilvt ssh pane, `gilvt view` and `gilvt diff` run in the remote shell preview the remote host's files in
-  gilvt (a pinned preview follows changes on the host).
+- SSH: in a gilvt ssh pane, `gilvt view`, `gilvt diff` and ⌘-click on a path preview the remote host's files in
+  gilvt (a pinned preview follows changes on the host); a path that does not exist there says so.
 
 ### Changed
 

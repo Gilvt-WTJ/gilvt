@@ -14,6 +14,7 @@ mod editor;
 pub mod marks;
 mod new_agent;
 mod pane_drag;
+mod remote_files;
 pub mod nav;
 mod remote_resume;
 mod restore;
@@ -385,6 +386,13 @@ impl Workspace {
         self.focus_active(window, cx);
     }
 
+    /// Closes Quick Look only when it still shows `view` (a remote answer arriving late must not close another).
+    pub(crate) fn close_quicklook_if(&mut self, view: &Entity<PreviewView>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.quicklook.as_ref().is_some_and(|(v, _)| v == view) {
+            self.close_quicklook(window, cx);
+        }
+    }
+
     fn close_quicklook(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.quicklook = None;
         self.focus_active(window, cx);
@@ -482,8 +490,8 @@ impl Workspace {
                 cx.defer(move |cx| crate::remote::link_ended(&link, cx));
             }
             TerminalViewEvent::Notice(t) => ws.show_error(t.to_string(), cx),
+            TerminalViewEvent::OpenRemotePath { probe, in_editor } => ws.open_remote_path(id, probe.clone(), *in_editor, window, cx),
             TerminalViewEvent::OpenPath { hit, in_editor } => {
-                if ws.refuse_remote(id, cx) { return; }
                 if *in_editor {
                     ws.open_editor(hit.path.clone(), hit.line, Some(id), false, window, cx);
                 } else {
