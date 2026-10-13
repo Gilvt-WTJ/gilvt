@@ -47,6 +47,7 @@ impl WatchSet {
         self.files.remove(path);
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.files.len()
     }

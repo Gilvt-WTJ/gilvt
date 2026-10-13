@@ -11,12 +11,15 @@ use std::time::{Duration, Instant};
 
 use gilvt_ipc::remote::*;
 
+use crate::files;
 use crate::follow::{check_path, Follower, Push, FOLLOW_POLL, MAX_FOLLOWS};
 use crate::history::{self, fit_entries, HistoryWorker, HISTORY_BYTES};
 use crate::hooklog::{attribute, hook_size, HookLog, HOOK_LOG_BYTES, HOOK_LOG_MAX};
 use crate::links::Links;
 use crate::paths::Layout;
 use crate::peer::peer_uid;
+use crate::watch::WatchSet;
+use crate::workers::{FileWorkers, FILE_WORKERS};
 
 pub struct Config {
     pub layout: Layout,
@@ -35,10 +38,20 @@ enum Out {
 }
 
 impl Out {
+    /// A frame over `MAX_FRAME` is refused by `write_frame` before any byte is written: an answer becomes an error
+    /// for its request, a push is dropped. Either way the bridge goes on (an error here would end its writer and with it
+    /// the host's hooks).
     fn write(self, w: &mut UnixStream) -> io::Result<()> {
-        match self {
-            Out::Msg(m) => write_frame(w, &m),
-            Out::Event(seq, event) => write_frame(w, &DaemonMsg::Event { seq, event: Arc::unwrap_or_clone(event) }),
+        let msg = match self {
+            Out::Msg(m) => m,
+            Out::Event(seq, event) => DaemonMsg::Event { seq, event: Arc::unwrap_or_clone(event) },
+        };
+        match write_frame(w, &msg) {
+            Err(e) if is_frame_too_large(&e) => match msg {
+                DaemonMsg::Response { id, .. } => write_frame(w, &DaemonMsg::Response { id, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }),
+                _ => Ok(()),
+            },
+            other => other,
         }
     }
 }
@@ -115,6 +128,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     let state = Arc::new(Mutex::new(State::new(links)));
     let cfg = Arc::new(cfg);
     let history = Arc::new(HistoryWorker::new(history::scanner(cfg.layout.state_dir(), cfg.layout.home())));
+    let workers = Arc::new(FileWorkers::new(FILE_WORKERS));
 
     {
         let state = state.clone();
@@ -139,8 +153,8 @@ pub fn run(cfg: Config) -> io::Result<()> {
     for conn in listener.incoming() {
         let Ok(conn) = conn else { continue };
         if peer_uid(&conn).ok() != Some(me) { continue; }
-        let (state, cfg, history) = (state.clone(), cfg.clone(), history.clone());
-        std::thread::spawn(move || { let _ = serve(conn, &state, &cfg, &history); });
+        let (state, cfg, history, workers) = (state.clone(), cfg.clone(), history.clone(), workers.clone());
+        std::thread::spawn(move || { let _ = serve(conn, &state, &cfg, &history, &workers); });
     }
     Ok(())
 }
@@ -204,7 +218,25 @@ fn pid_alive(pid: u32) -> bool {
     ok || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
-fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history: &Arc<HistoryWorker>) -> io::Result<()> {
+/// How often a bridge's watched files are looked at.
+const WATCH_POLL: Duration = Duration::from_millis(500);
+
+/// R2a §8.1: paths are absolute (the app expanded `~/`); anything else is refused, never resolved against the daemon's cwd.
+fn relative(paths: &[&std::path::Path]) -> Option<RemoteResponse> {
+    paths.iter().find(|p| !p.is_absolute()).map(|p| RemoteResponse::Error { message: format!("not an absolute path: {}", p.display()) })
+}
+
+/// Runs `job` on a file worker and sends its answer for request `id`; always `None` (nothing to answer inline).
+/// Callers check `relative` first, with a borrow that has ended before the closure takes the path by move.
+fn file_job(workers: &FileWorkers, tx: &Sender<Out>, id: u64, job: impl FnOnce() -> RemoteResponse + Send + 'static) -> Option<RemoteResponse> {
+    let tx = tx.clone();
+    workers.submit(move || {
+        let _ = tx.send(Out::Msg(DaemonMsg::Response { id, resp: job() }));
+    });
+    None
+}
+
+fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history: &Arc<HistoryWorker>, workers: &Arc<FileWorkers>) -> io::Result<()> {
     match read_frame::<LocalMsg>(&mut conn)? {
         Some(LocalMsg::Login { link, .. }) => {
             let mut s = state.lock().unwrap();
@@ -271,6 +303,25 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
                     }
                 });
             }
+            let watches: Arc<Mutex<WatchSet>> = Arc::default();
+            {
+                let (watches, closed, tx) = (watches.clone(), closed.clone(), tx.clone());
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(WATCH_POLL);
+                    if closed.load(std::sync::atomic::Ordering::Relaxed) {
+                        return;
+                    }
+                    // Stat only under the lock (it is shared with the read loop's Watch / Unwatch); the sha256 of a
+                    // changed file is computed after the guard is dropped (plan ruling 26).
+                    let changed = watches.lock().unwrap().poll();
+                    for path in changed {
+                        let fingerprint = files::fingerprint_of(&path).ok().flatten();
+                        if tx.send(Out::Msg(DaemonMsg::FileChanged { path, fingerprint })).is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
             // However the read loop ends (EOF, garbage, reset), the bridge must be deregistered and the
             // connection shut down, or its writer thread and the idle-exit check would hang on it forever.
             let result = (|| -> io::Result<()> {
@@ -322,8 +373,40 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
                                 });
                                 None
                             }
-                            RemoteRequest::ReadFile { .. } | RemoteRequest::ReadForPreview { .. } | RemoteRequest::Stat { .. } | RemoteRequest::WriteFile { .. } | RemoteRequest::GitChanges { .. } | RemoteRequest::Watch { .. } | RemoteRequest::Unwatch { .. } => {
-                                Some(RemoteResponse::Error { message: "not supported by this daemon yet".into() })
+                            RemoteRequest::ReadFile { path, max } => match relative(&[path.as_path()]) {
+                                Some(refused) => Some(refused),
+                                None => file_job(workers, &tx, rid, move || files::read_file(&path, max.min(MAX_REMOTE_EDIT_BYTES))),
+                            },
+                            RemoteRequest::ReadForPreview { path, rev } => match relative(&[path.as_path()]) {
+                                Some(refused) => Some(refused),
+                                None => file_job(workers, &tx, rid, move || files::read_for_preview(&path, rev.as_deref())),
+                            },
+                            RemoteRequest::Stat { paths } => {
+                                let refs: Vec<&std::path::Path> = paths.iter().map(|p| p.as_path()).collect();
+                                match relative(&refs) {
+                                    Some(refused) => Some(refused),
+                                    None => file_job(workers, &tx, rid, move || files::stat(&paths)),
+                                }
+                            }
+                            RemoteRequest::WriteFile { path, bytes, expect } => match (relative(&[path.as_path()]), decode_bytes(&bytes)) {
+                                (Some(refused), _) => Some(refused),
+                                (None, Err(e)) => Some(RemoteResponse::Error { message: e.to_string() }),
+                                (None, Ok(bytes)) => file_job(workers, &tx, rid, move || files::write_file(&path, &bytes, expect.as_ref())),
+                            },
+                            RemoteRequest::GitChanges { cwd, rev } => match relative(&[cwd.as_path()]) {
+                                Some(refused) => Some(refused),
+                                None => file_job(workers, &tx, rid, move || files::git_changes(&cwd, rev.as_deref())),
+                            },
+                            RemoteRequest::Watch { path } => Some(match relative(&[path.as_path()]) {
+                                Some(refused) => refused,
+                                None => match watches.lock().unwrap().add(path) {
+                                    Ok(()) => RemoteResponse::Ok,
+                                    Err(message) => RemoteResponse::Error { message },
+                                },
+                            }),
+                            RemoteRequest::Unwatch { path } => {
+                                watches.lock().unwrap().remove(&path);
+                                Some(RemoteResponse::Ok)
                             }
                         };
                         if let Some(resp) = resp {
@@ -402,6 +485,97 @@ mod tests {
                 _ => continue,
             }
         }
+    }
+
+    fn ask(b: &mut UnixStream, id: u64, req: RemoteRequest) -> RemoteResponse {
+        write_frame(b, &AppMsg::Request { id, req }).unwrap();
+        loop {
+            match read_frame::<DaemonMsg>(b).unwrap().unwrap() {
+                DaemonMsg::Response { id: got, resp } if got == id => return resp,
+                _ => continue,
+            }
+        }
+    }
+
+    #[test]
+    fn file_requests_are_answered_from_the_workers() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        let f = home.path().join("notes.txt");
+        std::fs::write(&f, "hello\n").unwrap();
+        let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+        b.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let Some(DaemonMsg::Welcome { home: h, .. }) = read_frame::<DaemonMsg>(&mut b).unwrap() else { panic!() };
+        assert_eq!(h.as_deref(), Some(home.path()));
+        let RemoteResponse::FileData { bytes, fingerprint, writable } = ask(&mut b, 1, RemoteRequest::ReadFile { path: f.clone(), max: u64::MAX }) else { panic!() };
+        assert_eq!((decode_bytes(&bytes).unwrap(), writable), (b"hello\n".to_vec(), true));
+        let saved = ask(&mut b, 2, RemoteRequest::WriteFile { path: f.clone(), bytes: encode_bytes(b"bye\n"), expect: Some(fingerprint.clone()) });
+        assert!(matches!(saved, RemoteResponse::Saved { .. }), "{saved:?}");
+        assert!(matches!(ask(&mut b, 3, RemoteRequest::WriteFile { path: f.clone(), bytes: encode_bytes(b"x"), expect: Some(fingerprint) }), RemoteResponse::Modified { .. }));
+        let RemoteResponse::Stats { entries } = ask(&mut b, 4, RemoteRequest::Stat { paths: vec![f.clone(), home.path().join("nope")] }) else { panic!() };
+        assert_eq!(entries.iter().map(|e| e.exists).collect::<Vec<_>>(), [true, false]);
+        assert!(matches!(ask(&mut b, 5, RemoteRequest::ReadForPreview { path: f.clone(), rev: None }), RemoteResponse::PreviewData { git_root: None, .. }));
+        assert!(matches!(ask(&mut b, 6, RemoteRequest::ReadFile { path: "relative.txt".into(), max: 10 }), RemoteResponse::Error { .. }), "paths must be absolute");
+    }
+
+    #[test]
+    fn watch_pushes_to_its_bridge_until_unwatched() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        let f = home.path().join("w.txt");
+        std::fs::write(&f, "1").unwrap();
+        let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+        b.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        read_frame::<DaemonMsg>(&mut b).unwrap();
+        assert_eq!(ask(&mut b, 1, RemoteRequest::Watch { path: f.clone() }), RemoteResponse::Ok);
+        std::fs::write(&f, "22").unwrap();
+        loop {
+            match read_frame::<DaemonMsg>(&mut b).unwrap().unwrap() {
+                DaemonMsg::FileChanged { path, fingerprint } => {
+                    assert_eq!((path, fingerprint.map(|fp| fp.size)), (f.clone(), Some(2)));
+                    break;
+                }
+                _ => continue,
+            }
+        }
+        assert_eq!(ask(&mut b, 2, RemoteRequest::Unwatch { path: f.clone() }), RemoteResponse::Ok);
+        std::fs::write(&f, "333").unwrap();
+        b.set_read_timeout(Some(Duration::from_millis(1500))).unwrap();
+        assert!(read_frame::<DaemonMsg>(&mut b).is_err(), "nothing after Unwatch");
+    }
+
+    #[test]
+    fn an_oversized_response_is_written_as_an_error() {
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap(); // a regression fails the test instead of hanging cargo
+        let huge = RemoteResponse::Error { message: "x".repeat(MAX_FRAME as usize) };
+        Out::Msg(DaemonMsg::Response { id: 4, resp: huge }).write(&mut server).unwrap();
+        Out::Msg(DaemonMsg::TranscriptAppend { agent: "a".into(), session_id: "s".into(), offset: 0, bytes: "y".repeat(MAX_FRAME as usize) }).write(&mut server).unwrap();
+        Out::Msg(DaemonMsg::Response { id: 5, resp: RemoteResponse::Pong }).write(&mut server).unwrap();
+        assert_eq!(read_frame::<DaemonMsg>(&mut client).unwrap(), Some(DaemonMsg::Response { id: 4, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }));
+        assert_eq!(read_frame::<DaemonMsg>(&mut client).unwrap(), Some(DaemonMsg::Response { id: 5, resp: RemoteResponse::Pong }), "the oversized push was dropped, the stream is intact");
+    }
+
+    #[test]
+    fn an_oversized_answer_becomes_an_error_and_the_bridge_lives() {
+        let home = tempfile::tempdir().unwrap();
+        let _d = start(home.path(), "0.1.0-aaaaaaaa");
+        // A committed version of 4 MB of U+0001: under the 5 MB base cap, but each byte is six in JSON ("\u0001").
+        let repo = home.path().join("r");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success());
+        git(&["init", "-q"]);
+        std::fs::write(repo.join("c.txt"), vec![1u8; 4 * 1024 * 1024]).unwrap();
+        git(&["add", "c.txt"]);
+        git(&["-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "c"]);
+        std::fs::write(repo.join("c.txt"), "small\n").unwrap();
+        let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
+        b.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        read_frame::<DaemonMsg>(&mut b).unwrap();
+        assert_eq!(ask(&mut b, 1, RemoteRequest::ReadForPreview { path: repo.join("c.txt"), rev: None }), RemoteResponse::Error { message: OPEN_TOO_LARGE.into() });
+        login(home.path(), "t-1", std::process::id());
+        send_hook(home.path(), Some("t-1"), false, "Stop");
+        assert_eq!(next_hook(&mut b).1, "Stop", "hooks still flow on the same bridge");
     }
 
     fn login(home: &std::path::Path, link: &str, pid: u32) {
@@ -507,7 +681,7 @@ mod tests {
         let state = Arc::new(Mutex::new(State::new(Links::default())));
         let (mut client, server) = UnixStream::pair().unwrap();
         write_frame(&mut client, &LocalMsg::Probe { build_id: "0.1.0-aaaaaaaa".into() }).unwrap();
-        serve(server, &state, &cfg, &Arc::new(HistoryWorker::new(Arc::new(|| Ok(Vec::new()))))).unwrap();
+        serve(server, &state, &cfg, &Arc::new(HistoryWorker::new(Arc::new(|| Ok(Vec::new())))), &Arc::new(FileWorkers::new(1))).unwrap();
         assert_eq!(read_frame::<LocalReply>(&mut client).unwrap(), Some(LocalReply::Ok));
         let s = state.lock().unwrap();
         assert!(s.bridges.is_empty() && s.next_bridge == 0);
@@ -575,7 +749,7 @@ mod tests {
         let state = Arc::new(Mutex::new(State::new(Links::default())));
         let (mut client, server) = UnixStream::pair().unwrap();
         let st = state.clone();
-        let h = std::thread::spawn(move || serve(server, &st, &cfg, &Arc::new(HistoryWorker::new(Arc::new(|| Ok(Vec::new()))))));
+        let h = std::thread::spawn(move || serve(server, &st, &cfg, &Arc::new(HistoryWorker::new(Arc::new(|| Ok(Vec::new())))), &Arc::new(FileWorkers::new(1))));
         write_frame(&mut client, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.1.0-aaaaaaaa".into(), app_instance: "t".into(), cursor: 0, epoch: None } }).unwrap();
         assert!(matches!(read_frame::<DaemonMsg>(&mut client).unwrap(), Some(DaemonMsg::Welcome { .. })));
         assert_eq!(state.lock().unwrap().bridges.len(), 1);
