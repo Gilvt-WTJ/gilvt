@@ -164,7 +164,7 @@ impl Workspace {
                 out.push(ds::EditorState {
                     pane: id,
                     tab: ti,
-                    path: v.path().map(|p| p.display().to_string()).unwrap_or_default(),
+                    path: v.host_path().map(|p| p.path.display().to_string()).unwrap_or_default(),
                     dirty: v.is_dirty(),
                     readonly: v.model.is_read_only(),
                     cursor: ds::EditorCursor { line: pos.line + 1, col: pos.col + 1 },
@@ -199,6 +199,9 @@ impl Workspace {
                     bar_buttons: map::editor_bar_buttons(&v.bar, id, rect),
                     status_encoding_rect: rect(RectId::EditorEncoding(id)),
                     status_line_ending_rect: rect(RectId::EditorLineEnding(id)),
+                    host: v.host_path().map_or_else(|| "local".to_string(), |p| p.host.id_str().to_string()),
+                    loading: v.remote.as_ref().is_some_and(|d| d.loading),
+                    bar_message: map::editor_bar_message(&v.bar),
                 });
             }
         }
@@ -281,6 +284,17 @@ impl Workspace {
             running_command,
             host: match view {
                 Some(PaneView::Terminal(t)) => Some(t.read(cx).remote().map_or("local".to_string(), |r| r.host.clone())),
+                Some(PaneView::Preview(p)) => p.read(cx).debug_host(),
+                Some(PaneView::Editor(e)) => Some(e.read(cx).host_path().map_or_else(|| "local".to_string(), |p| p.host.id_str().to_string())),
+                _ => None,
+            },
+            loading: match view {
+                Some(PaneView::Preview(p)) => p.read(cx).loading,
+                Some(PaneView::Editor(e)) => e.read(cx).remote.as_ref().is_some_and(|d| d.loading),
+                _ => false,
+            },
+            size: match view {
+                Some(PaneView::Preview(p)) => p.read(cx).debug_size(),
                 _ => None,
             },
             remote: match view {

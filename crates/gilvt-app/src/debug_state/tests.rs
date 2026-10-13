@@ -89,6 +89,8 @@ fn window() -> WindowState {
                 running_command: None,
                 host: Some("local".into()),
                 remote: None,
+                loading: false,
+                size: None,
             }],
             rect: Some([248.0, 30.0, 140.0, 26.0]),
         }],
@@ -194,6 +196,9 @@ fn window() -> WindowState {
             lossy: false,
             explicit_encoding: true,
             status_flash: None,
+            host: "local".into(),
+            loading: false,
+            bar_message: None,
             compare: Some(CompareState {
                 rows: 12,
                 split: true,
@@ -222,6 +227,7 @@ fn window_json_shape() {
         "bar": "modified", "rect": [300.0, 80.0, 600.0, 400.0], "save_rect": [800.0, 40.0, 70.0, 22.0], "close_rect": null,
         "encoding": "GBK", "line_ending": "CRLF", "mixed_line_endings": true, "lossy": false, "explicit_encoding": true,
         "status_flash": null,
+        "host": "local", "loading": false, "bar_message": null,
         "compare": {"rows": 12, "split": true, "disk_missing": false, "same": false, "rect": [300.0, 54.0, 600.0, 470.0],
                     "buttons": [{"label": "用磁盘版本", "rect": [340.0, 500.0, 80.0, 20.0]}]},
         "menu": {"items": [{"label": "LF", "checked": false, "enabled": true, "rect": [500.0, 420.0, 190.0, 20.0]}]},
@@ -264,7 +270,7 @@ fn window_json_shape() {
                 "foreground": "agent:claude", "session": "claude:fcfe2a39", "border": "amber", "cwd": "/tmp/gilvt-lab",
                 "screen_tail": ["❯ 1. Cats", "  2. Dogs"], "marked_text": null, "code": null, "selection": null, "header": null,
                 "cursor": {"row": 1, "col": 2, "rect": [10.0, 50.0, 7.5, 16.0]},
-                "commands": [], "running_command": null, "host": "local", "remote": null
+                "commands": [], "running_command": null, "host": "local", "remote": null, "loading": false, "size": null
             }],
             "rect": [248.0, 30.0, 140.0, 26.0]
         }],
@@ -325,9 +331,12 @@ fn overlay_kinds_serialize_with_their_fields() {
             mode: "unified",
             code: Some([10.0, 20.0, 300.0, 200.0]),
             selection: Some("a\tb".into()),
-            changed_since: false
+            changed_since: false,
+            host: Some("local".into()),
+            loading: false,
+            size: Some(1234)
         }),
-        json!({"kind": "quicklook", "path": "/r/a.rs", "base": "与 HEAD 相比", "mode": "unified", "code": [10.0, 20.0, 300.0, 200.0], "selection": "a\tb", "changed_since": false})
+        json!({"kind": "quicklook", "path": "/r/a.rs", "base": "与 HEAD 相比", "mode": "unified", "code": [10.0, 20.0, 300.0, 200.0], "selection": "a\tb", "changed_since": false, "host": "local", "loading": false, "size": 1234})
     );
     assert_eq!(v(Overlay::Finder { query: "ma".into(), selected: 0, items: 3 }), json!({"kind": "finder", "query": "ma", "selected": 0, "items": 3}));
     // Built apart: one `json!` for the whole overlay would hit the macro's recursion limit.
@@ -606,6 +615,9 @@ fn sample_editor_state() -> EditorState {
         lossy: false,
         explicit_encoding: false,
         status_flash: None,
+        host: "local".into(),
+        loading: false,
+        bar_message: None,
         compare: None,
         menu: None,
         menu_kind: None,
@@ -643,7 +655,7 @@ fn editor_state_serializes_with_stable_keys() {
     }
     assert_eq!(v["bar_buttons"], json!([]));
     assert_eq!(v["highlight"], json!({"language": "Rust", "enabled": true, "disabled_reason": null, "visible_classes": {"keyword": 3}}));
-    assert_eq!(v.as_object().unwrap().len(), 29);
+    assert_eq!(v.as_object().unwrap().len(), 32);
 }
 
 #[test]
@@ -905,14 +917,29 @@ fn install_banner_shape() {
 fn pane_remote_and_hosts_shape() {
     let r = PaneRemoteState { link: "i-1".into(), host: "dev@h:22".into(), display: "devbox".into(), hostname: Some("h".into()), enhanced: true, cwd: Some("/tmp".into()) };
     assert_eq!(serde_json::to_value(&r).unwrap(), serde_json::json!({"link":"i-1","host":"dev@h:22","display":"devbox","hostname":"h","enhanced":true,"cwd":"/tmp"}));
-    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "ask", installed: None, bridge: "none", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0 };
-    assert_eq!(serde_json::to_value(&h).unwrap(), serde_json::json!({"id":"dev@h:22","display":"devbox","hostname":null,"install":"ask","installed":null,"bridge":"none","links":[],"cursor":0,"epoch":null,"gap":false,"follows":0}));
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "ask", installed: None, bridge: "none", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0, watches: 0 };
+    assert_eq!(serde_json::to_value(&h).unwrap(), serde_json::json!({"id":"dev@h:22","display":"devbox","hostname":null,"install":"ask","installed":null,"bridge":"none","links":[],"cursor":0,"epoch":null,"gap":false,"follows":0,"watches":0}));
     assert!(serde_json::to_value(top_level(1, false, None, 0)).unwrap()["hosts"].as_array().unwrap().is_empty());
 }
 
 #[test]
 fn r2a_fields_serialize_with_their_documented_names() {
-    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "allowed", installed: None, bridge: "up", links: vec![], cursor: 12, epoch: Some(1_760_000_000_000), gap: false, follows: 1 };
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "allowed", installed: None, bridge: "up", links: vec![], cursor: 12, epoch: Some(1_760_000_000_000), gap: false, follows: 1, watches: 0 };
     let v = serde_json::to_value(&h).unwrap();
     assert_eq!((v["cursor"].as_u64(), v["epoch"].as_u64(), v["gap"].as_bool(), v["follows"].as_u64()), (Some(12), Some(1_760_000_000_000), Some(false), Some(1)));
+}
+
+#[test]
+fn remote_file_fields_serialize() {
+    let q = Overlay::Quicklook { path: Some("/home/dev/a.md".into()), base: None, mode: "unified", code: None, selection: None, changed_since: false, host: Some("dev@h:22".into()), loading: true, size: None };
+    let v = serde_json::to_value(&q).unwrap();
+    assert_eq!((v["host"].as_str(), v["loading"].as_bool(), v["size"].is_null()), (Some("dev@h:22"), Some(true), true));
+    let mut e = sample_editor_state();
+    e.host = "dev@h:22".into();
+    e.bar = "save_error";
+    e.bar_message = Some("devbox 未连接，未保存".into());
+    let v = serde_json::to_value(&e).unwrap();
+    assert_eq!((v["host"].as_str(), v["loading"].as_bool(), v["bar_message"].as_str()), (Some("dev@h:22"), Some(false), Some("devbox 未连接，未保存")));
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "allowed", installed: None, bridge: "up", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0, watches: 2 };
+    assert_eq!(serde_json::to_value(&h).unwrap()["watches"], 2);
 }

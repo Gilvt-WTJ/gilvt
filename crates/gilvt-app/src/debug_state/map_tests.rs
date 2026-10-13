@@ -423,3 +423,11 @@ fn rows_carry_their_host() {
     let rows = palette_rows(&[prow(local.key.clone()), prow(remote.key.clone())], 0, &|_| false, &|_| None);
     assert_eq!((rows[0].host.as_str(), rows[1].host.as_str()), ("local", "dev@h:22"));
 }
+
+#[test]
+fn the_bar_message_is_the_save_error_text_only() {
+    use crate::editor::view::Bar;
+    assert_eq!(editor_bar_message(&Bar::SaveError { message: "devbox 未连接，未保存".into(), jump: None }), Some("devbox 未连接，未保存".to_string()));
+    assert_eq!(editor_bar_message(&Bar::Modified { closing: false }), None);
+    assert_eq!(editor_bar_message(&Bar::None), None);
+}

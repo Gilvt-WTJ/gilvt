@@ -20,7 +20,7 @@ GUI 验收测试通过 socket 读取 gilvt 的界面状态（`Request::DebugStat
 | `windows` | 数组 | 每个工作区窗口的状态，按 gpui 列出窗口的顺序，见下 |
 | `chat_process` | 对象 | 监控官的对话进程（S2 §6.2），**总是存在**：`{ running, status, provider, pid, turns, starts }`。`running`：对话进程在跑；`status`：同 `windows[].monitor.chat.status`（`idle` / `starting` / `answering` / `stopping` / `error`）；`provider`：正在跑的通道（`claude` / `codex`，没有进程时 `null`）；`pid`：进程号（没有进程时 `null`）；`turns`：这个进程结束过的轮数；`starts`：本次 gilvt 运行里启动过几次对话进程（懒启动：发第一条消息前为 `0`；空闲 30 分钟结束后再发消息会加 1） |
 | `update` | 对象 | 自动更新（Sparkle），**总是存在**：`{ available, mode, ready }`。`available`：这个构建带 Sparkle 并已启动（只有 `GILVT_SPARKLE=1` 打包的正式版为真；开发构建和 GUI 沙盒里为 `false`）；`mode`：生效的 `[update] mode`（`download` / `check` / `off`，没配置时 `download`）；`ready`：已下载、等退出时安装的版本号（如 `"0.2.0"`，此时侧栏底部有「已下载，退出时安装」提示），没有时为 `null` |
-| `hosts` | 数组 | 本次运行用过的 ssh 主机：`{ id, display, hostname, install, installed, bridge, links, cursor, epoch, gap, follows }`。`install`：`ask` / `allowed` / `never`（这台主机记住的选择）；`installed`：已知装在那里的 build id；`bridge`：`none` / `connecting` / `up` / `down` / `mismatch`；`links`：这台主机上正在进行的 ssh 登录；`cursor`：从这台主机的 daemon 收到的最大事件 `seq`（重连时作为 `Hello.cursor` 发回）；`epoch`：那个 daemon 的启动时间（毫秒），还没有收到 Welcome 时为 `null`；`gap`：本次运行里是否有一次重连报告丢失了 hook（`Welcome.gap`）；`follows`：正在跟踪的远端 transcript 数（检查器） |
+| `hosts` | 数组 | 本次运行用过的 ssh 主机：`{ id, display, hostname, install, installed, bridge, links, cursor, epoch, gap, follows, watches }`。`install`：`ask` / `allowed` / `never`（这台主机记住的选择）；`installed`：已知装在那里的 build id；`bridge`：`none` / `connecting` / `up` / `down` / `mismatch`；`links`：这台主机上正在进行的 ssh 登录；`cursor`：从这台主机的 daemon 收到的最大事件 `seq`（重连时作为 `Hello.cursor` 发回）；`epoch`：那个 daemon 的启动时间（毫秒），还没有收到 Welcome 时为 `null`；`gap`：本次运行里是否有一次重连报告丢失了 hook（`Welcome.gap`）；`follows`：正在跟踪的远端 transcript 数（检查器）；`watches`：daemon 已确认的被监视远端文件数（固定预览、Quick Look、编辑器；同一个文件只算一次；`Watch` 得到 `Ok` 才计入，bridge 断开后归零。用例等 `watches` 达到预期，就表示之后的改动一定会被推送） |
 | `settings` | 对象（键可能不存在） | `⌘,` 设置窗口的状态，见下 `## settings`；窗口关着时**没有这个键**（不是 `null`），用 `settings exists` 判断是否打开 |
 | `untranslated` | 数组 | 英文界面里仍是中文的界面文字，**总是存在**：界面语言为英文（`settings.language == "en"`）时，列出这次 state 里含汉字或全角标点的字符串，每项 `{ path, text }`（`path` 如 `windows[0].tabs[0].title`）；中文界面时总是 `[]`。用户内容按键名跳过：`screen_tail`、`selection`、`marked_text`、`input_text`、`query`、`text`、`cwd`、`path`、`dir`、`repo`、`repo_root`、`config_path`、`command`、`running_command`、`error_line`、`branch`、`detached`、`quote`、`follow_ups`、`tty`、`session`、`session_key`、`key`、`id`、`cursor`、`snapshot_through`。语言列表里用本语言写的语言名（`简体中文`）和语言页图标 `文A` 不算。其余字段里的中文都算漏翻，所以用例要用英文提示词和 ASCII 路径。用法：`assert untranslated[*] exists count=0` |
 
@@ -118,8 +118,10 @@ pane（`panes[]`）：
 | `cursor` | 对象或 `null` | 终端 pane：上一帧终端光标所在的格子 `{ "row", "col", "rect" }`，`row` / `col` 是可见区里的行列（从 0 起），`rect` 是这一格；TUI（Claude Code）隐藏光标时仍是它的位置。预览 / 编辑器 pane、第一帧之前为 `null` |
 | `commands` | 数组 | 终端 pane：shell 集成（OSC 133）记下的最近 10 条命令块，**最新在前**：`[{ "id", "command", "exit", "running", "has_output", "error_line" }]`。`id` 在 pane 内递增；`command` 是输入的命令原文（shell 没发来时为 `null`，超长截断并以 `…` 结尾）；`exit` 是退出码（还在运行、或没看到结束时为 `null`）；`running` 表示还在运行；`has_output` 表示抓到了输出尾部（备用屏或读不到时为 `false`）；`error_line` 是命令失败时输出的最后一个非空行（S2 起来自 PTY 精确捕获），否则为 `null`。只在内存里，不含输出文字。其他 pane 为 `[]` |
 | `running_command` | 字符串或 `null` | 终端 pane：正在运行的命令（shell 没发原文时为 `""`）；没有在运行的命令、其他 pane 为 `null` |
-| `host` | 字符串或 `null` | 终端 pane 所在的主机：`local`，或 ssh 主机的 `user@hostname:port`；其他种类的 pane 为 `null` |
+| `host` | 字符串或 `null` | 终端：所在的主机；预览、编辑器：所显示文件的主机（`local` 或 `user@hostname:port`；stdin 预览为 `null`）；监控官为 `null` |
 | `remote` | 对象或 `null` | 终端 pane 处在 ssh 里时：`{ link, host, display, hostname, enhanced, cwd }`。`display` 是用户输入的主机名；`hostname` 是远端 `uname -n`；`enhanced`：经由 gilvt-remote 登录（装了远端组件）；`cwd`：远端 shell 上报的目录（OSC 7），未知为 `null`。此时上面的 `cwd` 为 `null` |
+| `loading` | 布尔 | 预览、编辑器在等远端主机的回应（R2a §8）；终端为 false |
+| `size` | 数字或 `null` | 固定预览已载入文档的字节数（只有大小，不含内容）；其他为 `null` |
 
 ### `editors[]`
 
@@ -129,7 +131,7 @@ pane（`panes[]`）：
 |---|---|---|
 | `pane` | 数字 | PaneId（与 `tabs[].panes[].id` 相同） |
 | `tab` | 数字 | 所在标签在 `tabs[]` 里的下标 |
-| `path` | 字符串 | 文件的绝对路径（没有路径时为 `""`）；只有路径，**不含文件内容** |
+| `path` | 字符串 | 文件的绝对路径（没有路径时为 `""`；远端编辑器为远端路径）；只有路径，**不含文件内容** |
 | `dirty` | 布尔 | 有未保存的修改 |
 | `readonly` | 布尔 | 只读（文件被拒绝或过大等，头部显示「只读」） |
 | `cursor` | 对象 | 光标 `{ "line", "col" }`，从 1 起算，与状态栏的「第 N 行，第 M 列」一致 |
@@ -156,6 +158,9 @@ pane（`panes[]`）：
 | `bar_buttons` | 数组 | 当前横条的按钮，从左到右：`[{ "label", "rect" }]`（标签与画出的一致，如 `重新载入`、`对比`、`仍然覆盖`）；`bar` 为 `none` 时为 `[]` |
 | `status_encoding_rect` | rect 或 `null` | 状态栏里的编码一段（点击打开编码菜单） |
 | `status_line_ending_rect` | rect 或 `null` | 状态栏里的换行符一段（点击打开换行符菜单；只读缓冲区上点击不打开） |
+| `host` | 字符串 | `local`，或文件所在 ssh 主机的 `user@hostname:port` |
+| `loading` | 布尔 | 远端文件还在读取（此时是空的只读 pane） |
+| `bar_message` | 字符串或 `null` | `bar == "save_error"` 时红色横条的文字（如「devbox 未连接，未保存」）；其他为 `null` |
 
 `bar` 的取值：
 
@@ -315,7 +320,7 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 
 | `kind` | 字段 |
 |---|---|
-| `quicklook` | `path`（文件路径；stdin 为 `null`），`base`（diff 基准，如 `与 HEAD 相比`、`仅文件`；加载前为 `null`），`mode`（`unified` / `split` / `rendered`），`code`（代码 / diff 文字区域的 rect，Markdown 渲染视图里是整个文档区；加载前为 `null`），`changed_since`（仅「本轮」diff 有意义：磁盘上的文件与这一轮的「后」快照不同；其他情况为 `false`），`selection`（鼠标选区 `⌘C` 会复制的文字：代码视图里 Tab 保持为 Tab、行间 `\n`；渲染视图里每个文本块（段落、标题、列表项、代码块、表格单元格）一行；没有选区为 `null`） |
+| `quicklook` | `path`（文件路径；stdin 为 `null`），`base`（diff 基准，如 `与 HEAD 相比`、`仅文件`；加载前为 `null`），`mode`（`unified` / `split` / `rendered`），`code`（代码 / diff 文字区域的 rect，Markdown 渲染视图里是整个文档区；加载前为 `null`），`changed_since`（仅「本轮」diff 有意义：磁盘上的文件与这一轮的「后」快照不同；其他情况为 `false`），`selection`（鼠标选区 `⌘C` 会复制的文字：代码视图里 Tab 保持为 Tab、行间 `\n`；渲染视图里每个文本块（段落、标题、列表项、代码块、表格单元格）一行；没有选区为 `null`）；`host`（文件所在主机：`local` 或 `user@hostname:port`；stdin / 没有文件为 `null`），`loading`（在等远端主机：⌘点击远端路径或远端 `gilvt diff` 时先出现一个 `loading` 为 true、`path` 为 null 的 Quick Look），`size`（已载入文档的字节数，载入前为 `null`；验收用例用它区分远端文件与 Mac 上的同名文件） |
 | `finder` | `query`，`selected`（选中的下标），`items`（列出的文件数） |
 | `sessions` | `query`，`selected`（光标所在行），`items`（行数，不含分组标题），`filter`：`{ "scope": "current" \| "all", "stale": 布尔, "archived": 布尔 }`，`rows`、`chips`、`confirm`、`banner`、`cleanup`（见下） |
 | `cleanup` | 清理向导（`⌘⇧K`、会话面板底栏「清理… ⌘⇧K」、「会话」菜单「清理…」；打开时代替会话面板，`Esc` 返回）：`preset`、`column`、`selected`、`computing`、`presets`、`rows`、`summary`、`buttons`、`confirm`、`banner`（见下） |

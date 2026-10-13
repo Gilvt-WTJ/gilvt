@@ -20,6 +20,14 @@ pub fn session_id(key: &SessionKey) -> String {
     gilvt_agent::session_key_id(key)
 }
 
+/// `editors[].bar_message`.
+pub fn editor_bar_message(bar: &crate::editor::view::Bar) -> Option<String> {
+    match bar {
+        crate::editor::view::Bar::SaveError { message, .. } => Some(message.clone()),
+        _ => None,
+    }
+}
+
 /// The editor pane's bar as `editors[].bar` names it.
 pub fn editor_bar(bar: &crate::editor::view::Bar) -> &'static str {
     use crate::editor::view::Bar;

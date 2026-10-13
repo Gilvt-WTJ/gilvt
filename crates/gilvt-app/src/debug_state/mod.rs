@@ -567,6 +567,12 @@ pub struct EditorState {
     pub status_encoding_rect: Option<Rect4>,
     /// The status bar's line-ending segment (a click opens the line-ending menu).
     pub status_line_ending_rect: Option<Rect4>,
+    /// "local" or the ssh host id of the file.
+    pub host: String,
+    /// The remote file is still being read (an empty, read-only pane meanwhile).
+    pub loading: bool,
+    /// The red save-error bar's text (`bar == "save_error"`); null otherwise.
+    pub bar_message: Option<String>,
 }
 
 /// The editor pane's 「对比」 overlay (`editors[].compare`).
@@ -773,10 +779,14 @@ pub struct Pane {
     pub commands: Vec<CommandRow>,
     /// Terminals: the command running now ("" when the shell did not send its text); null otherwise.
     pub running_command: Option<String>,
-    /// Terminals: "local" or the ssh host id (`user@hostname:port`); null for other panes.
+    /// Terminals, previews and editors: "local" or the ssh host id (`user@hostname:port`); null for the monitor.
     pub host: Option<String>,
     /// Terminals in an ssh link; null otherwise.
     pub remote: Option<PaneRemoteState>,
+    /// Previews and editors: waiting for the remote host.
+    pub loading: bool,
+    /// Pinned previews: bytes of the loaded document; null otherwise.
+    pub size: Option<u64>,
 }
 
 /// `panes[].remote`: the ssh link a terminal pane is in.
@@ -808,10 +818,12 @@ pub struct HostState {
     pub gap: bool,
     /// Remote transcripts followed on this host.
     pub follows: usize,
+    /// Remote files the daemon has acknowledged watching on this host (R2a plan ruling 25).
+    pub watches: usize,
 }
 
 /// The `hosts` list from the app-wide remote state (BTreeMap order = sorted by id).
-fn host_states(r: &crate::remote::RemoteHosts, follows: &dyn Fn(&str) -> usize) -> Vec<HostState> {
+fn host_states(r: &crate::remote::RemoteHosts, follows: &dyn Fn(&str) -> usize, watches: &dyn Fn(&str) -> usize) -> Vec<HostState> {
     r.hosts
         .iter()
         .map(|(id, h)| {
@@ -823,7 +835,7 @@ fn host_states(r: &crate::remote::RemoteHosts, follows: &dyn Fn(&str) -> usize) 
             };
             let mut links = r.links_of(id);
             links.sort();
-            HostState { id: id.clone(), display: h.display.clone(), hostname: h.hostname.clone(), install, installed: prefs.and_then(|p| p.installed.clone()), bridge: h.bridge.id(), links, cursor: h.cursor, epoch: h.epoch, gap: h.gap, follows: follows(id) }
+            HostState { id: id.clone(), display: h.display.clone(), hostname: h.hostname.clone(), install, installed: prefs.and_then(|p| p.installed.clone()), bridge: h.bridge.id(), links, cursor: h.cursor, epoch: h.epoch, gap: h.gap, follows: follows(id), watches: watches(id) }
         })
         .collect()
 }
@@ -883,6 +895,12 @@ pub enum Overlay {
         selection: Option<String>,
         /// A turn's diff (`base` starts with 「本轮」): the file on disk differs from the turn's second snapshot.
         changed_since: bool,
+        /// "local", or the ssh host (`user@hostname:port`) of the file; null for stdin / nothing (R2a §8.4).
+        host: Option<String>,
+        /// Waiting for the remote host.
+        loading: bool,
+        /// Bytes of the loaded document; null before it loads.
+        size: Option<u64>,
     },
     Finder {
         query: String,
@@ -1604,7 +1622,7 @@ pub fn collect(tail_lines: u16, cx: &mut App) -> DebugState {
     state.settings = collect::settings(cx);
     state.chat_process = crate::monitor::chat::process_state(cx);
     state.update = crate::updater::debug(cx);
-    state.hosts = cx.try_global::<crate::remote::RemoteHosts>().map(|r| host_states(r, &|h| cx.try_global::<crate::agents::Agents>().map_or(0, |a| a.remote_follow_count(h)))).unwrap_or_default();
+    state.hosts = cx.try_global::<crate::remote::RemoteHosts>().map(|r| host_states(r, &|h| cx.try_global::<crate::agents::Agents>().map_or(0, |a| a.remote_follow_count(h)), &|h| crate::remote::watch::count(h, cx))).unwrap_or_default();
     state
 }
 

@@ -448,7 +448,19 @@ impl PreviewView {
             code: rect(crate::debug_state::rects::RectId::PreviewCode(self.pane)),
             selection: self.selection_text(),
             changed_since: self.loaded.as_ref().is_some_and(|l| l.preview.changed_since),
+            host: self.debug_host(),
+            loading: self.loading,
+            size: self.debug_size(),
         }
+    }
+
+    /// `debug state`: the machine of the shown file ("local" / HostId); None for stdin and nothing.
+    pub fn debug_host(&self) -> Option<String> {
+        self.host_path().map(|p| p.host.id_str().to_string())
+    }
+
+    pub fn debug_size(&self) -> Option<u64> {
+        self.loaded.as_ref().map(|l| l.preview.doc.size)
     }
 
     pub fn file_path(&self) -> Option<&Path> {
