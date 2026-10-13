@@ -16,7 +16,9 @@ breaking changes; they are called out under **Changed**.
 - SSH: in a gilvt ssh pane, `gilvt view`, `gilvt diff` and ⌘-click on a path preview the remote host's files in
   gilvt (a pinned preview follows changes on the host), and the built-in editor opens and saves them: a file changed
   on the host since it was opened brings up the usual reload / compare / overwrite bar, and saving while the
-  connection is down keeps your changes unsaved and says so. A path that does not exist on the host says so.
+  connection is down keeps your changes unsaved and says so; changes made on the host while the connection was down
+  are picked up when it comes back. The editor's header names the host (`devbox:~/repo/src`). A path that does not
+  exist on the host says so, and one the host cannot look at (permission denied) says why.
 
 ### Changed
 

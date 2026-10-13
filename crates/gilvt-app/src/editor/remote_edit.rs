@@ -87,9 +87,19 @@ pub fn remote_change(doc: &RemoteDoc, now: Option<&Fingerprint>) -> RemoteChange
     if doc.loading || doc.busy.is_some() {
         return RemoteChange::Defer;
     }
+    // A `Stat` after a (re)watch (R2a §9.4) has size and mtime only: it is what we already have when both match what
+    // we loaded or saved, and anything else must be read (never adopted as a touch: there is no hash to tell).
+    let same_stat = |a: &Fingerprint, b: &Fingerprint| a.size == b.size && a.mtime_ns == b.mtime_ns;
     match (doc.fingerprint.as_ref(), now) {
         (_, None) => RemoteChange::Deleted,
         (Some(old), Some(new)) if old == new => RemoteChange::Ignore,
+        (old, Some(new)) if new.sha256.is_empty() => {
+            if old.is_some_and(|o| same_stat(o, new)) || doc.own_saves.iter().any(|o| same_stat(o, new)) {
+                RemoteChange::Ignore
+            } else {
+                RemoteChange::Changed
+            }
+        }
         (_, Some(new)) if doc.own_saves.contains(new) => RemoteChange::Ignore,
         (Some(old), Some(new)) if old.same_content(new) => RemoteChange::Touched(new.clone()),
         _ => RemoteChange::Changed,
@@ -220,6 +230,19 @@ mod tests {
         assert_eq!(remote_change(&d, Some(&fp(20, "zz"))), RemoteChange::Changed);
         forget_own_saves(&mut d);
         assert_eq!(remote_change(&d, Some(&fp(12, "b3"))), RemoteChange::Changed, "after taking the host's version");
+    }
+
+    #[test]
+    fn a_stat_after_a_reconnect_is_decided_by_size_and_mtime() {
+        // R2a §9.4 (F1): a missed change found by `Stat` has no hash.
+        let stat = |mtime_ns, size| Fingerprint { mtime_ns, size, sha256: String::new() };
+        let mut d = doc_at(fp(5, "aa"));
+        assert_eq!(remote_change(&d, Some(&stat(5, 3))), RemoteChange::Ignore, "what we loaded: nothing to adopt");
+        assert_eq!(remote_change(&d, Some(&stat(6, 3))), RemoteChange::Changed, "a new mtime with no hash must be read");
+        assert_eq!(remote_change(&d, Some(&stat(5, 4))), RemoteChange::Changed);
+        note_own_save(&mut d, fp(9, "bb"));
+        note_own_save(&mut d, fp(11, "cc"));
+        assert_eq!(remote_change(&d, Some(&stat(9, 3))), RemoteChange::Ignore, "an earlier save of ours");
     }
 
     #[test]

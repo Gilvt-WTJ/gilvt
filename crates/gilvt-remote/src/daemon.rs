@@ -627,10 +627,12 @@ mod tests {
     }
 
     #[test]
-    fn an_oversized_answer_becomes_an_error_and_the_bridge_lives() {
+    fn a_base_too_big_for_the_frame_is_left_out_and_the_bridge_lives() {
         let home = tempfile::tempdir().unwrap();
         let _d = start(home.path(), "0.1.0-aaaaaaaa");
-        // A committed version of 4 MB of U+0001: under the 5 MB base cap, but each byte is six in JSON ("\u0001").
+        // A committed version of 4 MB of U+0001: each byte is six in JSON ("\u0001"), so the base would not fit the
+        // frame; it is left out by its JSON size (an answer that still overflowed would become `too_large`, see
+        // `an_oversized_response_is_written_as_an_error`).
         let repo = home.path().join("r");
         std::fs::create_dir(&repo).unwrap();
         let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success());
@@ -642,7 +644,8 @@ mod tests {
         let mut b = bridge(home.path(), "0.1.0-aaaaaaaa");
         b.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
         read_frame::<DaemonMsg>(&mut b).unwrap();
-        assert_eq!(ask(&mut b, 1, RemoteRequest::ReadForPreview { path: repo.join("c.txt"), rev: None }), RemoteResponse::Error { message: OPEN_TOO_LARGE.into() });
+        let r = ask(&mut b, 1, RemoteRequest::ReadForPreview { path: repo.join("c.txt"), rev: Some("HEAD".into()) });
+        assert!(matches!(r, RemoteResponse::PreviewData { base_text: None, base_skipped: true, .. }), "{r:?}");
         login(home.path(), "t-1", std::process::id());
         send_hook(home.path(), Some("t-1"), false, "Stop");
         assert_eq!(next_hook(&mut b).1, "Stop", "hooks still flow on the same bridge");

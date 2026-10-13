@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use gilvt_agent::host::HostPath;
+use gilvt_ipc::remote::Fingerprint;
 use gilvt_viewer::{DiffBase, Preview};
 use gpui::{App, Task};
 
@@ -25,16 +26,21 @@ impl HostFs {
         }
     }
 
-    /// The file and its diff against `base`, as Quick Look shows it. Errors are the text to show.
-    pub fn load_preview(&self, path: PathBuf, base: DiffBase, cx: &mut App) -> Task<Result<Preview, String>> {
+    /// The file and its diff against `base`, as Quick Look shows it, and for a remote file the fingerprint it was read
+    /// at (what its watch compares with after a reconnect). Errors are the text to show. `base.rev()` None (a plain
+    /// view) asks the host for no base, as the local `Preview::load` runs no `git show` for it.
+    pub fn load_preview(&self, path: PathBuf, base: DiffBase, cx: &mut App) -> Task<Result<(Preview, Option<Fingerprint>), String>> {
         match self {
-            HostFs::Local => cx.background_executor().spawn(async move { Preview::load(&path, &base).map_err(|e| format!("{}: {e}", path.display())) }),
+            HostFs::Local => cx.background_executor().spawn(async move { Preview::load(&path, &base).map(|p| (p, None)).map_err(|e| format!("{}: {e}", path.display())) }),
             HostFs::Remote(fs) => {
                 let display = fs.display.clone();
                 let read = fs.read_for_preview(path.clone(), base.rev().map(str::to_string), cx);
                 cx.spawn(async move |cx| match read.await {
-                    Ok(r) => Ok(cx.background_executor().spawn(async move { Preview::from_remote(&path, r.bytes, r.git_root, &base, r.base_text, r.base_skipped) }).await),
-                    Err(crate::remote::fs::FsFailure::TooLarge { size }) if size > 0 => Ok(Preview::too_large(&path, size)),
+                    Ok(r) => {
+                        let fp = r.fingerprint;
+                        Ok((cx.background_executor().spawn(async move { Preview::from_remote(&path, r.bytes, r.git_root, &base, r.base_text, r.base_skipped) }).await, Some(fp)))
+                    }
+                    Err(crate::remote::fs::FsFailure::TooLarge { size }) if size > 0 => Ok((Preview::too_large(&path, size), None)),
                     Err(e) => Err(e.message(&display)),
                 })
             }

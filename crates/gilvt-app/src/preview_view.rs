@@ -496,27 +496,37 @@ impl PreviewView {
         let Some(source) = self.source().cloned() else { return };
         let base = self.bases[self.base_ix].clone();
         let remote = matches!(&source, Source::File(hp) if hp.remote_host().is_some());
-        let load: Task<Result<Preview, String>> = match source {
+        let load: Task<Result<(Preview, Option<gilvt_ipc::remote::Fingerprint>), String>> = match source {
             Source::File(hp) => crate::hostfs::HostFs::of(&hp, cx).load_preview(hp.path.clone(), base, cx),
-            Source::Inline { content, as_type } => cx.background_executor().spawn(async move { Ok(Preview::from_content(content, as_type)) }),
-            Source::Live(input) => cx.background_executor().spawn(async move { crate::live_preview::build_preview(&input, &crate::live_preview::cache_dir()) }),
+            Source::Inline { content, as_type } => cx.background_executor().spawn(async move { Ok((Preview::from_content(content, as_type), None)) }),
+            Source::Live(input) => cx.background_executor().spawn(async move { crate::live_preview::build_preview(&input, &crate::live_preview::cache_dir()).map(|p| (p, None)) }),
         };
         // A remote read has a wait worth showing (R2a: loading state); a local one is as quick as before.
         self.loading = remote;
         self._load = Some(cx.spawn(async move |this, cx| {
+            let mut read_at = None;
             let result = match load.await {
                 // The Markdown is built off the main thread; a remote file never probes the Mac's disk
                 // (`build_remote`, Task 9; until then none: the file shows as source).
-                Ok(preview) => Ok(cx
+                Ok((preview, fp)) => Ok({
+                    read_at = fp;
+                    cx
                     .background_executor()
                     .spawn(async move {
                         let md = if remote { MdDoc::build_remote(&preview) } else { MdDoc::build(&preview) };
                         (preview, md)
                     })
-                    .await),
+                    .await
+                }),
                 Err(e) => Err(e),
             };
-            let _ = this.update(cx, |view, cx| view.apply_load(result, cx));
+            let _ = this.update(cx, |view, cx| {
+                // What the remote watch compares with once the daemon has acknowledged it (R2a §9.4).
+                if let (Some(fp), Some(id)) = (read_at.as_ref(), view.remote_watch) {
+                    crate::remote::watch::note(id, Some(fp), cx);
+                }
+                view.apply_load(result, cx)
+            });
         }));
         cx.notify();
     }
@@ -585,6 +595,7 @@ impl PreviewView {
             let id = crate::remote::watch::watch(
                 hp.remote_host().unwrap_or_default(),
                 hp.path.clone(),
+                None, // the load answers later (`note`)
                 move |_, cx| {
                     let _ = view.update(cx, |v, cx| v.file_changed(cx));
                 },

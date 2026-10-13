@@ -24,10 +24,12 @@ pub(crate) fn decide_remote_click(probe: &PathProbe, stats: Result<Vec<StatEntry
         Ok(s) => s,
         Err(e) => return ClickOutcome::Failed(e.message(display)),
     };
+    // A reading the host could not look at (EACCES…) is not "missing": when nothing opens, say why.
+    let failure = stats.iter().find_map(|s| s.error.clone());
     let files: std::collections::HashSet<std::path::PathBuf> = probe.paths().into_iter().zip(stats).filter(|(_, s)| s.exists && s.is_file).map(|(p, _)| p).collect();
     match probe.pick(|p| files.contains(p)) {
         Some(hit) => ClickOutcome::Open(hit),
-        None => ClickOutcome::Missing,
+        None => failure.map_or(ClickOutcome::Missing, ClickOutcome::Failed),
     }
 }
 
@@ -63,6 +65,11 @@ impl<P> ClickGen<P> {
 }
 
 impl Workspace {
+    /// `view` is on screen: Quick Look holds it, or it was pinned into a pane.
+    pub(crate) fn shows_preview(&self, view: &gpui::Entity<crate::preview_view::PreviewView>) -> bool {
+        self.quicklook.as_ref().is_some_and(|(v, _)| v == view) || self.panes.values().any(|p| matches!(p, super::PaneView::Preview(v) if v == view))
+    }
+
     pub(crate) fn open_remote_path(&mut self, origin: PaneId, probe: PathProbe, in_editor: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(r) = self.pane_remote(origin, cx) else { return };
         // A plain login has no daemon to ask (R2a plan deviation 11).
@@ -86,8 +93,12 @@ impl Workspace {
                     return;
                 }
                 match (outcome, pending) {
+                    // Only into a placeholder that is still shown (Quick Look, or pinned as a pane): one dismissed
+                    // while the Stat ran is gone, and loading it would only send a Watch and its Unwatch.
                     (ClickOutcome::Open(hit), Some(pending)) => {
-                        pending.update(cx, |v, cx| v.replace_request(OpenRequest::at(HostPath::remote(fs.host.clone(), hit.path), hit.line, hit.annotation), cx))
+                        if ws.shows_preview(&pending) {
+                            pending.update(cx, |v, cx| v.replace_request(OpenRequest::at(HostPath::remote(fs.host.clone(), hit.path), hit.line, hit.annotation), cx))
+                        }
                     }
                     (ClickOutcome::Open(hit), None) => ws.open_editor_at(HostPath::remote(fs.host.clone(), hit.path), hit.line, Some(origin), false, window, cx),
                     (ClickOutcome::Missing, pending) => {
@@ -120,7 +131,7 @@ mod tests {
     }
 
     fn entry(exists: bool) -> StatEntry {
-        StatEntry { exists, is_file: exists, size: 1, mtime_ns: 1 }
+        StatEntry { exists, is_file: exists, size: 1, mtime_ns: 1, error: None }
     }
 
     #[test]
@@ -130,7 +141,7 @@ mod tests {
         let probe = probe_for("decoy.txt", std::path::Path::new("/home/dev"));
         let missing = vec![entry(false); probe.paths().len()];
         assert_eq!(decide_remote_click(&probe, Ok(missing), "devbox"), ClickOutcome::Missing);
-        let a_directory = vec![StatEntry { exists: true, is_file: false, size: 0, mtime_ns: 1 }; probe.paths().len()];
+        let a_directory = vec![StatEntry { exists: true, is_file: false, size: 0, mtime_ns: 1, error: None }; probe.paths().len()];
         assert_eq!(decide_remote_click(&probe, Ok(a_directory), "devbox"), ClickOutcome::Missing, "only a regular file opens");
     }
 
@@ -152,6 +163,14 @@ mod tests {
         assert!(clicks.finish(second));
         let (_, replaced) = clicks.start(Some("C"));
         assert_eq!(replaced, None, "an answered click's view is not closed by the next one");
+    }
+
+    #[test]
+    fn a_stat_failure_is_shown_not_called_missing() {
+        let probe = probe_for("a.rs", std::path::Path::new("/home/dev"));
+        let denied: Vec<StatEntry> = probe.paths().iter().map(|p| StatEntry { error: Some(format!("{}: Permission denied (os error 13)", p.display())), ..StatEntry::default() }).collect();
+        let ClickOutcome::Failed(m) = decide_remote_click(&probe, Ok(denied), "devbox") else { panic!("EACCES is not 「devbox 上没有这个文件」") };
+        assert!(m.contains("Permission denied"), "{m}");
     }
 
     #[test]

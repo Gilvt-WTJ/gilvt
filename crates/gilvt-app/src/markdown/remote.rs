@@ -59,6 +59,9 @@ pub fn apply_stats(probes: &RemoteProbes, paths: &[PathBuf], stats: &[StatEntry]
             Some(found) => {
                 o.link_targets.insert(dest.clone(), found.clone());
             }
+            // A candidate the host could not look at (EACCES…) may be there: the link stays as drawn and a click
+            // says what is wrong.
+            None if candidates.iter().any(|c| by_path.get(c.as_path()).is_some_and(|s| s.error.is_some())) => {}
             None => {
                 o.missing_links.insert(dest.clone());
             }
@@ -69,6 +72,9 @@ pub fn apply_stats(probes: &RemoteProbes, paths: &[PathBuf], stats: &[StatEntry]
     for (src, path) in &probes.images {
         let unavailable = |reason| Image::Unavailable { path: src.clone(), reason };
         match by_path.get(path.as_path()) {
+            Some(s) if s.error.is_some() => {
+                o.images.insert(src.clone(), unreadable(src));
+            }
             Some(s) if s.exists && s.is_file => {
                 if !images::supported(path) {
                     o.images.insert(src.clone(), unavailable(t("不支持的图片格式", "Unsupported image format")));
@@ -102,6 +108,30 @@ fn as_written(src: &str, image: Image) -> Image {
         Image::Unavailable { reason, .. } => Image::Unavailable { path: src.to_string(), reason },
         other => other,
     }
+}
+
+/// Image reads in flight at once for one document: a page of screenshots must not fill the bridge (and the hooks
+/// behind it) with megabytes of base64 at the same moment.
+pub const MAX_IMAGE_READS: usize = 2;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadStep {
+    Start(usize),
+    Await(usize),
+}
+
+/// In which order `n` reads are started and awaited, never more than `limit` started and not yet awaited.
+pub fn read_schedule(n: usize, limit: usize) -> Vec<ReadStep> {
+    let limit = limit.max(1);
+    let mut steps = Vec::with_capacity(2 * n);
+    for i in 0..n {
+        if i >= limit {
+            steps.push(ReadStep::Await(i - limit));
+        }
+        steps.push(ReadStep::Start(i));
+    }
+    steps.extend((n.saturating_sub(limit)..n).map(ReadStep::Await));
+    steps
 }
 
 pub fn cache_dir() -> PathBuf {
@@ -160,20 +190,33 @@ impl PreviewView {
                 Ok(stats) => apply_stats(&doc.probes, &paths, &stats),
                 Err(_) => (probe_failed(&doc.probes), Vec::new()),
             };
-            let Ok(reads) = this.update(cx, |v, cx| {
-                v.set_md_overrides(&doc, overrides, cx);
-                fetches
-                    .into_iter()
-                    .map(|f| {
-                        let cached = cache_file(&host, &f);
-                        let read = (!cached.is_file()).then(|| fs.read_file(f.path.clone(), MAX_PREVIEW_BYTES, cx));
-                        (f, cached, read)
-                    })
-                    .collect::<Vec<_>>()
-            }) else {
+            if this.update(cx, |v, cx| v.set_md_overrides(&doc, overrides, cx)).is_err() {
                 return;
-            };
-            for (f, cached, read) in reads {
+            }
+            // At most `MAX_IMAGE_READS` `ReadFile`s in flight: each is created only when its turn comes.
+            let mut started: HashMap<usize, (PathBuf, Option<gpui::Task<Result<crate::remote::fs::FileRead, crate::remote::fs::FsFailure>>>)> = HashMap::new();
+            for step in read_schedule(fetches.len(), MAX_IMAGE_READS) {
+                let i = match step {
+                    ReadStep::Start(i) => {
+                        let f = &fetches[i];
+                        let cached = cache_file(&host, f);
+                        let path = f.path.clone();
+                        let fs = fs.clone();
+                        let read = if cached.is_file() {
+                            None
+                        } else {
+                            match this.update(cx, |_, cx| fs.read_file(path, MAX_PREVIEW_BYTES, cx)) {
+                                Ok(t) => Some(t),
+                                Err(_) => return,
+                            }
+                        };
+                        started.insert(i, (cached, read));
+                        continue;
+                    }
+                    ReadStep::Await(i) => i,
+                };
+                let Some((cached, read)) = started.remove(&i) else { continue };
+                let f = &fetches[i];
                 let image = match read {
                     Some(read) => match read.await {
                         Ok(r) => {
@@ -225,7 +268,7 @@ mod tests {
     use super::*;
 
     fn st(exists: bool, is_file: bool, size: u64) -> StatEntry {
-        StatEntry { exists, is_file, size, mtime_ns: 7 }
+        StatEntry { exists, is_file, size, mtime_ns: 7, error: None }
     }
 
     #[test]
@@ -253,6 +296,41 @@ mod tests {
         assert!(matches!(o.images["big.png"], Image::Unavailable { reason, .. } if reason == "文件太大，远端暂不支持"));
         assert!(matches!(o.images["x.webp"], Image::Unavailable { reason, .. } if reason == "不支持的图片格式"));
         assert!(matches!(o.images["no.png"], Image::Unavailable { reason, .. } if reason == "找不到图片"));
+    }
+
+    #[test]
+    fn a_stat_failure_is_not_a_missing_file() {
+        let probes = RemoteProbes { links: vec![("a.md".into(), vec!["/r/a.md".into()])], images: vec![("p.png".into(), "/r/p.png".into())] };
+        let paths = probes.paths();
+        let denied = StatEntry { error: Some("/r: Permission denied".into()), ..StatEntry::default() };
+        let (o, fetch) = apply_stats(&probes, &paths, &[denied.clone(), denied]);
+        assert!(o.missing_links.is_empty() && o.link_targets.is_empty(), "the link stays as drawn: a click says what is wrong");
+        assert!(fetch.is_empty());
+        assert!(matches!(o.images["p.png"], Image::Unavailable { reason, .. } if reason == "无法读取图片"), "not 找不到图片");
+    }
+
+    #[test]
+    fn at_most_two_images_are_read_at_once() {
+        let steps = read_schedule(5, MAX_IMAGE_READS);
+        let (mut in_flight, mut most, mut started, mut awaited) = (0usize, 0usize, Vec::new(), Vec::new());
+        for s in &steps {
+            match *s {
+                ReadStep::Start(i) => {
+                    started.push(i);
+                    in_flight += 1;
+                    most = most.max(in_flight);
+                }
+                ReadStep::Await(i) => {
+                    assert!(started.contains(&i) && !awaited.contains(&i));
+                    awaited.push(i);
+                    in_flight -= 1;
+                }
+            }
+        }
+        assert_eq!(MAX_IMAGE_READS, 2);
+        assert_eq!(most, 2, "{steps:?}");
+        assert_eq!((started, awaited), ((0..5).collect::<Vec<_>>(), (0..5).collect::<Vec<_>>()), "in document order");
+        assert!(read_schedule(0, 2).is_empty());
     }
 
     #[test]

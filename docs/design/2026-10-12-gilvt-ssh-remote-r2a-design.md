@@ -400,3 +400,12 @@ R1 的「版本变化后自动更新」那一行改为只在 `remote.install = "
 68. daemon 对 `gilvt.sock` 的 `View` / `Diff` 实际是先广播 `Open`、再回复 `Response::Ok`（§8.2 写的是先回复）：实施时的实际顺序，CLI 只在收到回复后才退出，所以没有可见差别。
 69. `gilvt.sock` 的请求行超过读取上限时，daemon 回 `too_large` 错误（CLI 翻译成「文件太大，远端暂不支持」）；`Hook` 请求仍然静默，不回复。
 70. 所有「加载中」文字统一用 `loading_text()`（「正在读取…」，英文 `Loading…`）：Quick Look 占位、编辑器、Markdown 图片都是。
+
+合入前整体 review 的裁决（第 71 条起）：
+
+71. **重连与首次读取之间漏掉的改动**：daemon 在处理 `Watch` 时取基线，所以 bridge 断开期间的改动、以及「首次读取」与 `Watch` 之间的改动都不会推送。app 端补上（协议不变）：每个监视者记住它最后知道的文件状态（`watch::Known`：size + mtime，或「不存在」），来自 `FileData` / `PreviewData` 的 fingerprint、自己的 `Saved`、以及 `FileChanged`。`Watch` 得到确认后（重连时等这一轮所有 `Watch` 都回来，再 **一次** 批量 `Stat`；新打开的编辑器 / 预览在它的首个确认之后、或预览读取完成时若已确认），对 size 或 mtime 不同（或文件已不在）的监视者，按收到 `FileChanged` 处理，fingerprint 只有 size 与 mtime（`sha256` 为空）。编辑器：没有哈希时，size 与 mtime 都和已载入的（或自己最近几次保存的）相同就忽略，否则一律按「已修改」走（干净的缓冲区静默重新读取，有未保存修改时显示「已修改」条），不会当成只是 `touch`；预览照旧重新读取或标记过期。`Stat` 发出之后又收到 `FileChanged` 的监视者，`Stat` 的结果作废（`seq`）。
+72. **`ReadForPreview` 与本地 `Preview::load` 对齐**（修订第 46 条与 §8.1 的「`rev` 缺省为 `HEAD`」）：`rev` 为空表示不比较（本地的 `DiffBase::None`：只给 `git_root`，不运行 `git show`）；文件不是文本（前 8000 字节有 NUL，或不是 UTF-8，与本地 `classify` 相同）时也不取基线。基线是否放得下按 **JSON 序列化后** 的大小判断：文件的 base64 加上基线的 JSON 长度不超过 16 MB 减 1 MB 余量，否则 `base_skipped: true`（原来按原始长度 5 MB 判断，控制字符在 JSON 里一个变六个，可能撑破单帧）。
+73. **Markdown 图片一次最多 2 个 `ReadFile` 在路上**：按文档顺序，前一个回来才发下一个（`read_schedule`），一页截图不会同时把几十 MB 的 base64 塞进 bridge（hook 走同一条连接）。
+74. **`Stat` 的失败不是「不存在」**：`StatEntry` 增加可选的 `error`（serde 缺省为空，只增不改）。只有 `NotFound` 与 `ENOTDIR` 算不存在；`EACCES`、`ELOOP` 等填 `error`。⌘点击没有可打开的候选且有失败时显示失败原文，而不是「devbox 上没有这个文件」；Markdown 链接遇到失败的候选保持原样（点击时再说明），图片显示「无法读取图片」；监视的比较忽略失败的条目。
+75. **保存请求在 bridge 断开或超时后仍可能已经写入**：`WriteFile` 发出后 bridge 断开或 60 秒超时，app 显示保存失败、缓冲区保持未保存，但 daemon 可能已经执行了这次写入。此时远端文件已是用户的内容，下一次保存的 `expect` 仍是旧的 fingerprint，会得到 `Modified`，用户看到的「已修改」其实是自己那次写入造成的（「对比」可以确认，「仍然覆盖」安全）。重连后的 `Stat`（第 71 条）对干净的缓冲区不会触发，因为缓冲区本来就是未保存状态；这是已知的取舍，不为它增加请求去重。
+76. **其他**：本地 `gilvt view` 在 app 之外打印时，读取失败的错误仍用用户键入的文件名（`typed_file`），不是绝对路径；远端编辑器的标题栏目录写成 `devbox:~/repo/src`（远端 `$HOME` 缩写成 `~`），与本地同名文件区分开；⌘点击的 `Stat` 回来时 Quick Look 占位已被关掉（且没有被固定成 pane），就不再往里加载，不产生 `Watch` / `Unwatch`；`WatchTable` 里「`Unwatch` 未回复时推迟同一路径的 `Watch`」是防御性的：daemon 在读循环里按到达顺序处理 `Watch` / `Unwatch`，app 的写线程是先进先出的，目前两者不会乱序。

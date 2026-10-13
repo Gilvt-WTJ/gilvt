@@ -65,22 +65,41 @@ pub fn read_file(path: &Path, max: u64) -> RemoteResponse {
     }
 }
 
+/// What the viewer's `classify` calls text: no NUL in the first 8000 bytes and valid UTF-8. Only text gets a base.
+fn is_text(bytes: &[u8]) -> bool {
+    !bytes[..bytes.len().min(8000)].contains(&0) && std::str::from_utf8(bytes).is_ok()
+}
+
+/// Room in one frame for the file (base64) and its base (as JSON writes it), leaving 1 MiB for the rest of the
+/// answer and anything a relay wraps around it.
+const PREVIEW_FRAME_BUDGET: usize = MAX_FRAME as usize - 1024 * 1024;
+
+/// Whether a base that JSON writes as `base_json_len` bytes fits next to a file of `encoded_len` base64 bytes.
+fn base_fits(encoded_len: usize, base_json_len: usize) -> bool {
+    encoded_len.saturating_add(base_json_len) <= PREVIEW_FRAME_BUDGET
+}
+
+/// As the Mac's `Preview::load`: `rev` None (a plain view) and a file that is not text get the repository root only,
+/// without running `git show`; otherwise the file's text at `rev`.
 pub fn read_for_preview(path: &Path, rev: Option<&str>) -> RemoteResponse {
     let (meta, bytes) = match read_capped(path, MAX_PREVIEW_BYTES) {
         Ok(v) => v,
         Err(r) => return r,
     };
-    let base = gilvt_client::git::preview_base(path, rev.unwrap_or("HEAD")).ok().flatten();
-    let (git_root, mut base_text) = match base {
-        Some((root, old)) => (Some(root), old),
-        None => (None, None),
+    let encoded = encode_bytes(&bytes);
+    let (git_root, mut base_text) = match rev {
+        Some(rev) if is_text(&bytes) => match gilvt_client::git::preview_base(path, rev).ok().flatten() {
+            Some((root, old)) => (Some(root), old),
+            None => (None, None),
+        },
+        _ => (path.parent().and_then(gilvt_client::git::repo_root), None),
     };
-    // Half a frame for the file, the rest for its base: a larger base is left out (the app shows the file only).
-    let base_skipped = base_text.as_ref().is_some_and(|t| t.len() as u64 > MAX_PREVIEW_BYTES);
+    // Judged by what the frame will carry: JSON escapes control characters up to six bytes each.
+    let base_skipped = base_text.as_ref().is_some_and(|t| !base_fits(encoded.len(), serde_json::to_string(t).map_or(usize::MAX, |j| j.len())));
     if base_skipped {
         base_text = None;
     }
-    RemoteResponse::PreviewData { fingerprint: fingerprint(&meta, &bytes), bytes: encode_bytes(&bytes), git_root, base_text, base_skipped }
+    RemoteResponse::PreviewData { fingerprint: fingerprint(&meta, &bytes), bytes: encoded, git_root, base_text, base_skipped }
 }
 
 pub fn stat(paths: &[PathBuf]) -> RemoteResponse {
@@ -90,8 +109,11 @@ pub fn stat(paths: &[PathBuf]) -> RemoteResponse {
     let entries = paths
         .iter()
         .map(|p| match fs::metadata(p) {
-            Ok(m) => StatEntry { exists: true, is_file: m.is_file(), size: m.len(), mtime_ns: mtime_ns(&m) },
-            Err(_) => StatEntry { exists: false, is_file: false, size: 0, mtime_ns: 0 },
+            Ok(m) => StatEntry { exists: true, is_file: m.is_file(), size: m.len(), mtime_ns: mtime_ns(&m), error: None },
+            // Not there (or a parent is not a directory): missing. Anything else (EACCES, ELOOP, EIO…) is a failure
+            // the app shows, never 「devbox 上没有这个文件」.
+            Err(e) if e.kind() == io::ErrorKind::NotFound || e.raw_os_error() == Some(libc::ENOTDIR) => StatEntry::default(),
+            Err(e) => StatEntry { error: Some(format!("{}: {e}", p.display())), ..StatEntry::default() },
         })
         .collect();
     RemoteResponse::Stats { entries }
@@ -295,6 +317,30 @@ mod tests {
     }
 
     #[test]
+    fn stat_reports_a_failure_instead_of_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f"), "x").unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        std::os::unix::fs::symlink(&b, &a).unwrap();
+        std::os::unix::fs::symlink(&a, &b).unwrap();
+        let paths = vec![dir.path().join("f/child"), dir.path().join("missing"), a];
+        let RemoteResponse::Stats { entries } = stat(&paths) else { panic!() };
+        assert_eq!((entries[0].exists, entries[0].error.as_deref()), (false, None), "under a file: not there");
+        assert_eq!((entries[1].exists, entries[1].error.as_deref()), (false, None));
+        assert!(!entries[2].exists && entries[2].error.is_some(), "a symlink loop is a failure, not a missing file: {:?}", entries[2]);
+        // EACCES (rust:alpine runs the tests as root, for whom the mode bits do not apply)
+        if unsafe { libc::geteuid() } != 0 {
+            let locked = dir.path().join("locked");
+            std::fs::create_dir(&locked).unwrap();
+            std::fs::write(locked.join("x"), "x").unwrap();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let RemoteResponse::Stats { entries } = stat(&[locked.join("x")]) else { panic!() };
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(entries[0].error.is_some(), "permission denied is not 'no such file': {:?}", entries[0]);
+        }
+    }
+
+    #[test]
     fn write_is_atomic_and_keeps_the_mode() {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("run.sh");
@@ -359,7 +405,7 @@ mod tests {
         let repo = gilvt_client_testrepo();
         let file = repo.path().join("a.txt");
         std::fs::write(&file, "one\nTWO\n").unwrap();
-        let RemoteResponse::PreviewData { bytes, git_root, base_text, base_skipped, .. } = read_for_preview(&file, None) else { panic!() };
+        let RemoteResponse::PreviewData { bytes, git_root, base_text, base_skipped, .. } = read_for_preview(&file, Some("HEAD")) else { panic!() };
         assert_eq!(decode_bytes(&bytes).unwrap(), b"one\nTWO\n");
         assert!(git_root.is_some() && !base_skipped);
         assert_eq!(base_text.as_deref(), Some("one\ntwo\n"));
@@ -367,6 +413,47 @@ mod tests {
         std::fs::write(outside.path().join("x"), "x").unwrap();
         let RemoteResponse::PreviewData { git_root, base_text, .. } = read_for_preview(&outside.path().join("x"), Some("HEAD")) else { panic!() };
         assert_eq!((git_root, base_text), (None, None));
+    }
+
+    #[test]
+    fn a_plain_view_and_a_binary_file_get_no_base_as_on_the_mac() {
+        let repo = gilvt_client_testrepo();
+        let file = repo.path().join("a.txt");
+        std::fs::write(&file, "one\nTWO\n").unwrap();
+        // `Preview::load` with `DiffBase::None`: the repository root, no base.
+        let RemoteResponse::PreviewData { git_root, base_text, base_skipped, .. } = read_for_preview(&file, None) else { panic!() };
+        assert!(git_root.is_some(), "the root is still reported");
+        assert_eq!((base_text, base_skipped), (None, false), "no comparison asked for: git show is not run");
+        // Not text (a NUL in the first 8000 bytes, or not UTF-8): the base is not looked up either.
+        for bytes in [b"a\0b".to_vec(), vec![0xff, 0xfe, b'x']] {
+            std::fs::write(&file, &bytes).unwrap();
+            let RemoteResponse::PreviewData { git_root, base_text, base_skipped, .. } = read_for_preview(&file, Some("HEAD")) else { panic!() };
+            assert!(git_root.is_some());
+            assert_eq!((base_text, base_skipped), (None, false), "{bytes:?}");
+        }
+    }
+
+    #[test]
+    fn a_base_is_left_out_by_its_size_in_the_frame_not_its_length() {
+        let repo = gilvt_client_testrepo();
+        let file = repo.path().join("ctl.txt");
+        // 3 MiB of a control character: well under the old 5 MiB rule, but JSON writes each one as \u0001 (6 bytes).
+        std::fs::write(&file, "\u{1}".repeat(3 * 1024 * 1024)).unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(repo.path()).args(args).output().unwrap().status.success());
+        git(&["add", "ctl.txt"]);
+        git(&["commit", "-q", "-m", "ctl"]);
+        std::fs::write(&file, "small now\n").unwrap();
+        let r = read_for_preview(&file, Some("HEAD"));
+        let RemoteResponse::PreviewData { base_text, base_skipped, .. } = &r else { panic!() };
+        assert!(*base_skipped && base_text.is_none());
+        let frame = serde_json::to_vec(&DaemonMsg::Response { id: 1, resp: r.clone() }).unwrap();
+        assert!(frame.len() < MAX_FRAME as usize);
+        // A plain-text base of the same length still goes.
+        std::fs::write(&file, "x".repeat(3 * 1024 * 1024)).unwrap();
+        git(&["commit", "-qam", "x"]);
+        std::fs::write(&file, "small now\n").unwrap();
+        let RemoteResponse::PreviewData { base_text, base_skipped, .. } = read_for_preview(&file, Some("HEAD")) else { panic!() };
+        assert!(!base_skipped && base_text.is_some_and(|t| t.len() == 3 * 1024 * 1024));
     }
 
     #[test]

@@ -97,12 +97,16 @@ impl Fingerprint {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatEntry {
     pub exists: bool,
     pub is_file: bool,
     pub size: u64,
     pub mtime_ns: u64,
+    /// The path could not be looked at (EACCES, ELOOP…): `exists` is false but the file may well be there. Absent
+    /// (None) when it exists or is simply not there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,7 +177,8 @@ pub enum RemoteRequest {
     History,
     /// Answered `FileData` or `FileError` (R2a §8.1).
     ReadFile { path: PathBuf, max: u64 },
-    /// Answered `PreviewData` or `FileError`. `rev`: None = HEAD.
+    /// Answered `PreviewData` or `FileError`. `rev`: the revision to compare with; None = no comparison (the Mac's
+    /// `DiffBase::None`: the repository root only). A file that is not text never gets a base.
     ReadForPreview { path: PathBuf, rev: Option<String> },
     /// At most `MAX_STAT_PATHS`; answered `Stats` (same order) or `Error`.
     Stat { paths: Vec<PathBuf> },
@@ -239,7 +244,8 @@ pub enum RemoteResponse {
     Links { links: Vec<LinkState> },
     FileData { bytes: String, fingerprint: Fingerprint, writable: bool },
     /// `git_root` / `base_text`: None outside a repository; `base_text` None in one: the file is new at `rev`.
-    /// `base_skipped`: the base was larger than `MAX_PREVIEW_BYTES` and left out (show the file only).
+    /// `base_skipped`: the base would not fit in the frame next to the file (judged by its JSON size) and was left out
+    /// (show the file only).
     PreviewData { bytes: String, fingerprint: Fingerprint, git_root: Option<PathBuf>, base_text: Option<String>, base_skipped: bool },
     Stats { entries: Vec<StatEntry> },
     Saved { fingerprint: Fingerprint },
@@ -503,7 +509,7 @@ mod tests {
         let resps = vec![
             RemoteResponse::FileData { bytes: encode_bytes(b"hi"), fingerprint: fp("ab"), writable: true },
             RemoteResponse::PreviewData { bytes: encode_bytes(b"hi"), fingerprint: fp("ab"), git_root: Some("/r".into()), base_text: Some("ho".into()), base_skipped: false },
-            RemoteResponse::Stats { entries: vec![StatEntry { exists: true, is_file: true, size: 2, mtime_ns: 5 }, StatEntry { exists: false, is_file: false, size: 0, mtime_ns: 0 }] },
+            RemoteResponse::Stats { entries: vec![StatEntry { exists: true, is_file: true, size: 2, mtime_ns: 5, error: None }, StatEntry { exists: false, is_file: false, size: 0, mtime_ns: 0, error: None }, StatEntry { error: Some("denied".into()), ..StatEntry::default() }] },
             RemoteResponse::Saved { fingerprint: fp("cd") },
             RemoteResponse::Modified { current: fp("ef") },
             RemoteResponse::Changes { root: "/r".into(), files: vec![ChangeEntry { status: ChangeStatus::Modified, path: "/r/a".into() }, ChangeEntry { status: ChangeStatus::Untracked, path: "/r/n".into() }] },

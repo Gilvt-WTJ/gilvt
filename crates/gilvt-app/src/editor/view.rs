@@ -533,15 +533,18 @@ impl EditorView {
         doc.loading = false;
         doc.fingerprint = Some(f.fingerprint);
         doc.writable = f.writable;
-        let (host, path) = (doc.path.remote_host().unwrap_or_default().to_string(), doc.path.path.clone());
+        let (host, path, read) = (doc.path.remote_host().unwrap_or_default().to_string(), doc.path.path.clone(), doc.fingerprint.clone());
         let name = doc.path.file_name();
         self.model = EditorModel::new(buf, &name, self.model.viewport_cols().max(1), self.model.view_rows().max(1));
         self.last_dirty = false;
         self.last_revision = self.model.buf.revision();
         let view = cx.entity().downgrade();
+        // What was read is the watch's starting point: a change between this read and the daemon's baseline is found
+        // by the `Stat` that follows its acknowledgement (R2a §9.4).
         let id = crate::remote::watch::watch(
             &host,
             path,
+            read.as_ref(),
             move |fp, cx| {
                 let _ = view.update(cx, |v, cx| v.on_remote_change(fp, cx));
             },
@@ -556,6 +559,13 @@ impl EditorView {
         cx.emit(EditorEvent::Changed);
         cx.notify();
         Ok(())
+    }
+
+    /// The host's version was just read or written: what the remote watch compares with after a reconnect.
+    fn note_remote_known(&mut self, cx: &mut Context<Self>) {
+        if let Some((id, fp)) = self.remote.as_ref().and_then(|d| Some((d.watch?, d.fingerprint.clone()))) {
+            crate::remote::watch::note(id, fp.as_ref(), cx);
+        }
     }
 
     /// Starts the file watcher and the focus check. Call once after `cx.new` (needs a Window).
@@ -761,6 +771,7 @@ impl EditorView {
                             doc.conflict = None;
                             super::remote_edit::forget_own_saves(doc);
                         }
+                        self.note_remote_known(cx);
                         self.finished_reload(!as_edit, cx);
                     }
                     // The silent reload swallows a failure, as the local one does; 重新载入 shows it.
@@ -776,6 +787,7 @@ impl EditorView {
                         doc.conflict = None;
                         super::remote_edit::forget_own_saves(doc);
                     }
+                    self.note_remote_known(cx);
                     self.finished_reopen(cx);
                 }
                 Err(e) => self.set_bar(bar_for_save_error(&e), cx),
@@ -973,6 +985,9 @@ impl EditorView {
             SaveResult::Failed(_) => {}
         }
         doc.queued = queued_after(doc.queued.take(), outcome == SaveOutcome::Saved);
+        if outcome == SaveOutcome::Saved {
+            self.note_remote_known(cx);
+        }
         if outcome == SaveOutcome::Saved && saved_marks_clean(revision, self.model.buf.revision()) {
             self.model.buf.mark_saved();
         }
@@ -2329,6 +2344,26 @@ mod remote_save_tests {
             assert!(!v.is_dirty());
             let doc = v.remote.as_ref().unwrap();
             assert!(doc.busy.is_none() && doc.queued.is_none(), "the pane closes: no second WriteFile");
+        });
+    }
+
+    #[gpui::test]
+    fn a_change_found_by_the_stat_after_a_reconnect_is_read_or_asked_about(cx: &mut TestAppContext) {
+        // R2a §9.4: the watch's Stat has size and mtime only.
+        let stat = |n: u64| Fingerprint { mtime_ns: n, size: 4, sha256: String::new() };
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.on_remote_change(Some(stat(1)), cx);
+            assert!(v.remote.as_ref().unwrap().busy.is_none() && v.bar == Bar::None, "what we loaded: nothing to do");
+            assert_eq!(v.remote.as_ref().unwrap().fingerprint, Some(fp(1)), "the hashed fingerprint is kept");
+            v.on_remote_change(Some(stat(2)), cx);
+            assert_eq!(v.remote.as_ref().unwrap().busy, Some(RemoteOp::Reloading { as_edit: false }), "clean: read the host's version");
+        });
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            v.on_remote_change(Some(stat(2)), cx);
+            assert_eq!(v.bar, Bar::Modified { closing: false }, "unsaved edits: ask");
         });
     }
 

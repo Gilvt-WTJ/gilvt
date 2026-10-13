@@ -83,6 +83,7 @@ pub struct FileRead {
 
 pub struct PreviewRead {
     pub bytes: Vec<u8>,
+    pub fingerprint: Fingerprint,
     pub git_root: Option<PathBuf>,
     pub base_text: Option<String>,
     pub base_skipped: bool,
@@ -129,9 +130,9 @@ impl RemoteFs {
     pub fn read_for_preview(&self, path: PathBuf, rev: Option<String>, cx: &mut App) -> Task<Result<PreviewRead, FsFailure>> {
         let answer = request_async(&self.host, RemoteRequest::ReadForPreview { path, rev }, PREVIEW_TIMEOUT, cx);
         cx.spawn(async move |cx| match answer.await {
-            Ok(RemoteResponse::PreviewData { bytes, git_root, base_text, base_skipped, .. }) => {
+            Ok(RemoteResponse::PreviewData { bytes, fingerprint, git_root, base_text, base_skipped }) => {
                 let bytes = cx.background_executor().spawn(async move { decoded(bytes) }).await?;
-                Ok(PreviewRead { bytes, git_root, base_text, base_skipped })
+                Ok(PreviewRead { bytes, fingerprint, git_root, base_text, base_skipped })
             }
             Ok(other) => Err(FsFailure::from_response(other)),
             Err(e) => Err(FsFailure::from_request(e)),
