@@ -175,20 +175,7 @@ pub fn ensure(host: &str, cx: &mut App) {
         if write_frame(&mut w, &hello).is_err() {
             return;
         }
-        for m in rx {
-            match write_frame(&mut w, &m) {
-                Ok(()) => {}
-                // Refused before a byte was written: this request fails, the bridge (and the host's hooks) go on.
-                Err(e) if is_frame_too_large(&e) => {
-                    if let Some(reply) = too_large_reply(&m) {
-                        if writer_events.send_blocking((writer_host.clone(), generation, Some(reply))).is_err() {
-                            return;
-                        }
-                    }
-                }
-                Err(_) => break,
-            }
-        }
+        pump(rx, &mut w, |reply| writer_events.send_blocking((writer_host.clone(), generation, Some(reply))).is_ok());
     });
     let h = host.to_string();
     std::thread::spawn(move || {
@@ -202,6 +189,25 @@ pub fn ensure(host: &str, cx: &mut App) {
     });
     cx.global_mut::<BridgeHandles>().map.insert(host.to_string(), BridgeHandle { child, tx, generation, pending: Pending::default() });
     set_status(host, BridgeStatus::Connecting, cx);
+}
+
+/// The writer thread's loop: frames out in order. A request refused for being over the frame cap fails on its own
+/// (`on_too_large` carries the reply to the main thread; false from it ends the pump); any other error ends it.
+fn pump<W: std::io::Write>(msgs: impl IntoIterator<Item = AppMsg>, w: &mut W, mut on_too_large: impl FnMut(DaemonMsg) -> bool) {
+    for m in msgs {
+        match write_frame(w, &m) {
+            Ok(()) => {}
+            // Refused before a byte was written: this request fails, the bridge (and the host's hooks) go on.
+            Err(e) if is_frame_too_large(&e) => {
+                if let Some(reply) = too_large_reply(&m) {
+                    if !on_too_large(reply) {
+                        return;
+                    }
+                }
+            }
+            Err(_) => return,
+        }
+    }
 }
 
 /// What the main thread should hear when `write_frame` refused `m` for being over the frame cap (R2a plan ruling 23).
@@ -265,6 +271,7 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
             if let Some(h) = cx.global_mut::<BridgeHandles>().map.remove(host) {
                 retire(h, cx);
             }
+            super::watch::bridge_down(host, cx);
         }
         Some(DaemonMsg::Event { seq, event }) => {
             if let Some(h) = cx.global_mut::<RemoteHosts>().hosts.get_mut(host) {
@@ -338,6 +345,8 @@ pub fn link_count_changed(cx: &mut App) {
                 if let Some(h) = cx.global_mut::<BridgeHandles>().map.remove(&host) {
                     retire(h, cx);
                 }
+                // The reader's later `None` is ignored as stale: forget the daemon-side watches here.
+                super::watch::bridge_down(&host, cx);
                 cx.global_mut::<BridgeHandles>().attempts.remove(&host);
                 set_status(&host, BridgeStatus::None, cx);
             });
@@ -349,6 +358,17 @@ pub fn link_count_changed(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_writer_pump_fails_an_oversized_request_once_and_goes_on() {
+        let big = AppMsg::Request { id: 1, req: RemoteRequest::WriteFile { path: "/x".into(), bytes: "A".repeat(gilvt_ipc::remote::MAX_FRAME as usize), expect: None } };
+        let small = AppMsg::Request { id: 2, req: RemoteRequest::Stat { paths: vec!["/y".into()] } };
+        let mut out = Vec::new();
+        let mut replies = Vec::new();
+        pump(vec![big, small.clone()], &mut out, |r| { replies.push(r); true });
+        assert_eq!(replies, vec![DaemonMsg::Response { id: 1, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }]);
+        assert_eq!(read_frame::<AppMsg>(&mut &out[..]).unwrap(), Some(small), "the later frame was still written");
+    }
 
     #[test]
     fn an_oversized_request_fails_only_itself() {

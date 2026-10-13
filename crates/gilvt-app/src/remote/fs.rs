@@ -1,6 +1,5 @@
 //! Files on an ssh host (R2a §8.1), through the host's bridge: every call is one request (a `Stat` of more than 256
 //! paths is several, sent together), answered on the main thread; base64 is decoded / encoded off it.
-#![allow(dead_code)] // the preview, Markdown, ⌘-click and editor tasks consume these.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -10,9 +9,12 @@ use gpui::{App, Task};
 
 use super::bridge::{request_async, RequestError};
 
+#[allow(dead_code)] // remote stat batches (Task 9)
 pub const STAT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const PREVIEW_TIMEOUT: Duration = Duration::from_secs(30);
+#[allow(dead_code)] // the editor's read (Task 12)
 pub const READ_TIMEOUT: Duration = Duration::from_secs(60);
+#[allow(dead_code)] // the editor's save (Task 12)
 pub const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 pub const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const WATCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -34,6 +36,7 @@ pub fn not_connected(display: &str) -> String {
     if crate::i18n::english() { format!("{display} is not connected") } else { format!("{display} 未连接") }
 }
 
+#[allow(dead_code)] // the editor's save (Task 12)
 pub fn not_saved(display: &str) -> String {
     if crate::i18n::english() { format!("{display} is not connected; not saved") } else { format!("{display} 未连接，未保存") }
 }
@@ -42,6 +45,7 @@ pub fn too_large_text() -> &'static str {
     crate::i18n::text("文件太大，远端暂不支持", "File too large for remote access")
 }
 
+#[allow(dead_code)] // preview / editor placeholder (Tasks 8, 12)
 pub fn loading_text() -> &'static str {
     crate::i18n::text("正在读取…", "Loading…")
 }
@@ -76,6 +80,7 @@ impl FsFailure {
     }
 }
 
+#[allow(dead_code)] // the editor's read (Task 12)
 pub struct FileRead {
     pub bytes: Vec<u8>,
     pub fingerprint: Fingerprint,
@@ -89,6 +94,7 @@ pub struct PreviewRead {
     pub base_skipped: bool,
 }
 
+#[allow(dead_code)] // the editor's save (Task 12)
 pub enum Written {
     Saved(Fingerprint),
     Modified(Fingerprint),
@@ -115,6 +121,7 @@ impl RemoteFs {
         RemoteFs { host: host.to_string(), display: super::display_of(host, cx) }
     }
 
+#[allow(dead_code)] // the editor's read (Task 12)
     pub fn read_file(&self, path: PathBuf, max: u64, cx: &mut App) -> Task<Result<FileRead, FsFailure>> {
         let answer = request_async(&self.host, RemoteRequest::ReadFile { path, max }, READ_TIMEOUT, cx);
         cx.spawn(async move |cx| match answer.await {
@@ -140,6 +147,7 @@ impl RemoteFs {
     }
 
     /// Entries in the order of `paths`. Batches are all sent before the first answer is awaited: one round trip.
+#[allow(dead_code)] // remote stat batches (Task 9)
     pub fn stat(&self, paths: Vec<PathBuf>, cx: &mut App) -> Task<Result<Vec<StatEntry>, FsFailure>> {
         let answers: Vec<_> = stat_batches(&paths).into_iter().map(|batch| request_async(&self.host, RemoteRequest::Stat { paths: batch }, STAT_TIMEOUT, cx)).collect();
         cx.spawn(async move |_| {
@@ -157,6 +165,7 @@ impl RemoteFs {
 
     /// The daemon does not order requests for the same path: a caller must never have more than one `write_file` in
     /// flight for a file (the editor's save, Task 12, queues the next save until this one has answered).
+#[allow(dead_code)] // the editor's save (Task 12)
     pub fn write_file(&self, path: PathBuf, bytes: Vec<u8>, expect: Option<Fingerprint>, cx: &mut App) -> Task<Result<Written, FsFailure>> {
         let host = self.host.clone();
         cx.spawn(async move |cx| {
