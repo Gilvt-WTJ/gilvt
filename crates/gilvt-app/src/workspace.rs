@@ -317,8 +317,10 @@ impl Workspace {
         self.finder = None;
         self.sessions = None;
         self.new_agent = None;
-        if let Some(Source::File(path)) = req.sources.get(req.index) {
-            self.recent.push(path.clone());
+        if let Some(Source::File(p)) = req.sources.get(req.index) {
+            if let Some(local) = p.local_path() {
+                self.recent.push(local.to_path_buf());
+            }
         }
         let view = cx.new(|cx| PreviewView::new(req, pin, window, cx));
         if pin {
@@ -331,7 +333,7 @@ impl Workspace {
             PreviewEvent::NewTab => ws.pin_quicklook(origin, true, window, cx),
             PreviewEvent::Opened(path) => ws.recent.push(path.clone()),
             // `open_editor` closes Quick Look once the editor exists; a refused file keeps it open under the banner.
-            PreviewEvent::Edit { path, line, flip } => ws.open_editor(path.clone(), *line, origin, *flip, window, cx),
+            PreviewEvent::Edit { path, line, flip } => ws.open_editor_at(path.clone(), *line, origin, *flip, window, cx),
             PreviewEvent::OpenExternal { path, line } => open_in_editor(path, *line),
         });
         self.quicklook = Some((view, sub));
@@ -392,7 +394,7 @@ impl Workspace {
         let sub = cx.subscribe_in(&view, window, move |ws, _, event, window, cx| match event {
             PreviewEvent::Leave => ws.leave_preview(id, window, cx),
             PreviewEvent::Opened(path) => ws.recent.push(path.clone()),
-            PreviewEvent::Edit { path, line, flip } => ws.open_editor(path.clone(), *line, Some(id), *flip, window, cx),
+            PreviewEvent::Edit { path, line, flip } => ws.open_editor_at(path.clone(), *line, Some(id), *flip, window, cx),
             PreviewEvent::OpenExternal { path, line } => open_in_editor(path, *line),
             PreviewEvent::NewTab => ws.move_pane_to_new_tab(id, window, cx),
             PreviewEvent::Close | PreviewEvent::Pin => {}

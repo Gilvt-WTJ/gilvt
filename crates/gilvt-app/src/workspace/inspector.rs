@@ -183,7 +183,7 @@ impl Workspace {
         self.inspector.config.disclosure.dialog = None;
         let req = OpenRequest {
             index: index.min(paths.len() - 1),
-            sources: paths.into_iter().map(Source::File).collect(),
+            sources: paths.into_iter().map(|p| Source::File(gilvt_agent::host::HostPath::local(p))).collect(),
             line: None,
             annotation: None,
             rev: None,
@@ -406,7 +406,7 @@ impl Workspace {
             scope: range.scope,
         };
         let req = OpenRequest {
-            sources: files.iter().map(|f| Source::File(f.abs.clone())).collect(),
+            sources: files.iter().map(|f| Source::File(gilvt_agent::host::HostPath::local(f.abs.clone()))).collect(),
             index: file.min(files.len() - 1),
             line: None,
             annotation: None,

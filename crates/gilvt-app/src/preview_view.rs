@@ -7,6 +7,7 @@ use gpui::{
     div, prelude::*, px, Bounds, Context, EventEmitter, ExternalPaths, FocusHandle, Focusable, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseUpEvent, Pixels, ScrollDelta, ScrollWheelEvent, Subscription, Task, Window,
 };
+use gilvt_agent::host::HostPath;
 use gilvt_viewer::diff::{split_rows, unified_rows};
 use gilvt_viewer::{highlight, nav, Appearance, Content, DiffBase, Preview, Row, Span, SplitRow, TurnRange};
 
@@ -24,7 +25,8 @@ pub const SPLIT_MIN_WIDTH: f32 = 1100.0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
-    File(PathBuf),
+    /// A file on this Mac or on an ssh host (R2a §8.3).
+    File(HostPath),
     Inline { content: String, as_type: Option<String> },
     /// The editor's buffer, shown by one of the live-preview providers (never read from disk by the view).
     Live(crate::live_preview::LiveInput),
@@ -53,12 +55,29 @@ pub struct OpenRequest {
 
 impl OpenRequest {
     pub fn file(path: PathBuf, line: Option<u32>, annotation: Option<String>) -> OpenRequest {
+        OpenRequest::at(HostPath::local(path), line, annotation)
+    }
+
+    pub fn at(path: HostPath, line: Option<u32>, annotation: Option<String>) -> OpenRequest {
         OpenRequest { sources: vec![Source::File(path)], index: 0, line, annotation, rev: None, turn: None }
     }
 
     /// A group of files (←/→ switches), starting at the first.
     pub fn files(paths: Vec<PathBuf>) -> OpenRequest {
+        OpenRequest::host_files(paths.into_iter().map(HostPath::local).collect())
+    }
+
+    pub fn host_files(paths: Vec<HostPath>) -> OpenRequest {
         OpenRequest { sources: paths.into_iter().map(Source::File).collect(), index: 0, line: None, annotation: None, rev: None, turn: None }
+    }
+}
+
+/// The Mac path of a local file source: what watching, the external editor and the pane's cwd use. A remote file has
+/// none, so none of them ever looks at a same-named Mac file.
+pub(crate) fn local_file(source: Option<&Source>) -> Option<&Path> {
+    match source? {
+        Source::File(p) => p.local_path(),
+        Source::Inline { .. } | Source::Live(_) => None,
     }
 }
 
@@ -73,7 +92,7 @@ pub enum PreviewEvent {
     /// as recent, like any Quick Look open).
     Opened(PathBuf),
     /// `E` / `⌘O`: edit the shown file in the built-in editor (`flip`: ⌥ was held, split ↔ new tab).
-    Edit { path: PathBuf, line: Option<u32>, flip: bool },
+    Edit { path: HostPath, line: Option<u32>, flip: bool },
     /// `⌘⌥O`: open the shown file in the external editor.
     OpenExternal { path: PathBuf, line: Option<u32> },
 }
@@ -377,7 +396,7 @@ impl PreviewView {
             (false, _) => "unified",
         };
         crate::debug_state::Overlay::Quicklook {
-            path: self.file_path().map(|p| p.display().to_string()),
+            path: self.host_path().map(|p| p.path.display().to_string()),
             base,
             mode,
             code: rect(crate::debug_state::rects::RectId::PreviewCode(self.pane)),
@@ -387,15 +406,19 @@ impl PreviewView {
     }
 
     pub fn file_path(&self) -> Option<&Path> {
+        local_file(self.source())
+    }
+
+    pub fn host_path(&self) -> Option<&HostPath> {
         match self.source()? {
             Source::File(p) => Some(p),
-            Source::Inline { .. } | Source::Live(_) => None,
+            _ => None,
         }
     }
 
     pub fn title(&self) -> String {
         match self.source() {
-            Some(Source::File(p)) => p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            Some(Source::File(p)) => p.file_name(),
             Some(s @ Source::Live(_)) => live_title(s).unwrap_or_default(),
             Some(Source::Inline { .. }) => "stdin".into(),
             None => crate::i18n::text("没有改动", "No changes").into(),
@@ -416,7 +439,10 @@ impl PreviewView {
         let base = self.bases[self.base_ix].clone();
         let task = cx.background_executor().spawn(async move {
             let preview = match source {
-                Source::File(p) => Preview::load(&p, &base).map_err(|e| format!("{}: {e}", p.display()))?,
+                Source::File(p) => match p.local_path() {
+                    Some(local) => Preview::load(local, &base).map_err(|e| format!("{}: {e}", local.display()))?,
+                    None => return Err(crate::remote::not_yet_remote().to_string()),
+                },
                 Source::Inline { content, as_type } => Preview::from_content(content, as_type),
                 Source::Live(input) => crate::live_preview::build_preview(&input, &crate::live_preview::cache_dir())?,
             };
@@ -593,7 +619,7 @@ impl PreviewView {
             return;
         }
         cx.emit(PreviewEvent::Opened(files[0].clone()));
-        self.sources = files.into_iter().map(Source::File).collect();
+        self.sources = files.into_iter().map(|f| Source::File(HostPath::local(f))).collect();
         self.index = 0;
         self.history = History::default();
         self.bases = diff_bases(None, None);
@@ -674,15 +700,18 @@ impl PreviewView {
     }
 
     /// Where `E` / `⌘O` / `⌘⌥O` open the shown file: None for an inline source.
-    fn edit_target(&self) -> Option<(PathBuf, Option<u32>)> {
-        let path = self.file_path()?.to_path_buf();
+    fn edit_target(&self) -> Option<(HostPath, Option<u32>)> {
+        let path = self.host_path()?.clone();
         let top = if self.rendered() { self.md.as_ref().map(|md| md.top_line()) } else { None };
         Some((path, edit_line(top, self.annotation.as_ref().map(|(l, _)| *l))))
     }
 
     fn open_external(&mut self, _: &OpenExternalEditor, _: &mut Window, cx: &mut Context<Self>) {
         if let Some((path, line)) = self.edit_target() {
-            cx.emit(PreviewEvent::OpenExternal { path, line });
+            match path.local_path() {
+                Some(p) => cx.emit(PreviewEvent::OpenExternal { path: p.to_path_buf(), line }),
+                None => self.show_banner(crate::remote::not_yet_remote().to_string(), cx),
+            }
         }
     }
 
@@ -949,6 +978,8 @@ fn too_large_message(size: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use gilvt_agent::host::HostPath;
+
     #[test]
     fn the_changed_since_note_names_the_scope() {
         use super::changed_since_note;
@@ -994,7 +1025,7 @@ mod tests {
         assert_eq!(live_title(&src), Some("预览 · a.md".to_string()));
         let unsaved = Source::Live(LiveInput { provider: Provider::Changes, path: None, text: String::new(), slot: 1 });
         assert_eq!(live_title(&unsaved), Some("预览 · 未命名".to_string()));
-        assert_eq!(live_title(&Source::File("/tmp/a.md".into())), None);
+        assert_eq!(live_title(&Source::File(HostPath::local("/tmp/a.md"))), None);
     }
 
     use gilvt_viewer::DiffBase;
@@ -1005,7 +1036,7 @@ mod tests {
     fn a_live_source_ignores_quick_look_keys_drops_and_links() {
         use crate::live_preview::{LiveInput, Provider};
         let live = Source::Live(LiveInput { provider: Provider::Changes, path: None, text: String::new(), slot: 1 });
-        let file = Source::File("/tmp/a".into());
+        let file = Source::File(HostPath::local("/tmp/a"));
         assert!(!base_key_applies(Some(&live)));
         assert!(base_key_applies(Some(&file)));
         assert!(base_key_applies(None));
@@ -1051,6 +1082,16 @@ mod tests {
     fn a_revision_comes_first_then_head_then_no_diff() {
         assert_eq!(diff_bases(None, None), [DiffBase::Head, DiffBase::None]);
         assert_eq!(diff_bases(Some("main".into()), None),[DiffBase::Rev("main".into()), DiffBase::Head, DiffBase::None]);
+    }
+
+    #[test]
+    fn only_a_local_source_has_a_mac_path() {
+        let local = Source::File(HostPath::local("/etc/hosts"));
+        let remote = Source::File(HostPath::remote("dev@devbox:22", "/etc/hosts"));
+        assert_eq!(super::local_file(Some(&local)), Some(std::path::Path::new("/etc/hosts")));
+        assert_eq!(super::local_file(Some(&remote)), None, "a remote path is never used as a Mac path");
+        assert_eq!(super::local_file(Some(&Source::Inline { content: "x".into(), as_type: None })), None);
+        assert_eq!(super::local_file(None), None);
     }
 
     #[test]

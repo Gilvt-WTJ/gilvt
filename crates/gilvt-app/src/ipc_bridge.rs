@@ -15,7 +15,7 @@ use crate::workspace::Workspace;
 pub fn view_request(req: Request) -> Option<(Option<u64>, OpenRequest, bool)> {
     let Request::View { pane, path, content, as_type, line, col: _, pin, link: _ } = req else { return None };
     let source = match (path, content) {
-        (Some(path), _) => Source::File(path),
+        (Some(path), _) => Source::File(gilvt_agent::host::HostPath::local(path)),
         (None, Some(content)) => Source::Inline { content, as_type },
         (None, None) => return None,
     };
@@ -169,7 +169,7 @@ mod tests {
         let req = Request::View { pane: Some(2), path: Some("/r/a.rs".into()), content: None, as_type: None, line: Some(9), col: Some(1), pin: true, link: None };
         let (pane, open, pin) = view_request(req).unwrap();
         assert_eq!((pane, pin), (Some(2), true));
-        assert_eq!(open.sources, vec![Source::File("/r/a.rs".into())]);
+        assert_eq!(open.sources, vec![Source::File(gilvt_agent::host::HostPath::local("/r/a.rs"))]);
         assert_eq!(open.line, Some(9));
 
         let req = Request::View { pane: None, path: None, content: Some("x".into()), as_type: Some("md".into()), line: None, col: None, pin: false, link: None };

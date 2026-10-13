@@ -132,6 +132,15 @@ impl Workspace {
         self.open_editor_with(path, line, origin, flip, OpenOptions::default(), window, cx);
     }
 
+    /// Opens a file of this Mac or of an ssh host in the built-in editor (R2a §8.3). A remote path is never opened as
+    /// a Mac path.
+    pub fn open_editor_at(&mut self, path: gilvt_agent::host::HostPath, line: Option<u32>, origin: Option<PaneId>, flip: bool, window: &mut Window, cx: &mut Context<Self>) {
+        match path.local_path() {
+            Some(local) => self.open_editor(local.to_path_buf(), line, origin, flip, window, cx),
+            None => self.show_error(crate::remote::not_yet_remote().to_string(), cx),
+        }
+    }
+
     /// [`Self::open_editor`] with an encoding / read-only choice; returns the editor showing `path` (`None` when
     /// it was refused). An editor already open on `path` is focused as it is (`opts` do not apply to it).
     #[allow(clippy::too_many_arguments)]

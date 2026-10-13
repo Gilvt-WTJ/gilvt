@@ -299,7 +299,7 @@ impl PreviewView {
             Target::File { .. } if !crate::preview_view::link_navigation_applies(self.source()) => {}
             Target::File { path, anchor, line } => {
                 self.history.push(Entry { sources: self.sources.clone(), index: self.index, line: self.current_line() });
-                self.sources = vec![Source::File(path)];
+                self.sources = vec![Source::File(gilvt_agent::host::HostPath::local(path))];
                 self.index = 0;
                 self.reset_view_state();
                 self.pending_line = line;
@@ -326,7 +326,7 @@ impl PreviewView {
         true
     }
 
-    fn show_banner(&mut self, text: String, cx: &mut Context<Self>) {
+    pub(crate) fn show_banner(&mut self, text: String, cx: &mut Context<Self>) {
         self.banner = Some(text);
         self._banner = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(BANNER).await;
