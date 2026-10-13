@@ -16,6 +16,7 @@ gilvt-agent.workspace = true
 gilvt-i18n.workspace = true
 serde_json.workspace = true
 libc = "0.2"
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile.workspace = true

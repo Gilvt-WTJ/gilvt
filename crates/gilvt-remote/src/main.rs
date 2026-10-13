@@ -6,6 +6,8 @@ mod bridge;
 mod client;
 mod daemon;
 mod entry;
+#[allow(dead_code)] // the daemon dispatches to these in the next task; remove then
+mod files;
 mod follow;
 mod history;
 mod hooklog;
@@ -14,6 +16,8 @@ mod login;
 mod paths;
 mod peer;
 mod sys;
+#[allow(dead_code)] // as `files`
+mod watch;
 
 use std::process::ExitCode;
 
