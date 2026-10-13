@@ -60,7 +60,29 @@ for p in $platforms; do
     bin="$out/remote/$p/gilvt-remote"
   fi
   ;;
-  darwin-aarch64) echo "build-remote: darwin-aarch64 comes with the next commit" >&2; exit 2 ;;
+    darwin-aarch64)
+      [ "$(uname -s)" = Darwin ] || { echo "build-remote: darwin-aarch64 builds only on macOS" >&2; exit 2; }
+      triple=aarch64-apple-darwin
+      pkgs="-p gilvt-remote"; [ -z "$fake" ] || pkgs="$pkgs -p gilvt-fake-agent"
+      # shellcheck disable=SC2086 # $pkgs is a word list
+      MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --manifest-path "$root/Cargo.toml" --locked --profile release-remote --target "$triple" $pkgs
+      mkdir -p "$out/remote/$p"
+      bin="$out/remote/$p/gilvt-remote"
+      cp "$target/$triple/release-remote/gilvt-remote" "$bin"
+      # arm64 macOS kills unsigned code: sign before hashing, so the build id names the signed binary.
+      if [ -n "${GILVT_SIGN_IDENTITY:-}" ]; then
+        codesign --force --options runtime --timestamp --sign "$GILVT_SIGN_IDENTITY" "$bin"
+      else
+        codesign --force --sign - "$bin"
+      fi
+      codesign --verify --strict "$bin" || { echo "build-remote: $bin is not validly signed" >&2; exit 1; }
+      if [ -n "$fake" ]; then
+        mkdir -p "$out/fake/$p"
+        cp "$target/$triple/release-remote/gilvt-fake-agent" "$out/fake/$p/gilvt-fake-agent"
+        codesign --force --sign - "$out/fake/$p/gilvt-fake-agent"
+        chmod 755 "$out/fake/$p/gilvt-fake-agent"
+      fi
+      ;;
   esac
   mkdir -p "$out/remote/$p"
   sha="$(shasum -a 256 "$bin" | cut -c1-8)"
