@@ -118,7 +118,7 @@ impl CleanupWizard {
         let (entries, reviews) = snapshot.map(|s| (s.entries, s.reviews)).unwrap_or_default();
         let keys: Vec<SessionKey> = entries
             .iter()
-            .map(|e| (e.agent, e.session_id.clone()))
+            .map(|e| gilvt_agent::local_key(e.agent, e.session_id.clone()))
             .collect();
         let mut states_by_key = cx
             .try_global::<ReviewService>()

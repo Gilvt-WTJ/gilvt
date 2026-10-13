@@ -50,6 +50,8 @@ pub struct Buffer {
     /// The encoding the user picked by hand (`None`: detected); `reload` decodes with it again.
     pub(crate) explicit_encoding: Option<Encoding>,
     pub(crate) path: Option<PathBuf>,
+    /// Named after a file elsewhere (an ssh host): never reads or writes this Mac's disk.
+    pub(crate) detached: bool,
     pub(crate) disk: Option<DiskState>,
     /// The display column vertical movement tries to keep; cleared by anything that is not vertical movement.
     pub(crate) goal_col: Option<usize>,
@@ -84,6 +86,7 @@ impl Buffer {
             lossy: false,
             explicit_encoding: None,
             path: None,
+            detached: false,
             disk: None,
             goal_col: None,
             tab_width: 4,
@@ -260,6 +263,10 @@ impl Buffer {
 
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    pub fn is_detached(&self) -> bool {
+        self.detached
     }
 
     pub fn can_undo(&self) -> bool {

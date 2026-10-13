@@ -4,7 +4,7 @@
 use super::indent::{self, Enter};
 use super::model::EditorModel;
 use gilvt_editor::{Buffer, Change, EditorError, LineEnding, OpenOptions, Position, Selection};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use unicode_segmentation::UnicodeSegmentation;
 
 impl EditorModel {
@@ -146,14 +146,31 @@ impl EditorModel {
 
     /// Reopens the file with `opts`, keeping the wrap width, view height and top line. On failure `self` is unchanged.
     pub fn reopen(&mut self, opts: OpenOptions) -> Result<(), EditorError> {
-        let Some(path) = self.buf.path().map(Path::to_path_buf) else { return Err(EditorError::NoPath) };
+        let path = self.reopen_path()?;
         let buf = Buffer::open_with(&path, opts)?;
+        self.replace_buffer(buf, &path);
+        Ok(())
+    }
+
+    /// [`Self::reopen`] from bytes read elsewhere: a detached buffer with `opts`.
+    pub fn reopen_from_bytes(&mut self, bytes: &[u8], opts: OpenOptions, writable: bool) -> Result<(), EditorError> {
+        let path = self.reopen_path()?;
+        let buf = Buffer::detached(&path, bytes, opts, writable)?;
+        self.replace_buffer(buf, &path);
+        Ok(())
+    }
+
+    fn reopen_path(&self) -> Result<PathBuf, EditorError> {
+        self.buf.path().map(Path::to_path_buf).ok_or(EditorError::NoPath)
+    }
+
+    /// Swaps in `buf` keeping the wrap width, view height and top line (the tail both reopens share).
+    fn replace_buffer(&mut self, buf: Buffer, path: &Path) {
         let (cols, rows) = (self.viewport_cols(), self.view_rows());
         let top = self.row(self.scroll_row()).line;
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         *self = EditorModel::new(buf, &name, cols, rows);
         self.scroll_to_line(top);
-        Ok(())
     }
 
     /// Changes the line ending (marks the buffer dirty). Refused on a read-only / lossy model: it can never be
@@ -168,6 +185,21 @@ impl EditorModel {
     pub fn reload(&mut self) -> Result<(), EditorError> {
         self.buf.reload()?;
         self.rebuild_wrap();
+        Ok(())
+    }
+
+    /// [`Self::reload`] from bytes read elsewhere (a remote file).
+    pub fn reload_from_bytes(&mut self, bytes: &[u8], writable: bool) -> Result<(), EditorError> {
+        self.buf.replace_from_bytes(bytes, writable)?;
+        self.rebuild_wrap();
+        Ok(())
+    }
+
+    /// [`Self::reload_as_edit`] from bytes read elsewhere; `writable` is what the host says of the file now.
+    pub fn reload_as_edit_from_bytes(&mut self, bytes: &[u8], writable: bool) -> Result<(), EditorError> {
+        let c = self.buf.reload_as_edit_from_bytes(bytes)?;
+        self.buf.set_writable(writable);
+        self.sync(c);
         Ok(())
     }
 }

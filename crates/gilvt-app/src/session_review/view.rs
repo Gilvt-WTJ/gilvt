@@ -76,6 +76,11 @@ impl SessionCenterView {
         else {
             return;
         };
+        if key.2.is_remote() {
+            self.notice = Some(crate::remote::not_yet_remote().into());
+            cx.notify();
+            return;
+        }
         // What "reviewed, next" will save: the last turn the queue showed for this session right now.
         let through = self
             .row_for(&key)
@@ -300,7 +305,7 @@ impl SessionCenterView {
                 .snapshot
                 .entries
                 .iter()
-                .find(|e| (e.agent, e.session_id.clone()) == key)
+                .find(|e| gilvt_agent::local_key(e.agent, e.session_id.clone()) == key)
                 .cloned()
             {
                 Some(entry) => Some(entry),

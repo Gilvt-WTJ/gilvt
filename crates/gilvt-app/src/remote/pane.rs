@@ -27,11 +27,12 @@ pub struct RemoteCwd {
     cwd: Option<PathBuf>,
     pending: Option<(String, PathBuf)>,
     first_strike: Option<Instant>,
+    last_mark: Option<gilvt_term::PromptMark>,
 }
 
 impl RemoteCwd {
     pub fn new(remote: PaneRemote) -> Self {
-        RemoteCwd { remote, cwd: None, pending: None, first_strike: None }
+        RemoteCwd { remote, cwd: None, pending: None, first_strike: None, last_mark: None }
     }
 
     pub fn observe(&mut self, host: &str, path: PathBuf) {
@@ -48,6 +49,18 @@ impl RemoteCwd {
         if let Some((host, path)) = self.pending.take() {
             self.observe(&host, path);
         }
+    }
+
+    /// An OSC 133 mark from the remote shell.
+    pub fn observe_mark(&mut self, mark: gilvt_term::PromptMark) {
+        self.last_mark = Some(mark);
+    }
+
+    /// The remote shell shows its prompt (A or B is the latest mark). The local `ssh` command block stays
+    /// "running" for the whole login, so command blocks cannot tell this (R2a §5.6).
+    pub fn at_prompt(&self) -> bool {
+        // A strike means the ssh process is gone from the foreground: the marks are the local shell's now.
+        self.first_strike.is_none() && matches!(self.last_mark, Some(gilvt_term::PromptMark::PromptStart | gilvt_term::PromptMark::InputStart))
     }
 
     pub fn cwd(&self) -> Option<&Path> { self.cwd.as_deref() }
@@ -105,6 +118,34 @@ mod tests {
         c.observe("other", "/x".into());
         c.set_hostname(Some("devbox".into()));
         assert_eq!(c.cwd(), None);
+    }
+
+    #[test]
+    fn at_prompt_follows_the_remote_shells_marks() {
+        use gilvt_term::PromptMark;
+        let mut r = RemoteCwd::new(pr(Some("n37")));
+        assert!(!r.at_prompt(), "no prompt yet: the local `ssh` command block is still running");
+        r.observe_mark(PromptMark::PromptStart);
+        r.observe_mark(PromptMark::InputStart);
+        assert!(r.at_prompt());
+        r.observe_mark(PromptMark::CommandStart);
+        assert!(!r.at_prompt(), "a command (an agent) runs");
+        r.observe_mark(PromptMark::CommandEnd(Some(0)));
+        assert!(!r.at_prompt());
+        r.observe_mark(PromptMark::PromptStart);
+        assert!(r.at_prompt());
+    }
+
+    #[test]
+    fn after_the_link_ended_the_local_shells_marks_are_not_a_remote_prompt() {
+        use gilvt_term::PromptMark;
+        let mut r = RemoteCwd::new(pr(Some("n37")));
+        r.observe_mark(PromptMark::PromptStart);
+        assert!(r.at_prompt());
+        r.link_alive(Some("zsh"), Instant::now());
+        r.observe_mark(PromptMark::CommandEnd(Some(0)));
+        r.observe_mark(PromptMark::PromptStart);
+        assert!(!r.at_prompt(), "ssh exited: the prompt is the Mac's");
     }
 
     #[test]

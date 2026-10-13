@@ -169,6 +169,8 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 | `packaging/entitlements.plist` | 硬化运行时的 entitlements（Apple Events，供「跳到外部终端」） |
 | `site/` | 官网 gilvt.com（中英双语）：`build.sh` 构建到 `dist-site/`，`wrangler.jsonc` 部署到 Cloudflare Worker `gilvt`，`_redirects` 管 `/download` |
 | `tests/gui/remote.sh` | 测试远端：colima/docker 里的两个 sshd 容器（`devbox-test` 直连、`devbox-zsh` 登录 shell 为 zsh、`devbox-jump` 经跳板）；`up` / `down` / `status` / `reset` / `exec`，`requires: remote` 的用例由 `run.sh` 自动起停 |
+| `scripts/remote-test.sh` | 在 docker（musl，rust:alpine）里对 `gilvt-remote` / `gilvt-client` / `gilvt-agent` / `gilvt-ipc` 跑 `cargo test`（`SO_PEERCRED`、`run/gilvt.sock`、transcript 跟随、`crates/gilvt-remote/tests/hook_bridge.rs`）：`scripts/remote-test.sh [-p <crate>]… [-- <测试参数>]` |
+| `scripts/build-remote.sh --fake` | 在构建远端组件之外，把 Linux 版 fake agent 构建到 `<out>/fake/<arch>/`（不进 `remote/`，不随 Gilvt.app 发布）；测试远端 `remote.sh up` 把它装成 `claude` / `codex`（AC20–AC26、AC28 用；AC27 不用） |
 | `scripts/remote-smoke.sh` | `gilvt-remote` 与 `gilvt ssh` 对测试远端的端到端冒烟（不启动 GUI） |
 | `tests/gui/` | GUI 验收：沙盒、驱动脚本、用例、剧本（见下文「GUI 验收测试」） |
 | `.claude/skills/gilvt-acceptance/` | 让 Claude 执行 GUI 验收并写报告的 skill |

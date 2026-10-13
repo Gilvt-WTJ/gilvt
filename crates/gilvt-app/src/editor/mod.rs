@@ -12,3 +12,4 @@ mod syntax;
 pub mod external;
 pub mod compare;
 pub mod popup;
+pub mod remote_edit;

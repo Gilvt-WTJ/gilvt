@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # Builds gilvt-remote as static musl binaries and lays them out the way Gilvt.app carries them:
 #   <out>/remote/<arch>/gilvt-remote.gz  and  <out>/remote/<arch>/build-id  (= <version>-<sha8 of the binary>)
-# usage: scripts/build-remote.sh [--arch x86_64|aarch64|all] [--out DIR] [--zig]
+# usage: scripts/build-remote.sh [--arch x86_64|aarch64|all] [--out DIR] [--zig] [--fake]
 #   default: --arch all, --out "$CARGO_TARGET_DIR or target"/remote-dist, docker (rust:alpine) unless --zig.
+#   --fake also builds gilvt-fake-agent for the test remote into <out>/fake/<arch>/ (never into remote/, which bundle.sh ships).
 #   --zig uses cargo-zigbuild (release CI). Docker uses named volumes gilvt-remote-{target,cargo,rustup-<arch>} (rustup is per arch: the image's toolchain is copied into the volume);
 #   remove them with: docker volume rm gilvt-remote-target gilvt-remote-cargo gilvt-remote-rustup-x86_64 gilvt-remote-rustup-aarch64
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-arch=all zig="" out=""
+arch=all zig="" out="" fake=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch) arch="$2"; shift 2 ;;
     --out) out="$2"; shift 2 ;;
     --zig) zig=1; shift ;;
-    *) sed -n '2,7p' "$0" >&2; exit 2 ;;
+    --fake) fake=1; shift ;;
+    *) sed -n '2,9p' "$0" >&2; exit 2 ;;
   esac
 done
 target="${CARGO_TARGET_DIR:-$root/target}"
@@ -25,14 +27,25 @@ for a in $archs; do
   if [ -n "$zig" ]; then
     cargo zigbuild --manifest-path "$root/Cargo.toml" --locked --profile release-remote --target "$triple" -p gilvt-remote
     bin="$target/$triple/release-remote/gilvt-remote"
+    if [ -n "$fake" ]; then
+      cargo zigbuild --manifest-path "$root/Cargo.toml" --locked --profile release-remote --target "$triple" -p gilvt-fake-agent
+      mkdir -p "$out/fake/$a"
+      cp "$target/$triple/release-remote/gilvt-fake-agent" "$out/fake/$a/gilvt-fake-agent"
+    fi
   else
     platform=linux/amd64; [ "$a" = aarch64 ] && platform=linux/arm64
+    pkgs="-p gilvt-remote"; [ -n "$fake" ] && pkgs="$pkgs -p gilvt-fake-agent"
     docker run --rm --platform "$platform" -v "$root":/src:ro \
       -v gilvt-remote-target:/target -v gilvt-remote-cargo:/usr/local/cargo/registry -v gilvt-remote-rustup-$a:/usr/local/rustup \
       -e CARGO_TARGET_DIR=/target/$a -w /src rust:1.95-alpine \
-      sh -c 'apk add -q musl-dev >/dev/null && cargo build --locked --profile release-remote -p gilvt-remote && cp /target/'"$a"'/release-remote/gilvt-remote /target/'"$a"'/out'
+      sh -c 'apk add -q musl-dev >/dev/null && cargo build --locked --profile release-remote '"$pkgs"' && cp /target/'"$a"'/release-remote/gilvt-remote /target/'"$a"'/out && { [ ! -f /target/'"$a"'/release-remote/gilvt-fake-agent ] || cp /target/'"$a"'/release-remote/gilvt-fake-agent /target/'"$a"'/fake; }'
     mkdir -p "$out/remote/$a"
     docker run --rm -v gilvt-remote-target:/target alpine cat "/target/$a/out" > "$out/remote/$a/gilvt-remote"
+    if [ -n "$fake" ]; then
+      mkdir -p "$out/fake/$a"
+      docker run --rm -v gilvt-remote-target:/target alpine cat "/target/$a/fake" > "$out/fake/$a/gilvt-fake-agent"
+      chmod 755 "$out/fake/$a/gilvt-fake-agent"
+    fi
     bin="$out/remote/$a/gilvt-remote"
   fi
   mkdir -p "$out/remote/$a"

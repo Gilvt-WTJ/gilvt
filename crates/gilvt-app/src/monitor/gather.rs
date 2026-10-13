@@ -20,8 +20,9 @@ pub fn model_for(ws: &Workspace, me: AnyWindowHandle, ui: &MonitorUi, cx: &App) 
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     // `current`: the subject's activity now (as the summaries service counts it), to tell a stale summary.
     // `actionable`: a request for it can act (the same predicates `summaries::tick` lists subjects by).
-    let slot = |key: String, cwd: Option<&std::path::Path>, current: Option<u64>, actionable: bool| -> SummarySlot {
-        if !monitor.enabled || summaries::is_excluded(cwd, cx) {
+    // `excluded`: the subject's directory is under `[monitor] exclude_paths` (a remote session's never is).
+    let slot = |key: String, excluded: bool, current: Option<u64>, actionable: bool| -> SummarySlot {
+        if !monitor.enabled || excluded {
             return SummarySlot::Hidden;
         }
         model::summary_slot(summaries::view(&key, cx), current, actionable)
@@ -39,7 +40,8 @@ pub fn model_for(ws: &Workspace, me: AnyWindowHandle, ui: &MonitorUi, cx: &App) 
         .items
         .iter()
         .enumerate()
-        .map(|(n, i)| AgentIn {
+        .map(|(n, i)| (n, i, summaries::is_session_excluded(&i.session.key, i.session.cwd.as_deref(), cx)))
+        .map(|(n, i, excluded)| AgentIn {
             session: i.session,
             name: crate::sidebar::model::row_name(i),
             location: i.location.clone(),
@@ -51,11 +53,11 @@ pub fn model_for(ws: &Workspace, me: AnyWindowHandle, ui: &MonitorUi, cx: &App) 
             // Ended sessions show their cached summary too; `stale` only looks at the activity.
             summary: slot(
                 summaries::agent_key(&i.session.key),
-                i.session.cwd.as_deref(),
+                excluded,
                 timelines[n].as_deref().map(summaries::agent_activity),
                 summaries::agent_requestable(i.session, timelines[n].is_some()),
             ),
-            excluded: summaries::is_excluded(i.session.cwd.as_deref(), cx),
+            excluded,
         })
         .collect();
     let windows = all_windows(ws, me, cx);
@@ -80,7 +82,7 @@ pub fn model_for(ws: &Workspace, me: AnyWindowHandle, ui: &MonitorUi, cx: &App) 
             TerminalIn {
                 pane: t.pane,
                 name: t.name.clone(),
-                summary: slot(summaries::pane_key(t.pane), cwd.as_deref(), current, actionable),
+                summary: slot(summaries::pane_key(t.pane), excluded, current, actionable),
                 cwd,
                 location: t.location.clone(),
                 foreground,

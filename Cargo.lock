@@ -2206,6 +2206,7 @@ version = "0.2.1"
 dependencies = [
  "async-channel 2.5.0",
  "gilvt-agent",
+ "gilvt-client",
  "gilvt-i18n",
  "gilvt-ipc",
  "gilvt-monitor",
@@ -2217,6 +2218,19 @@ dependencies = [
  "tempfile",
  "toml 0.8.23",
  "toml_edit 0.22.27",
+]
+
+[[package]]
+name = "gilvt-client"
+version = "0.2.1"
+dependencies = [
+ "gilvt-agent",
+ "gilvt-i18n",
+ "gilvt-ipc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml 0.8.23",
 ]
 
 [[package]]
@@ -2278,6 +2292,8 @@ name = "gilvt-ipc"
 version = "0.2.1"
 dependencies = [
  "async-channel 2.5.0",
+ "base64 0.22.1",
+ "gilvt-agent",
  "libc",
  "serde",
  "serde_json",
@@ -2324,10 +2340,14 @@ dependencies = [
 name = "gilvt-remote"
 version = "0.2.1"
 dependencies = [
+ "gilvt-agent",
+ "gilvt-client",
+ "gilvt-i18n",
  "gilvt-ipc",
  "gilvt-shell",
  "libc",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
 ]
 
@@ -2374,6 +2394,7 @@ dependencies = [
 name = "gilvt-viewer"
 version = "0.2.1"
 dependencies = [
+ "gilvt-client",
  "gilvt-i18n",
  "gilvt-snapshot",
  "similar",

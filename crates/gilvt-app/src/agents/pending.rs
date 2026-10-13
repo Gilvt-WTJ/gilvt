@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use gilvt_agent::{AgentKind, PaneId, SessionKey};
+use gilvt_agent::{local_key, AgentKind, PaneId, SessionKey};
 
 use crate::persist::snapshot::AgentSnap;
 
@@ -23,11 +23,15 @@ fn parse_kind(name: &str) -> Option<AgentKind> {
 impl PendingResume {
     /// None for an agent this build does not know.
     pub fn from_snap(pane: PaneId, cwd: Option<PathBuf>, a: &AgentSnap) -> Option<PendingResume> {
-        Some(PendingResume { key: (parse_kind(&a.kind)?, a.session_id.clone()), pane, cwd, name: a.name.clone(), last_status: a.last_status.clone() })
+        if a.host.is_some() {
+            // Reconnecting a remote session after a restart is R4.
+            return None;
+        }
+        Some(PendingResume { key: local_key(parse_kind(&a.kind)?, a.session_id.clone()), pane, cwd, name: a.name.clone(), last_status: a.last_status.clone() })
     }
 
     pub fn to_snap(&self) -> AgentSnap {
-        AgentSnap { kind: self.key.0.name().into(), session_id: self.key.1.clone(), name: self.name.clone(), last_status: self.last_status.clone() }
+        AgentSnap { kind: self.key.0.name().into(), session_id: self.key.1.clone(), name: self.name.clone(), last_status: self.last_status.clone(), host: None }
     }
 }
 
@@ -78,13 +82,23 @@ mod tests {
     use crate::persist::snapshot::AgentSnap;
 
     fn snap(id: &str) -> AgentSnap {
-        AgentSnap { kind: "claude".into(), session_id: id.into(), name: "修复登录".into(), last_status: "空闲".into() }
+        AgentSnap { kind: "claude".into(), session_id: id.into(), name: "修复登录".into(), last_status: "空闲".into(), host: None }
+    }
+
+    #[test]
+    fn an_old_agent_snap_is_local_and_a_remote_one_is_not_resumed() {
+        let old: AgentSnap = serde_json::from_str(r#"{"kind":"claude","session_id":"s","name":"n","last_status":"空闲"}"#).unwrap();
+        assert_eq!(old.host, None);
+        assert!(!serde_json::to_string(&old).unwrap().contains("host"));
+        let remote = AgentSnap { host: Some("dev@h:22".into()), ..old.clone() };
+        assert!(crate::agents::PendingResume::from_snap(1, None, &remote).is_none(), "reconnecting after a restart is R4");
+        assert!(crate::agents::PendingResume::from_snap(1, None, &old).is_some());
     }
 
     #[test]
     fn from_snap_parses_the_kind_and_rejects_unknown_ones() {
         let p = PendingResume::from_snap(3, Some("/w".into()), &snap("s1")).unwrap();
-        assert_eq!(p.key, (AgentKind::Claude, "s1".to_string()));
+        assert_eq!(p.key, local_key(AgentKind::Claude, "s1"));
         assert_eq!((p.pane, p.name.as_str()), (3, "修复登录"));
         let mut bad = snap("s2");
         bad.kind = "gemini".into();
@@ -99,8 +113,8 @@ mod tests {
         set.add(PendingResume::from_snap(5, None, &snap("a")).unwrap());
         assert_eq!(set.all().len(), 2, "same key replaces");
         assert_eq!(set.for_pane(5).unwrap().key.1, "a");
-        assert!(set.take(&(AgentKind::Claude, "b".into())).is_some());
-        assert!(set.take(&(AgentKind::Claude, "b".into())).is_none());
+        assert!(set.take(&local_key(AgentKind::Claude, "b")).is_some());
+        assert!(set.take(&local_key(AgentKind::Claude, "b")).is_none());
         set.drop_pane(5);
         assert!(set.all().is_empty());
     }
@@ -111,12 +125,12 @@ mod tests {
         set.add(PendingResume::from_snap(4, None, &snap("old")).unwrap());
         set.add(PendingResume::from_snap(5, None, &snap("other")).unwrap());
         set.add(PendingResume::from_snap(6, None, &snap("same")).unwrap());
-        set.session_live(&(AgentKind::Claude, "new".into()), Some(4));
+        set.session_live(&local_key(AgentKind::Claude, "new"), Some(4));
         assert!(set.for_pane(4).is_none(), "a different agent started by hand in pane 4");
-        set.session_live(&(AgentKind::Claude, "same".into()), Some(9));
+        set.session_live(&local_key(AgentKind::Claude, "same"), Some(9));
         assert!(set.for_pane(6).is_none(), "same key, wherever it runs");
         assert_eq!(set.all().len(), 1);
-        set.session_live(&(AgentKind::Claude, "x".into()), None);
+        set.session_live(&local_key(AgentKind::Claude, "x"), None);
         assert_eq!(set.all().len(), 1, "a session without a pane drops nothing else");
     }
 

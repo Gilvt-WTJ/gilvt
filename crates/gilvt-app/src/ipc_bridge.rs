@@ -4,18 +4,23 @@
 
 use std::path::PathBuf;
 
-use gpui::App;
+use gilvt_agent::host::HostPath;
+use gpui::{App, Entity};
 use gilvt_ipc::{remove_stale_sockets, socket_path_for, DebugQueries, Query, Request, Server, DEBUG_STATE_DISABLED, QUERY_QUEUE};
 
 use crate::debug_state;
-use crate::preview_view::{OpenRequest, Source};
+use crate::preview_view::{OpenRequest, PreviewView, Source};
 use crate::workspace::Workspace;
 
-/// A `view` request as a preview to open: (pane it came from, request, pinned?).
-pub fn view_request(req: Request) -> Option<(Option<u64>, OpenRequest, bool)> {
-    let Request::View { pane, path, content, as_type, line, col: _, pin } = req else { return None };
+/// A `view` request as a preview to open: (pane it came from, request, pinned?). `host`: the ssh host the `gilvt` ran
+/// on (its path names a file there), None for this Mac.
+pub fn view_request(req: Request, host: Option<&str>) -> Option<(Option<u64>, OpenRequest, bool)> {
+    let Request::View { pane, path, content, as_type, line, col: _, pin, link: _ } = req else { return None };
     let source = match (path, content) {
-        (Some(path), _) => Source::File(path),
+        (Some(path), _) => Source::File(match host {
+            Some(h) => HostPath::remote(h, path),
+            None => HostPath::local(path),
+        }),
         (None, Some(content)) => Source::Inline { content, as_type },
         (None, None) => return None,
     };
@@ -23,17 +28,19 @@ pub fn view_request(req: Request) -> Option<(Option<u64>, OpenRequest, bool)> {
 }
 
 /// A `diff` request's preview: every changed file in the repository containing `cwd`.
-pub fn diff_request(files: Vec<PathBuf>, rev: Option<String>) -> OpenRequest {
-    OpenRequest { rev, ..OpenRequest::files(files) }
+pub fn diff_request(files: Vec<HostPath>, rev: Option<String>) -> OpenRequest {
+    OpenRequest { rev, ..OpenRequest::host_files(files) }
 }
 
-/// Opens `req` in the window that owns `pane` (the terminal `gilvt` ran in), else the active window,
-/// else the first one.
-fn route(pane: Option<u64>, req: OpenRequest, pin: bool, cx: &mut App) {
+/// The window owning `pane` (the terminal `gilvt` ran in), else the active one, else the first.
+fn target_window(pane: Option<u64>, cx: &App) -> Option<gpui::WindowHandle<Workspace>> {
     let windows: Vec<_> = cx.windows().into_iter().filter_map(|w| w.downcast::<Workspace>()).collect();
     let owner = pane.and_then(|p| windows.iter().copied().find(|w| w.read(cx).is_ok_and(|ws| ws.has_pane(p))));
-    let active = || cx.active_window().and_then(|w| w.downcast::<Workspace>());
-    if let Some(window) = owner.or_else(active).or_else(|| windows.first().copied()) {
+    owner.or_else(|| cx.active_window().and_then(|w| w.downcast::<Workspace>())).or_else(|| windows.first().copied())
+}
+
+pub(crate) fn route(pane: Option<u64>, req: OpenRequest, pin: bool, cx: &mut App) {
+    if let Some(window) = target_window(pane, cx) {
         let _ = window.update(cx, |ws, window, cx| {
             window.activate_window();
             ws.open_preview(req, pin, pane, window, cx);
@@ -41,9 +48,19 @@ fn route(pane: Option<u64>, req: OpenRequest, pin: bool, cx: &mut App) {
     }
 }
 
+pub(crate) fn route_pending(pane: Option<u64>, cx: &mut App) -> Option<Entity<PreviewView>> {
+    let window = target_window(pane, cx)?;
+    window
+        .update(cx, |ws, window, cx| {
+            window.activate_window();
+            ws.open_preview_pending(pane, window, cx)
+        })
+        .ok()
+}
+
 /// Binds this process's socket and handles requests until the app exits; `Hook` requests go to
 /// `hooks` (the agents bridge). Returns the socket path.
-pub fn start(hooks: async_channel::Sender<Request>, cx: &mut App) -> Option<PathBuf> {
+pub fn start(hooks: async_channel::Sender<crate::agents::HookIn>, cx: &mut App) -> Option<PathBuf> {
     let path = socket_path_for(std::process::id());
     if let Some(dir) = path.parent() {
         remove_stale_sockets(dir);
@@ -67,26 +84,19 @@ pub fn start(hooks: async_channel::Sender<Request>, cx: &mut App) -> Option<Path
         let _server = server;
         while let Ok(req) = rx.recv().await {
             match req {
-                Request::Diff { pane, cwd, rev } => {
-                    let base = rev.clone().unwrap_or_else(|| "HEAD".into());
-                    let files = cx
-                        .background_executor()
-                        .spawn(async move {
-                            gilvt_viewer::git::repo_root(&cwd)
-                                .and_then(|root| gilvt_viewer::git::changed_files(&root, &base).ok())
-                                .unwrap_or_default()
-                        })
-                        .await;
-                    let _ = cx.update(|cx| route(pane, diff_request(files, rev), false, cx));
+                Request::Diff { pane, cwd, rev, .. } => {
+                    let Ok(files) = cx.update(|cx| crate::hostfs::HostGit::Local.changed_files(cwd, rev.clone(), cx)) else { break };
+                    let files = files.await.unwrap_or_default();
+                    let _ = cx.update(|cx| route(pane, diff_request(files.into_iter().map(HostPath::local).collect(), rev), false, cx));
                 }
                 hook @ Request::Hook { .. } => {
-                    let _ = hooks.try_send(hook);
+                    let _ = hooks.try_send(crate::agents::HookIn { host: gilvt_agent::host::Host::Local, link: None, request: hook });
                 }
                 req @ (Request::RemoteRecord { .. } | Request::RemoteLinked { .. } | Request::RemoteEnd { .. }) => {
                     let _ = cx.update(|cx| crate::remote::handle(req, cx));
                 }
                 other => {
-                    if let Some((pane, req, pin)) = view_request(other) {
+                    if let Some((pane, req, pin)) = view_request(other, None) {
                         let _ = cx.update(|cx| route(pane, req, pin, cx));
                     }
                 }
@@ -166,24 +176,34 @@ mod tests {
 
     #[test]
     fn view_requests_become_previews() {
-        let req = Request::View { pane: Some(2), path: Some("/r/a.rs".into()), content: None, as_type: None, line: Some(9), col: Some(1), pin: true };
-        let (pane, open, pin) = view_request(req).unwrap();
+        let req = Request::View { pane: Some(2), path: Some("/r/a.rs".into()), content: None, as_type: None, line: Some(9), col: Some(1), pin: true, link: None };
+        let (pane, open, pin) = view_request(req, None).unwrap();
         assert_eq!((pane, pin), (Some(2), true));
-        assert_eq!(open.sources, vec![Source::File("/r/a.rs".into())]);
+        assert_eq!(open.sources, vec![Source::File(HostPath::local("/r/a.rs"))]);
         assert_eq!(open.line, Some(9));
 
-        let req = Request::View { pane: None, path: None, content: Some("x".into()), as_type: Some("md".into()), line: None, col: None, pin: false };
-        let (_, open, _) = view_request(req).unwrap();
+        let req = Request::View { pane: None, path: None, content: Some("x".into()), as_type: Some("md".into()), line: None, col: None, pin: false, link: None };
+        let (_, open, _) = view_request(req, None).unwrap();
         assert_eq!(open.sources, vec![Source::Inline { content: "x".into(), as_type: Some("md".into()) }]);
 
-        let empty = Request::View { pane: None, path: None, content: None, as_type: None, line: None, col: None, pin: false };
-        assert!(view_request(empty).is_none());
+        let empty = Request::View { pane: None, path: None, content: None, as_type: None, line: None, col: None, pin: false, link: None };
+        assert!(view_request(empty, None).is_none());
     }
 
     #[test]
     fn diff_requests_list_files() {
-        let open = diff_request(vec!["/r/a".into(), "/r/b".into()], Some("main".into()));
+        let open = diff_request(vec![HostPath::local("/r/a"), HostPath::local("/r/b")], Some("main".into()));
         assert_eq!(open.sources.len(), 2);
         assert_eq!(open.rev.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn a_remote_view_names_a_file_on_its_host() {
+        let req = Request::View { pane: None, path: Some("/home/dev/a.md".into()), content: None, as_type: None, line: Some(4), col: None, pin: true, link: Some("i-1".into()) };
+        let (pane, open, pin) = view_request(req, Some("dev@devbox:22")).unwrap();
+        assert_eq!((pane, pin, open.line), (None, true, Some(4)));
+        assert_eq!(open.sources, vec![Source::File(HostPath::remote("dev@devbox:22", "/home/dev/a.md"))]);
+        let diff = diff_request(vec![HostPath::remote("h", "/r/a"), HostPath::remote("h", "/r/b")], Some("main".into()));
+        assert_eq!((diff.sources.len(), diff.rev.as_deref()), (2, Some("main")));
     }
 }

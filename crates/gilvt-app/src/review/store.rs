@@ -325,8 +325,8 @@ fn available_corrupt_path(path: &Path) -> PathBuf {
     unreachable!()
 }
 
-fn id((agent, session_id): &SessionKey) -> String {
-    format!("{}:{session_id}", agent.name())
+fn id(key: &SessionKey) -> String {
+    gilvt_agent::session_key_id(key)
 }
 
 #[cfg(test)]
@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn archive_round_trips_through_the_file_and_clears_to_an_empty_entry() {
         let dir = tempfile::tempdir().unwrap();
-        let key: SessionKey = (gilvt_agent::AgentKind::Claude, "c1".into());
+        let key: SessionKey = gilvt_agent::local_key(gilvt_agent::AgentKind::Claude, "c1");
         let at = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
         {
             let mut store = ReviewStore::open(dir.path());

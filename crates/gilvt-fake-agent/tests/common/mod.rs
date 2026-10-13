@@ -204,7 +204,7 @@ impl Run {
     /// does, from the transcript alone).
     pub fn statuses(&self) -> Vec<String> {
         let agent = self.kind();
-        let key = (agent, self.session_id.clone());
+        let key = gilvt_agent::local_key(agent, self.session_id.clone());
         let mut reg = Registry::new(Store::in_memory());
         let t0 = Instant::now();
         let mut secs = 0;
@@ -223,7 +223,7 @@ impl Run {
                 Trace::Hook { event, payload } => {
                     let events = parse_hook(&HookInput { agent, event, payload });
                     let meta = hook_meta(payload).expect("hook identity");
-                    reg.apply_hook(Some(1), agent, &meta, &events, true, now());
+                    reg.apply_hook(&gilvt_agent::host::Host::Local, Some(1), agent, &meta, &events, true, now());
                 }
                 Trace::Line(line) => {
                     reg.apply_transcript(&key, &parse_transcript_line(agent, line), true, now());

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::event::{AgentKind, Event, HookMeta};
+use crate::host::Host;
 use crate::status::{session_name, step, PaneId, Session, SessionKey, Status};
 use crate::store::Store;
 
@@ -31,6 +32,7 @@ impl Registry {
     /// does a lone `SessionEnd` of a session this run never saw.
     pub fn apply_hook(
         &mut self,
+        host: &Host,
         pane: Option<PaneId>,
         agent: AgentKind,
         meta: &HookMeta,
@@ -38,7 +40,7 @@ impl Registry {
         pane_visible: bool,
         now: Instant,
     ) -> Vec<Change> {
-        let key = (agent, meta.session_id.clone());
+        let key = (agent, meta.session_id.clone(), host.clone());
         let mut changes = Vec::new();
         let added = match self.index(&key) {
             Some(_) => false,
@@ -118,7 +120,7 @@ impl Registry {
         cwd: PathBuf,
         now: Instant,
     ) -> Vec<Change> {
-        let key = (agent, session_id);
+        let key = (agent, session_id, Host::Local);
         if self.by_pane(pane).is_some_and(|s| !s.lite && s.key != key) {
             return Vec::new();
         }
@@ -152,7 +154,7 @@ impl Registry {
         exact: bool,
         now: Instant,
     ) -> Vec<Change> {
-        let key = (agent, session_id);
+        let key = (agent, session_id, Host::Local);
         match self.index(&key) {
             Some(i) => {
                 let session = &mut self.sessions[i];
@@ -177,6 +179,17 @@ impl Registry {
     pub fn pane_exited(&mut self, pane: PaneId, now: Instant) -> Vec<Change> {
         let mut changes = Vec::new();
         for s in self.sessions.iter_mut().filter(|s| s.pane == Some(pane) && s.is_live()) {
+            step(s, &Event::SessionEnd, false, now);
+            changes.push(Change::Ended(s.key.clone()));
+        }
+        changes
+    }
+
+    /// The pane left its ssh link (back to the local shell, or `LinkDown`): its remote sessions end like
+    /// `pane_exited`; a local session of the pane is left alone (R2a §5.3).
+    pub fn end_remote_in_pane(&mut self, pane: PaneId, now: Instant) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for s in self.sessions.iter_mut().filter(|s| s.pane == Some(pane) && s.is_live() && s.key.2.is_remote()) {
             step(s, &Event::SessionEnd, false, now);
             changes.push(Change::Ended(s.key.clone()));
         }

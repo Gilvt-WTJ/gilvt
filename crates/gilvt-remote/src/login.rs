@@ -35,6 +35,22 @@ fn login_shell() -> String {
         .unwrap_or_else(|| "/bin/sh".into())
 }
 
+/// The gilvt variables of the remote shell (R1 + R2a §3.3); `None` removes the variable. `bin` is
+/// `<build>/bin` when `bin/gilvt` exists: without it the wrappers and hooks stay off.
+pub fn gilvt_env(layout: &paths::Layout, build: Option<&str>, link: Option<&str>, bin: Option<&std::path::Path>) -> Vec<(&'static str, Option<String>)> {
+    let on = build.and(bin);
+    vec![
+        ("TERM_PROGRAM", Some("gilvt".into())),
+        ("GILVT_LINK", link.map(str::to_string)),
+        ("GILVT_REMOTE_BIN", Some(layout.stable_bin().display().to_string())),
+        ("GILVT_BIN_DIR", on.map(|b| b.display().to_string())),
+        ("GILVT_SOCKET", on.map(|_| layout.hook_socket().display().to_string())),
+        // Nested ssh is a non-goal: the remote shell's `ssh` is the real one.
+        ("GILVT_SSH", Some("0".into())),
+        ("GILVT_PANE_ID", None),
+    ]
+}
+
 pub fn run(args: &[String]) -> ExitCode {
     let mut link = None;
     let mut exec = None;
@@ -63,17 +79,25 @@ pub fn run(args: &[String]) -> ExitCode {
         }
         integration = Integration::install(&layout.version_dir(build).join("shell-integration")).ok();
     }
+    let bin = match (&build, &layout) {
+        (Some(build), Some(layout)) => layout.ensure_gilvt_link(build).ok().map(|_| layout.bin_dir(build)),
+        _ => None,
+    };
     let launch = shell_launch(&shell, integration.as_ref(), exec.as_deref(), |k| std::env::var(k).ok());
     let mut cmd = Command::new(&launch.program);
-    cmd.args(&launch.args).envs(launch.env.iter().cloned()).env("TERM_PROGRAM", "gilvt").env_remove("GILVT_SOCKET").env_remove("GILVT_BIN_DIR");
+    cmd.args(&launch.args).envs(launch.env.iter().cloned());
+    if let Some(layout) = &layout {
+        for (k, v) in gilvt_env(layout, build.as_deref(), link.as_deref(), bin.as_deref()) {
+            match v {
+                Some(v) => cmd.env(k, v),
+                None => cmd.env_remove(k),
+            };
+        }
+    } else {
+        cmd.env("TERM_PROGRAM", "gilvt").env_remove("GILVT_SOCKET").env_remove("GILVT_BIN_DIR");
+    }
     if let Some(a0) = &launch.argv0 {
         cmd.arg0(a0);
-    }
-    if let Some(l) = &link {
-        cmd.env("GILVT_LINK", l);
-    }
-    if let Some(layout) = &layout {
-        cmd.env("GILVT_REMOTE_BIN", layout.stable_bin());
     }
     let err = cmd.exec();
     eprintln!("gilvt-remote: cannot start {shell}: {err}");
@@ -88,6 +112,23 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let i = Integration::install(d.path()).unwrap();
         (d, i)
+    }
+
+    #[test]
+    fn the_shell_gets_the_wrapper_and_hook_variables() {
+        let l = paths::Layout::from_home(std::path::Path::new("/home/dev"));
+        let bin = l.bin_dir("0.3.0-aaaaaaaa");
+        let env = gilvt_env(&l, Some("0.3.0-aaaaaaaa"), Some("i-1"), Some(&bin));
+        let get = |k: &str| env.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+        assert_eq!(get("GILVT_BIN_DIR"), Some(Some("/home/dev/.gilvt-server/0.3.0-aaaaaaaa/bin".into())));
+        assert_eq!(get("GILVT_SOCKET"), Some(Some("/home/dev/.gilvt-server/run/gilvt.sock".into())));
+        assert_eq!(get("GILVT_SSH"), Some(Some("0".into())));
+        assert_eq!(get("GILVT_LINK"), Some(Some("i-1".into())));
+        assert_eq!(get("GILVT_PANE_ID"), Some(None), "removed: remote hooks are routed by link");
+        assert_eq!(get("GILVT_NO_AGENT_WRAPPERS"), None, "the user's own setting is left alone");
+        let none = gilvt_env(&l, Some("0.3.0-aaaaaaaa"), Some("i-1"), None);
+        let get = |k: &str| none.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+        assert_eq!((get("GILVT_BIN_DIR"), get("GILVT_SOCKET")), (Some(None), Some(None)), "no bin/gilvt: wrappers stay off");
     }
 
     #[test]

@@ -44,11 +44,13 @@ impl RemotePrefs {
         std::fs::rename(tmp, path(dir))
     }
 
-    /// The effective policy for `host`: "ask" | "always" | "never".
+    /// The effective policy for `host`: "never" | "always" | "allowed" (the user said Y here before: install
+    /// without asking, ask before an update) | "ask".
     pub fn policy(&self, host: &str, setting: RemoteInstall) -> &'static str {
         match (self.hosts.get(host).and_then(|h| h.install.as_deref()), setting) {
             (Some("never"), _) | (_, RemoteInstall::Never) => "never",
-            (Some("allowed"), _) | (_, RemoteInstall::Always) => "always",
+            (_, RemoteInstall::Always) => "always",
+            (Some("allowed"), _) => "allowed",
             _ => "ask",
         }
     }
@@ -64,7 +66,9 @@ mod tests {
         let mut p = RemotePrefs::default();
         assert_eq!(p.policy("h", RemoteInstall::Ask), "ask");
         p.hosts.entry("h".into()).or_default().install = Some("allowed".into());
-        assert_eq!(p.policy("h", RemoteInstall::Ask), "always");
+        assert_eq!(p.policy("h", RemoteInstall::Ask), "allowed");
+        p.hosts.get_mut("h").unwrap().install = Some("allowed".into());
+        assert_eq!(p.policy("h", RemoteInstall::Always), "always");
         p.hosts.get_mut("h").unwrap().install = Some("never".into());
         assert_eq!(p.policy("h", RemoteInstall::Ask), "never");
         assert_eq!(p.policy("h", RemoteInstall::Always), "never", "a host the user refused stays refused");

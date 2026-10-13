@@ -33,6 +33,43 @@ impl Layout {
         self.root.join(build_id)
     }
 
+    /// `$HOME` (the parent of `~/.gilvt-server`).
+    pub fn home(&self) -> PathBuf {
+        self.root.parent().map(Path::to_path_buf).unwrap_or_else(|| self.root.clone())
+    }
+
+    /// `state/`: the codex trust cache and the history index (R2a §3.1, §4.5).
+    pub fn state_dir(&self) -> PathBuf {
+        self.root.join("state")
+    }
+
+    /// `run/gilvt.sock`: where the remote `gilvt hook` sends (R2a §4.1).
+    pub fn hook_socket(&self) -> PathBuf {
+        self.run_dir().join("gilvt.sock")
+    }
+
+    pub fn bin_dir(&self, build_id: &str) -> PathBuf {
+        self.version_dir(build_id).join("bin")
+    }
+
+    /// `<build>/bin/gilvt -> ../gilvt-remote`: `$GILVT_BIN_DIR/gilvt` for the shell wrappers.
+    pub fn gilvt_link(&self, build_id: &str) -> PathBuf {
+        self.bin_dir(build_id).join("gilvt")
+    }
+
+    /// Creates the `bin/gilvt` link when missing (a build uploaded by R1 has none). Never replaces an entry.
+    pub fn ensure_gilvt_link(&self, build_id: &str) -> io::Result<PathBuf> {
+        let link = self.gilvt_link(build_id);
+        if std::fs::symlink_metadata(&link).is_err() {
+            std::fs::create_dir_all(self.bin_dir(build_id))?;
+            match std::os::unix::fs::symlink("../gilvt-remote", &link) {
+                Err(e) if e.kind() != io::ErrorKind::AlreadyExists => return Err(e),
+                _ => {}
+            }
+        }
+        Ok(link)
+    }
+
     pub fn stable_bin(&self) -> PathBuf {
         self.root.join("bin").join("gilvt-remote")
     }
@@ -71,15 +108,7 @@ fn home_from_passwd() -> Option<PathBuf> {
     }
 }
 
-/// `<semver>-<8 lower-case hex>`, e.g. `0.1.0-1a2b3c4d`.
-pub fn is_build_id(name: &str) -> bool {
-    let Some((ver, sha)) = name.rsplit_once('-') else { return false };
-    sha.len() == 8
-        && sha.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
-        && !ver.is_empty()
-        && ver.split('.').count() == 3
-        && ver.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
-}
+pub use gilvt_ipc::remote::is_build_id;
 
 /// The build id of the binary at `exe`: the name of the directory it was installed into.
 pub fn build_id_of(exe: &Path) -> Option<String> {
@@ -98,6 +127,20 @@ mod tests {
         assert_eq!(build_id_of(Path::new("/h/.gilvt-server/bin/gilvt-remote")), None);
         assert_eq!(build_id_of(Path::new("/h/target/debug/gilvt-remote")), None);
         assert_eq!(build_id_of(Path::new("/x/0.1.0-1A2B3C4D/gilvt-remote")), None, "lower-case hex only");
+    }
+
+    #[test]
+    fn r2a_paths_and_the_gilvt_link() {
+        let home = tempfile::tempdir().unwrap();
+        let l = Layout::from_home(home.path());
+        assert_eq!(l.hook_socket(), home.path().join(".gilvt-server/run/gilvt.sock"));
+        assert_eq!(l.state_dir(), home.path().join(".gilvt-server/state"));
+        assert_eq!(l.home(), home.path());
+        std::fs::create_dir_all(l.version_dir("0.3.0-aaaaaaaa")).unwrap();
+        let link = l.ensure_gilvt_link("0.3.0-aaaaaaaa").unwrap();
+        assert_eq!(link, l.gilvt_link("0.3.0-aaaaaaaa"));
+        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("../gilvt-remote"));
+        assert_eq!(l.ensure_gilvt_link("0.3.0-aaaaaaaa").unwrap(), link, "an existing link is kept");
     }
 
     #[test]

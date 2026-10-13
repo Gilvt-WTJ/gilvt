@@ -13,7 +13,7 @@ use gilvt_monitor::output::Summary;
 use std::time::UNIX_EPOCH;
 
 fn session(id: &str, status: Status, now: Instant) -> Session {
-    let mut s = Session::new((AgentKind::Claude, id.to_string()), now);
+    let mut s = Session::new(gilvt_agent::local_key(AgentKind::Claude, id), now);
     s.status = status;
     s.pane = Some(id.len() as u64);
     s

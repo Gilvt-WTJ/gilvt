@@ -3,14 +3,14 @@
 //! Look, copying a detail. Only scroll positions, focus and the inspector change: nothing is written to a
 //! PTY.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gilvt_agent::Anchor;
 use gilvt_term::ScrollOutcome;
 use gpui::{AnyWindowHandle, ClipboardItem, Context, Window};
 
 use super::{focus_pane_anywhere, workspaces, PaneView, Workspace};
-use crate::inspector::timeline_model::{jump, Filter, Jump};
+use crate::inspector::timeline_model::{jump, quick_look_target, Filter, Jump, QuickLook};
 use crate::inspector::InspectorState;
 use crate::preview_view::OpenRequest;
 
@@ -73,10 +73,19 @@ impl Workspace {
         Some(outcome)
     }
 
-    /// ⌘+click on a row's file name: Quick Look over the focused pane.
-    pub fn timeline_quick_look(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let origin = self.focused_pane();
-        self.open_preview(OpenRequest::file(path, None, None), false, origin, window, cx);
+    /// ⌘+click on a row's file name (`raw`, relative to the session's `cwd`): Quick Look over the focused pane.
+    /// A remote session's paths name files on its host: only the not-yet-remote note (R2a §9).
+    pub fn timeline_quick_look(&mut self, raw: &str, cwd: Option<&Path>, window: &mut Window, cx: &mut Context<Self>) {
+        let remote = self.focused_session_is_remote(cx);
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        match quick_look_target(raw, cwd, home.as_deref(), remote) {
+            QuickLook::Open(path) => {
+                let origin = self.focused_pane();
+                self.open_preview(OpenRequest::file(path, None, None), false, origin, window, cx);
+            }
+            QuickLook::NotYetRemote => self.inspector_note(crate::remote::not_yet_remote(), cx),
+            QuickLook::Nothing => {}
+        }
     }
 
     /// The copy button of an expanded detail.

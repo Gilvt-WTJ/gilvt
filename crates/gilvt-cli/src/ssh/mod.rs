@@ -180,17 +180,25 @@ pub fn run(argv: &[String]) -> ExitCode {
         plan::Decision::UseInstalled => None,
         plan::Decision::Plain(r) => return plain(&r, Some(&ctl), hostname),
         plan::Decision::Install { upgrade } => Some(upgrade),
-        plan::Decision::Ask { upgrade } => match ask(&a.destination) {
-            plan::Answer::Yes => {
-                tell(&socket, &record(&host, Some("allowed"), None, None, None));
-                Some(upgrade)
+        plan::Decision::Ask { upgrade, old } => {
+            let new = build_id.as_deref().unwrap_or_default();
+            let prompt = match &old {
+                Some(old) => plan::upgrade_prompt(&a.destination, old, new),
+                None => plan::install_prompt(&a.destination),
+            };
+            match ask(&prompt) {
+                plan::Answer::Yes => {
+                    tell(&socket, &record(&host, Some("allowed"), None, None, None));
+                    Some(upgrade)
+                }
+                plan::Answer::Never => {
+                    tell(&socket, &record(&host, Some("never"), None, None, None));
+                    return plain(plan::never_reason(), Some(&ctl), hostname);
+                }
+                plan::Answer::NotNow if upgrade => return plain(plan::not_updating_reason(), Some(&ctl), hostname),
+                plan::Answer::NotNow => return plain(gilvt_i18n::text("这次不安装远端组件", "not installing the remote helper this time"), Some(&ctl), hostname),
             }
-            plan::Answer::Never => {
-                tell(&socket, &record(&host, Some("never"), None, None, None));
-                return plain(plan::never_reason(), Some(&ctl), hostname);
-            }
-            plan::Answer::NotNow => return plain(gilvt_i18n::text("这次不安装远端组件", "not installing the remote helper this time"), Some(&ctl), hostname),
-        },
+        }
     };
     // decide() answers Plain whenever there is no bundled build for this arch; this is only belt and braces.
     let (Some(build_id), Some(rdir)) = (build_id, rdir) else { return plain(plan::no_helper_reason(), Some(&ctl), hostname) };
@@ -228,19 +236,9 @@ pub fn run(argv: &[String]) -> ExitCode {
 }
 
 /// The install question (Global Constraints), asked on the terminal itself.
-fn ask(display: &str) -> plan::Answer {
+fn ask(prompt: &str) -> plan::Answer {
     let Ok(mut tty) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty") else { return plan::Answer::NotNow };
-    let _ = if gilvt_i18n::english() {
-        write!(
-            tty,
-            "gilvt: Install the remote helper on {display}? (~/.gilvt-server, about 4 MB, keeps one daemon running)\r\n       It brings agent detection, the inspector, ⌘P and editing to ssh panes.\r\n       [Y] Install  [n] Not now  [N] Never on this host "
-        )
-    } else {
-        write!(
-            tty,
-            "gilvt: 要在 {display} 上安装远端组件吗？（~/.gilvt-server，约 4 MB，常驻一个 daemon）\r\n       安装后可在 ssh 里使用 Agent 检测、检查器、⌘P、编辑等功能。\r\n       [Y] 安装  [n] 这次不用  [N] 这台主机永不安装 "
-        )
-    };
+    let _ = write!(tty, "{prompt}");
     let _ = tty.flush();
     let mut line = String::new();
     // EOF / error must not read as "" (= Yes).

@@ -1,0 +1,17 @@
+description = "Remote acceptance (AC21, AC23): asks to approve a Bash call right away; y / 1 / Enter runs it and ends the turn, n / Esc rejects it."
+
+[[step]]
+prompt = "Check the remote build"
+
+[[step]]
+approve = { tool = "Bash", input = { command = "make -C /tmp check", description = "Run the remote checks" } }
+result = "ok"
+ms = 300
+on_yes = "continue"
+on_no = "interrupt"
+
+[[step]]
+reply = "Remote checks passed."
+
+[[step]]
+idle = true

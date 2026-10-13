@@ -408,7 +408,7 @@ mod tests {
     }
 
     fn key() -> SessionKey {
-        (AgentKind::Claude, "sess-1".into())
+        gilvt_agent::local_key(AgentKind::Claude, "sess-1")
     }
 
     #[test]

@@ -39,10 +39,9 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     fn entry(name: &str, line: u32) -> Entry {
-        Entry { sources: vec![Source::File(PathBuf::from(name))], index: 0, line }
+        Entry { sources: vec![Source::File(gilvt_agent::host::HostPath::local(name))], index: 0, line }
     }
 
     #[test]

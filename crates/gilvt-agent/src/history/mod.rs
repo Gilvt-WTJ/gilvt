@@ -28,7 +28,7 @@ pub use companion::{companion_files, companion_size, is_session_uuid, path_size}
 pub const FIRST_PROMPT_MAX: usize = 80;
 
 /// One past session, as the 「会话」 palette lists it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub agent: AgentKind,
     pub session_id: String,

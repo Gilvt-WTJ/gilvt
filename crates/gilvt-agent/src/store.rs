@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::host::Host;
 use crate::status::SessionKey;
 
 const FILE_NAME: &str = "sessions.json";
@@ -56,11 +57,11 @@ impl Store {
     }
 
     pub(crate) fn get(&self, key: &SessionKey) -> Entry {
-        self.entries.get(&id(key)).cloned().unwrap_or_default()
+        self.entries.get(&session_key_id(key)).cloned().unwrap_or_default()
     }
 
     pub(crate) fn update(&mut self, key: &SessionKey, change: impl FnOnce(&mut Entry)) -> io::Result<()> {
-        let id = id(key);
+        let id = session_key_id(key);
         let mut entry = self.entries.remove(&id).unwrap_or_default();
         change(&mut entry);
         if entry != Entry::default() {
@@ -82,8 +83,13 @@ impl Store {
     }
 }
 
-fn id((agent, session_id): &SessionKey) -> String {
-    format!("{}:{session_id}", agent.name())
+/// A session key as `sessions.json` (and the review store) writes it: `<agent>:<id>` for this Mac, as before
+/// R2a; `<HostId>|<agent>:<id>` for an ssh host.
+pub fn session_key_id((agent, session_id, host): &SessionKey) -> String {
+    match host {
+        Host::Local => format!("{}:{session_id}", agent.name()),
+        Host::Remote(h) => format!("{}|{}:{session_id}", h.0, agent.name()),
+    }
 }
 
 #[cfg(test)]
@@ -92,7 +98,30 @@ mod tests {
     use crate::AgentKind;
 
     fn key(id: &str) -> SessionKey {
-        (AgentKind::Codex, id.to_string())
+        crate::local_key(AgentKind::Codex, id)
+    }
+
+    #[test]
+    fn remote_keys_round_trip_and_do_not_collide_with_local() {
+        use crate::host::{Host, HostId};
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path());
+        let local = key("a");
+        let remote: SessionKey = (AgentKind::Codex, "a".into(), Host::Remote(HostId("dev@h:22".into())));
+        store.update(&local, |e| e.name = Some("本地".into())).unwrap();
+        store.update(&remote, |e| e.muted = true).unwrap();
+        let text = fs::read_to_string(dir.path().join("sessions.json")).unwrap();
+        assert!(text.contains("\"codex:a\"") && text.contains("\"dev@h:22|codex:a\""), "{text}");
+        let store = Store::open(dir.path());
+        assert_eq!(store.get(&local), Entry { name: Some("本地".into()), muted: false });
+        assert_eq!(store.get(&remote), Entry { name: None, muted: true });
+    }
+
+    #[test]
+    fn an_old_sessions_file_still_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("sessions.json"), r#"{"sessions":{"claude:x":{"name":"旧的"}}}"#).unwrap();
+        assert_eq!(Store::open(dir.path()).get(&crate::local_key(AgentKind::Claude, "x")).name.as_deref(), Some("旧的"));
     }
 
     #[test]

@@ -46,7 +46,7 @@ impl TrashReport {
 }
 
 fn key(e: &HistoryEntry) -> SessionKey {
-    (e.agent, e.session_id.clone())
+    gilvt_agent::local_key(e.agent, e.session_id.clone())
 }
 
 /// The pure part: `live` sessions are skipped, every other session's files go to `trash`: the companions

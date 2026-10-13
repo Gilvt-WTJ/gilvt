@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::event::{AgentKind, Event};
+use crate::host::Host;
 use crate::summary::{first_line, tool_label, truncate_chars};
 
 /// Longest automatic session name, in chars (an ellipsis is added when cut).
@@ -49,8 +50,13 @@ impl Status {
 }
 
 pub type PaneId = u64;
-/// (agent, session_id)
-pub type SessionKey = (AgentKind, String);
+/// (agent, session_id, host). The host is last so `key.0` / `key.1` keep their meaning (R2a plan deviation 1).
+pub type SessionKey = (AgentKind, String, Host);
+
+/// The key of a session on this Mac.
+pub fn local_key(agent: AgentKind, id: impl Into<String>) -> SessionKey {
+    (agent, id.into(), Host::Local)
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Session {
@@ -342,7 +348,7 @@ mod tests {
     #[test]
     fn duplicate_turn_ends_are_ignored() {
         let now = Instant::now();
-        let mut s = Session::new((AgentKind::Claude, "s".into()), now);
+        let mut s = Session::new(crate::local_key(AgentKind::Claude, "s"), now);
         assert!(step(&mut s, &Event::PromptSubmit { text: "x".into() }, true, now));
         let later = now + Duration::from_secs(5);
         assert!(step(&mut s, &Event::TurnEnd { background_tasks: 0 }, false, later));

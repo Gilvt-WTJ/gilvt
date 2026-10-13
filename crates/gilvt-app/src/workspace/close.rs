@@ -203,7 +203,8 @@ pub fn save_all(panes: &[PaneId], mut save: impl FnMut(PaneId) -> Lookup<SaveOut
     for &id in panes {
         match save(id) {
             Lookup::Gone | Lookup::Found(SaveOutcome::Saved) => {}
-            Lookup::Found(SaveOutcome::Modified | SaveOutcome::Failed) => return Err(SaveStop::NotSaved(id)),
+            // A remote save still on its way stops the close too: its pane comes forward and closes itself if it can.
+            Lookup::Found(SaveOutcome::Modified | SaveOutcome::Failed | SaveOutcome::Pending) => return Err(SaveStop::NotSaved(id)),
             Lookup::Unreadable => return Err(SaveStop::Unreadable(id)),
         }
     }
@@ -489,7 +490,7 @@ mod tests {
     }
 
     fn summary(agent: AgentKind, id: &str, name: &str, pane: PaneId) -> SessionSummary {
-        SessionSummary { key: (agent, id.into()), pane: Some(pane), name: name.into(), status: "思考中".into() }
+        SessionSummary { key: gilvt_agent::local_key(agent, id), pane: Some(pane), name: name.into(), status: "思考中".into() }
     }
 
     #[test]
@@ -594,6 +595,11 @@ mod tests {
         // A pane that is gone is skipped; all saved = Ok.
         assert_eq!(save_all(&[1, 2], |id| if id == 2 { Lookup::Found(SaveOutcome::Saved) } else { Lookup::Gone }), Ok(()));
         assert_eq!(save_all(&[], |_| Lookup::Found(SaveOutcome::Failed)), Ok(()));
+    }
+
+    #[test]
+    fn a_pending_save_stops_the_close() {
+        assert_eq!(save_all(&[3], |_| Lookup::Found(SaveOutcome::Pending)), Err(SaveStop::NotSaved(3)));
     }
 
     #[test]

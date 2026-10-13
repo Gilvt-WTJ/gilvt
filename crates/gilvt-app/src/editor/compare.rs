@@ -222,15 +222,20 @@ pub(crate) fn read_disk_for_compare_with_limit(path: &Path, explicit: Option<Enc
     if bytes.len() as u64 > limit {
         return Err(EditorError::TooLarge { size: bytes.len() as u64, limit });
     }
-    let decoded = decode_with(&bytes, explicit, false)
-        .or_else(|_| decode_with(&bytes, explicit, true))
+    Ok(decode_disk(&bytes, explicit))
+}
+
+/// The bytes of the file as the overlay shows them: never fails (lossy where needed), as `read_disk_for_compare`.
+pub fn decode_disk(bytes: &[u8], explicit: Option<Encoding>) -> DiskText {
+    let decoded = decode_with(bytes, explicit, false)
+        .or_else(|_| decode_with(bytes, explicit, true))
         .map(|(d, _)| d)
         .unwrap_or_else(|_| {
-            let raw = String::from_utf8_lossy(&bytes);
+            let raw = String::from_utf8_lossy(bytes);
             let line_ending = if raw.contains("\r\n") { LineEnding::CrLf } else { LineEnding::Lf };
             Decoded { text: normalize_newlines(&raw), encoding: explicit.unwrap_or(Encoding::Utf8), line_ending, mixed_line_endings: false }
         });
-    Ok(DiskText::Text(decoded))
+    DiskText::Text(decoded)
 }
 
 impl Compare {
@@ -238,6 +243,8 @@ impl Compare {
     ///
     /// # Errors
     /// See [`read_disk_for_compare`].
+    // The editor reads the disk itself (`read_disk_for_compare`, then `from_disk`); kept as the one-call form.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn open(
         path: &Path,
         explicit: Option<Encoding>,
@@ -246,15 +253,20 @@ impl Compare {
         mine_enc: &str,
         width_cols: usize,
     ) -> Result<Compare, EditorError> {
+        Ok(Compare::from_disk(read_disk_for_compare(path, explicit)?, mine, mine_le, mine_enc, width_cols))
+    }
+
+    /// Compares `disk` (read here or from an ssh host) with `mine` (the buffer's normalized text).
+    pub fn from_disk(disk: DiskText, mine: &str, mine_le: LineEnding, mine_enc: &str, width_cols: usize) -> Compare {
         let expanded = HashSet::new();
-        let (diff, rows, note, disk_missing) = match read_disk_for_compare(path, explicit)? {
+        let (diff, rows, note, disk_missing) = match disk {
             DiskText::Missing => (Diff::default(), CompareRows::Unified(Vec::new()), "", true),
             DiskText::Text(d) => {
                 let (diff, rows) = build(&d.text, mine, width_cols, &expanded);
                 (diff, rows, same_note(d.line_ending, mine_le, d.encoding.name(), mine_enc), false)
             }
         };
-        Ok(Compare { diff, rows, expanded, disk_missing, scroll: 0, note, width_cols })
+        Compare { diff, rows, expanded, disk_missing, scroll: 0, note, width_cols }
     }
 
     pub fn row_count(&self) -> usize {
@@ -435,6 +447,17 @@ mod tests {
         assert_eq!(open_error_message(&EditorError::NotAFile), format!("无法读取磁盘版本：{}", EditorError::NotAFile));
         let e = EditorError::TooLarge { size: 11, limit: 10 };
         assert!(open_error_message(&e).starts_with("无法读取磁盘版本："));
+    }
+
+    #[test]
+    fn from_disk_is_what_open_builds() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("a.txt");
+        std::fs::write(&f, "one\ntwo\n").unwrap();
+        let opened = Compare::open(&f, None, "one\nTWO\n", LineEnding::Lf, "UTF-8", 120).unwrap();
+        let from = Compare::from_disk(decode_disk(b"one\ntwo\n", None), "one\nTWO\n", LineEnding::Lf, "UTF-8", 120);
+        assert_eq!((opened.row_count(), opened.disk_missing), (from.row_count(), from.disk_missing));
+        assert!(Compare::from_disk(DiskText::Missing, "x", LineEnding::Lf, "UTF-8", 120).disk_missing);
     }
 
     #[test]

@@ -12,7 +12,7 @@ use gilvt_agent::{parse_transcript_line, Event, SessionKey};
 use notify::{RecursiveMode, Watcher};
 
 use super::timelines::{HookFeed, TimelineView};
-use super::worker::Worker;
+use super::worker::{RemoteFeed, Worker};
 
 pub const POLL: Duration = Duration::from_secs(2);
 
@@ -39,6 +39,7 @@ enum Msg {
     Watch(Vec<(SessionKey, PathBuf)>),
     Hook(SessionKey, HookFeed),
     Answered(SessionKey, SystemTime),
+    Remote(SessionKey, RemoteFeed),
     Changed,
 }
 
@@ -66,6 +67,11 @@ impl Tails {
     /// The user answered an approval dialog of session `key` at `at` (see `Timeline::approval_answered`).
     pub fn approval_answered(&self, key: SessionKey, at: SystemTime) {
         let _ = self.tx.send(Msg::Answered(key, at));
+    }
+
+    /// Lines or markers of a remote session's transcript (R2a §5.5).
+    pub fn remote(&self, key: SessionKey, feed: RemoteFeed) {
+        let _ = self.tx.send(Msg::Remote(key, feed));
     }
 
     /// Feeds a hook request to the timeline of session `key`.
@@ -125,6 +131,7 @@ fn run(rx: mpsc::Receiver<Msg>, wake: mpsc::Sender<Msg>, out: async_channel::Sen
                 Msg::Watch(set) => worker.watch(set),
                 Msg::Hook(key, feed) => worker.hook(key, feed),
                 Msg::Answered(key, at) => worker.approval_answered(&key, at),
+                Msg::Remote(key, feed) => worker.remote(key, feed),
                 Msg::Changed => {}
             }
         }
@@ -197,7 +204,7 @@ mod tests {
         std::fs::write(&path, format!("{}\n{}\n", line(10), line(20))).unwrap();
         let (tx, rx) = async_channel::unbounded();
         let tails = Tails::spawn(tx);
-        let key: SessionKey = (AgentKind::Codex, "s".into());
+        let key: SessionKey = gilvt_agent::local_key(AgentKind::Codex, "s");
         tails.watch(vec![(key.clone(), path.clone())]);
         let (k, batch) = next_events(&rx);
         assert_eq!(k, key);

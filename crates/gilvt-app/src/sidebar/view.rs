@@ -167,17 +167,23 @@ pub fn collect<'a>(ws: &'a Workspace, me: AnyWindowHandle, cx: &'a App) -> Colle
                 .iter()
                 .filter_map(|e| {
                     let title = e.custom_title.clone().or_else(|| e.ai_title.clone())?;
-                    Some(((e.agent, e.session_id.clone()), title))
+                    Some((gilvt_agent::local_key(e.agent, e.session_id.clone()), title))
                 })
                 .collect()
         })
         .unwrap_or_default();
     let history = cx.try_global::<crate::launcher::History>();
     let indexed_cwd = |s: &gilvt_agent::Session| -> Option<String> {
+        if s.key.2.is_remote() {
+            return None;
+        }
         let dir = &history?.find(s.agent(), s.session_id())?.cwd;
         (!dir.as_os_str().is_empty()).then(|| dir.display().to_string())
     };
     let archived = |key: &gilvt_agent::SessionKey| {
+        if key.2.is_remote() {
+            return false;
+        }
         let Some(service) = cx.try_global::<crate::review::ReviewService>() else { return false };
         ended::is_archived(&service.state(key), history.and_then(|h| h.find(key.0, &key.1)))
     };
@@ -199,7 +205,7 @@ pub fn collect<'a>(ws: &'a Workspace, me: AnyWindowHandle, cx: &'a App) -> Colle
                 .unwrap_or_default();
             Item {
                 session: s,
-                project: agents.project(s),
+                project: agents.project(s, cx),
                 reachable,
                 location,
                 git: agents.git(s).map(git_text),
@@ -244,7 +250,11 @@ pub fn model_for(ws: &Workspace, me: AnyWindowHandle, cx: &App) -> model::Model 
     }
     use crate::monitor::summaries;
     model::with_summaries(m, |r| {
-        if !r.cwd.is_empty() && summaries::is_excluded(Some(std::path::Path::new(&r.cwd)), cx) {
+        let excluded = match &r.key {
+            Some(k) => summaries::is_session_excluded(k, (!r.cwd.is_empty()).then(|| std::path::Path::new(&r.cwd)), cx),
+            None => !r.cwd.is_empty() && summaries::is_excluded(Some(std::path::Path::new(&r.cwd)), cx),
+        };
+        if excluded {
             return None;
         }
         let key = match (&r.key, r.pane) {
@@ -426,7 +436,7 @@ pub fn render(ws: &Workspace, window: &mut Window, cx: &mut Context<Workspace>) 
 /// 「1 个会话 · X MB 将移到废纸篓（可从废纸篓还原）」 with the session's title above, ［取消］［移到废纸篓］.
 fn confirm_bar(confirm: &Confirm, k: &Colors, cx: &mut Context<Workspace>) -> AnyElement {
     let title = confirm.entries.first().map(|e| {
-        let saved = cx.global::<Agents>().registry().saved_name(&(e.agent, e.session_id.clone()));
+        let saved = cx.global::<Agents>().registry().saved_name(&gilvt_agent::local_key(e.agent, e.session_id.clone()));
         crate::launcher::history::title(e, saved)
     });
     let button = |id: &'static str, n: usize, label: &'static str| {

@@ -80,6 +80,11 @@ impl Workspace {
         if self.inspector.hidden {
             self.set_inspector_hidden(false, window, cx);
         }
+        if self.focused_session_is_remote(cx) && tab != InspectorTab::Process {
+            // Artifacts and configuration read this Mac's files (R2a §5.5).
+            self.inspector_note(crate::i18n::text(crate::remote::NOT_YET_REMOTE.0, crate::remote::NOT_YET_REMOTE.1), cx);
+            return;
+        }
         let Some(note) = tab.unavailable_note() else {
             self.inspector.note = None;
             self.inspector.tab = tab;
@@ -95,9 +100,26 @@ impl Workspace {
         self.inspector_note(note, cx);
     }
 
+    /// Is the session the inspector follows (the focused pane's) on an ssh host?
+    pub(crate) fn focused_session_is_remote(&self, cx: &App) -> bool {
+        self.focused_pane()
+            .and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p))
+            .is_some_and(|s| s.key.2.is_remote())
+    }
+
+    /// The followed session is remote: only 「过程」 applies (called at the top of `inspector::view::render`).
+    pub fn inspector_follow_remote(&mut self, cx: &mut Context<Self>) {
+        if self.focused_session_is_remote(cx) && self.inspector.tab != InspectorTab::Process {
+            self.inspector.tab = InspectorTab::Process;
+        }
+    }
+
     fn config_target(&self, cx: &App) -> Option<ConfigTarget> {
         let agents = cx.global::<Agents>();
         let session = self.focused_pane().and_then(|pane| crate::inspector::model::follow(agents.registry().sessions(), pane))?;
+        if session.key.2.is_remote() {
+            return None;
+        }
         let cwd = session.cwd.clone()?;
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let agent_home = match session.agent() {
@@ -161,7 +183,7 @@ impl Workspace {
         self.inspector.config.disclosure.dialog = None;
         let req = OpenRequest {
             index: index.min(paths.len() - 1),
-            sources: paths.into_iter().map(Source::File).collect(),
+            sources: paths.into_iter().map(|p| Source::File(gilvt_agent::host::HostPath::local(p))).collect(),
             line: None,
             annotation: None,
             rev: None,
@@ -384,7 +406,7 @@ impl Workspace {
             scope: range.scope,
         };
         let req = OpenRequest {
-            sources: files.iter().map(|f| Source::File(f.abs.clone())).collect(),
+            sources: files.iter().map(|f| Source::File(gilvt_agent::host::HostPath::local(f.abs.clone()))).collect(),
             index: file.min(files.len() - 1),
             line: None,
             annotation: None,

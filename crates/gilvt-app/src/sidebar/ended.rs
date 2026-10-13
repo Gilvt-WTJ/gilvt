@@ -130,7 +130,7 @@ mod tests {
     }
 
     fn ended(agent: AgentKind, id: &str) -> Session {
-        let mut s = Session::new((agent, id.to_string()), Instant::now());
+        let mut s = Session::new(gilvt_agent::local_key(agent, id), Instant::now());
         s.status = Status::Ended;
         s.name = "修复登录".into();
         s.cwd = Some("/Users/u/my proj".into());

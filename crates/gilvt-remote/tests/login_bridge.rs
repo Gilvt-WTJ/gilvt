@@ -34,7 +34,7 @@ fn login_shows_up_on_the_bridge_and_goes_down_when_the_shell_exits() {
     let next = |what: &str| rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|e| panic!("no {what} from the bridge: {e}"));
 
     let mut hello = Vec::new();
-    write_frame(&mut hello, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.1.0-aaaaaaaa".into(), app_instance: "t".into(), cursor: 0 } }).unwrap();
+    write_frame(&mut hello, &LocalMsg::Bridge { hello: AppMsg::Hello { build_id: "0.1.0-aaaaaaaa".into(), app_instance: "t".into(), cursor: 0, epoch: None } }).unwrap();
     stdin.write_all(&hello).unwrap();
     assert!(matches!(next("Welcome"), DaemonMsg::Welcome { .. }));
 

@@ -34,6 +34,7 @@ pub fn parse_probe(out: &str) -> Option<Probe> {
     let hostname = lines.next()?.trim().to_string();
     let installed = lines
         .filter_map(|l| Path::new(l.trim().trim_end_matches('/')).file_name()?.to_str().map(str::to_string))
+        .filter(|n| gilvt_ipc::remote::is_build_id(n))
         .collect();
     Some(Probe { os, arch, hostname, installed })
 }
@@ -60,7 +61,7 @@ pub fn norm_arch(m: &str) -> Option<&'static str> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Decision { UseInstalled, Ask { upgrade: bool }, Install { upgrade: bool }, Plain(String) }
+pub enum Decision { UseInstalled, Ask { upgrade: bool, old: Option<String> }, Install { upgrade: bool }, Plain(String) }
 
 pub fn decide(policy: &str, probe: &Probe, build_id: Option<&str>) -> Decision {
     if probe.os != "Linux" {
@@ -72,8 +73,15 @@ pub fn decide(policy: &str, probe: &Probe, build_id: Option<&str>) -> Decision {
     let Some(build_id) = build_id else { return Decision::Plain(no_helper_reason().into()) };
     if policy == "never" { return Decision::Plain(never_reason().into()); }
     if probe.installed.iter().any(|d| d == build_id) { return Decision::UseInstalled; }
-    let upgrade = !probe.installed.is_empty();
-    if policy == "always" || upgrade { Decision::Install { upgrade } } else { Decision::Ask { upgrade } }
+    // The probe lists installed builds newest first (by directory mtime).
+    let old = probe.installed.first().cloned();
+    let upgrade = old.is_some();
+    match policy {
+        "always" => Decision::Install { upgrade },
+        // The user said Y on this host before: a first install needs no new question, an update asks (R2a §2).
+        "allowed" if !upgrade => Decision::Install { upgrade: false },
+        _ => Decision::Ask { upgrade, old },
+    }
 }
 
 fn sh(script: &str) -> String {
@@ -82,13 +90,44 @@ fn sh(script: &str) -> String {
 }
 
 pub fn probe_command() -> String {
-    sh(r#"echo GILVT-PROBE-1; uname -s; uname -m; uname -n; for d in "$HOME"/.gilvt-server/*/; do [ -x "$d/gilvt-remote" ] && echo "$d"; done; true"#)
+    sh(r#"echo GILVT-PROBE-1; uname -s; uname -m; uname -n; ls -1dt "$HOME"/.gilvt-server/*/ 2>/dev/null | while IFS= read -r d; do [ -x "$d/gilvt-remote" ] && echo "$d"; done; true"#)
 }
 
 pub fn upload_command(build_id: &str) -> String {
     sh(&format!(
-        r#"set -e; umask 077; D="$HOME/.gilvt-server/{build_id}"; mkdir -p "$D" "$HOME/.gilvt-server/bin"; gzip -dc > "$D/gilvt-remote.tmp.$$"; chmod 700 "$D/gilvt-remote.tmp.$$"; mv "$D/gilvt-remote.tmp.$$" "$D/gilvt-remote"; ln -sfn "../{build_id}/gilvt-remote" "$HOME/.gilvt-server/bin/gilvt-remote""#
+        r#"set -e; umask 077; D="$HOME/.gilvt-server/{build_id}"; mkdir -p "$D/bin" "$HOME/.gilvt-server/bin"; gzip -dc > "$D/gilvt-remote.tmp.$$"; chmod 700 "$D/gilvt-remote.tmp.$$"; mv "$D/gilvt-remote.tmp.$$" "$D/gilvt-remote"; ln -sfn ../gilvt-remote "$D/bin/gilvt"; ln -sfn "../{build_id}/gilvt-remote" "$HOME/.gilvt-server/bin/gilvt-remote""#
     ))
+}
+
+/// What the prompts show for `old` → `new`: the versions, or the whole build ids when only the sha differs.
+pub fn shown_versions(old: &str, new: &str) -> (String, String) {
+    let version = |b: &str| b.rsplit_once('-').map_or(b, |(v, _)| v).to_string();
+    let (o, n) = (version(old), version(new));
+    if o == n { (old.to_string(), new.to_string()) } else { (o, n) }
+}
+
+/// The first-install question (R1).
+pub fn install_prompt(display: &str) -> String {
+    if gilvt_i18n::english() {
+        format!("gilvt: Install the remote helper on {display}? (~/.gilvt-server, about 4 MB, keeps one daemon running)\r\n       It brings agent detection, the inspector, ⌘P and editing to ssh panes.\r\n       [Y] Install  [n] Not now  [N] Never on this host ")
+    } else {
+        format!("gilvt: 要在 {display} 上安装远端组件吗？（~/.gilvt-server，约 4 MB，常驻一个 daemon）\r\n       安装后可在 ssh 里使用 Agent 检测、检查器、⌘P、编辑等功能。\r\n       [Y] 安装  [n] 这次不用  [N] 这台主机永不安装 ")
+    }
+}
+
+/// The update question (R2a §2): `old` is the newest build installed there, `new` this gilvt's.
+pub fn upgrade_prompt(display: &str, old: &str, new: &str) -> String {
+    let (o, n) = shown_versions(old, new);
+    if gilvt_i18n::english() {
+        format!("gilvt: the remote helper on {display} is {o}; this gilvt is {n}. Update it? (about 4 MB)\r\n       Without the update this login is plain (the old helper does not work with this gilvt).\r\n       [Y] update  [n] not now  [N] never install on this host ")
+    } else {
+        format!("gilvt: {display} 上的远端组件是 {o}，当前 gilvt 是 {n}，要更新吗？（约 4 MB）\r\n       不更新的话这次以普通方式登录（旧版本与当前 gilvt 不兼容）。\r\n       [Y] 更新  [n] 这次不用  [N] 这台主机永不安装 ")
+    }
+}
+
+/// Why the login is plain after `n` to the update question.
+pub fn not_updating_reason() -> &'static str {
+    gilvt_i18n::text("这次不更新远端组件", "not updating the remote helper this time")
 }
 
 /// Why gilvt ssh logs in the plain way when the host is set to never install the helper.
@@ -183,16 +222,66 @@ mod tests {
     }
 
     #[test]
-    fn decisions() {
-        let id = Some("0.1.0-aaaaaaaa");
-        assert_eq!(decide("ask", &probe("Linux", "x86_64", &["0.1.0-aaaaaaaa"]), id), Decision::UseInstalled);
-        assert_eq!(decide("never", &probe("Linux", "x86_64", &["0.1.0-aaaaaaaa"]), id), Decision::Plain("这台主机设置为不安装远端组件".into()));
-        assert_eq!(decide("ask", &probe("Linux", "x86_64", &[]), id), Decision::Ask { upgrade: false });
-        assert_eq!(decide("ask", &probe("Linux", "x86_64", &["0.0.9-bbbbbbbb"]), id), Decision::Install { upgrade: true }, "upgrades do not ask");
-        assert_eq!(decide("always", &probe("Linux", "aarch64", &[]), id), Decision::Install { upgrade: false });
+    fn decision_table() {
+        let id = Some("0.3.0-aaaaaaaa");
+        let none = probe("Linux", "x86_64", &[]);
+        let current = probe("Linux", "x86_64", &["0.3.0-aaaaaaaa"]);
+        let old = probe("Linux", "x86_64", &["0.2.1-bbbbbbbb", "0.2.0-cccccccc"]);
+        let ask_old = Decision::Ask { upgrade: true, old: Some("0.2.1-bbbbbbbb".into()) };
+        let cases = [
+            ("ask", &none, Decision::Ask { upgrade: false, old: None }),
+            ("ask", &current, Decision::UseInstalled),
+            ("ask", &old, ask_old.clone()),
+            ("allowed", &none, Decision::Install { upgrade: false }),
+            ("allowed", &current, Decision::UseInstalled),
+            ("allowed", &old, ask_old),
+            ("always", &none, Decision::Install { upgrade: false }),
+            ("always", &current, Decision::UseInstalled),
+            ("always", &old, Decision::Install { upgrade: true }),
+            ("never", &none, Decision::Plain(never_reason().into())),
+            ("never", &current, Decision::Plain(never_reason().into())),
+            ("never", &old, Decision::Plain(never_reason().into())),
+        ];
+        for (policy, p, want) in cases {
+            assert_eq!(decide(policy, p, id), want, "{policy} {:?}", p.installed);
+        }
+        // The plain reasons (moved from the old `decisions()`; the English ones are tested above).
         assert_eq!(decide("ask", &probe("Darwin", "arm64", &[]), id), Decision::Plain("远端不是 Linux（Darwin），暂不支持".into()));
         assert_eq!(decide("ask", &probe("Linux", "riscv64", &[]), id), Decision::Plain("远端架构 riscv64 暂不支持".into()));
-        assert_eq!(decide("ask", &probe("Linux", "x86_64", &[]), None), Decision::Plain("这个 gilvt 构建没有包含远端组件".into()));
+        assert_eq!(decide("ask", &none, None), Decision::Plain("这个 gilvt 构建没有包含远端组件".into()));
+    }
+
+    #[test]
+    fn upgrade_prompt_shows_versions_or_full_build_ids() {
+        assert_eq!(shown_versions("0.2.1-bbbbbbbb", "0.3.0-aaaaaaaa"), ("0.2.1".into(), "0.3.0".into()));
+        assert_eq!(shown_versions("0.3.0-bbbbbbbb", "0.3.0-aaaaaaaa"), ("0.3.0-bbbbbbbb".into(), "0.3.0-aaaaaaaa".into()));
+        gilvt_i18n::with_language(gilvt_i18n::Language::Chinese, || {
+            assert_eq!(
+                upgrade_prompt("devbox", "0.2.1-bbbbbbbb", "0.3.0-aaaaaaaa"),
+                "gilvt: devbox 上的远端组件是 0.2.1，当前 gilvt 是 0.3.0，要更新吗？（约 4 MB）\r\n       不更新的话这次以普通方式登录（旧版本与当前 gilvt 不兼容）。\r\n       [Y] 更新  [n] 这次不用  [N] 这台主机永不安装 "
+            );
+            assert_eq!(not_updating_reason(), "这次不更新远端组件");
+        });
+        gilvt_i18n::with_language(gilvt_i18n::Language::English, || {
+            assert_eq!(
+                upgrade_prompt("devbox", "0.2.1-bbbbbbbb", "0.3.0-aaaaaaaa"),
+                "gilvt: the remote helper on devbox is 0.2.1; this gilvt is 0.3.0. Update it? (about 4 MB)\r\n       Without the update this login is plain (the old helper does not work with this gilvt).\r\n       [Y] update  [n] not now  [N] never install on this host "
+            );
+            assert!(!gilvt_i18n::has_chinese(&install_prompt("devbox")));
+        });
+    }
+
+    #[test]
+    fn probe_keeps_only_build_ids_newest_first() {
+        let out = "GILVT-PROBE-1\nLinux\nx86_64\nh\n/home/u/.gilvt-server/0.2.1-bbbbbbbb/\n/home/u/.gilvt-server/bin/\n/home/u/.gilvt-server/0.2.0-cccccccc/\n";
+        assert_eq!(parse_probe(out).unwrap().installed, ["0.2.1-bbbbbbbb", "0.2.0-cccccccc"]);
+        assert!(probe_command().contains("ls -1dt"), "newest (by directory mtime) first");
+    }
+
+    #[test]
+    fn upload_also_links_bin_gilvt() {
+        let u = upload_command("0.3.0-aaaaaaaa");
+        assert!(u.contains(r#"mkdir -p "$D/bin""#) && u.contains(r#"ln -sfn ../gilvt-remote "$D/bin/gilvt""#), "{u}");
     }
 
     #[test]

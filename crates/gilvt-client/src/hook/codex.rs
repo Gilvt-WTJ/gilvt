@@ -135,14 +135,14 @@ pub fn compose_args(gilvt: &Path, trusted: &[TrustedHook], user: &[String]) -> V
 
 /// The argv for `codex <user args>` inside gilvt. Never blocks: on a trust-cache miss it starts
 /// the background `codex-trust` job and returns the user's args unchanged.
-pub fn args_for(gilvt: &Path, user: &[String]) -> Vec<String> {
+pub fn args_for(gilvt: &Path, state_dir: Option<&Path>, user: &[String]) -> Vec<String> {
     if user.first().is_some_and(|a| PASSTHROUGH.contains(&a.as_str())) {
         return user.to_vec();
     }
     if user_hooks(user).hands_off {
         return user.to_vec();
     }
-    match trust::lookup(gilvt) {
+    match trust::lookup(gilvt, state_dir) {
         trust::Lookup::Hit(trusted) => compose_args(gilvt, &trusted, user),
         trust::Lookup::Miss { start_job } => {
             if start_job {
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn management_commands_pass_through() {
-        assert_eq!(args_for(Path::new(GILVT), &s(&["login"])), s(&["login"]));
-        assert_eq!(args_for(Path::new(GILVT), &s(&["--version"])), s(&["--version"]));
+        assert_eq!(args_for(Path::new(GILVT), None, &s(&["login"])), s(&["login"]));
+        assert_eq!(args_for(Path::new(GILVT), None, &s(&["--version"])), s(&["--version"]));
     }
 }

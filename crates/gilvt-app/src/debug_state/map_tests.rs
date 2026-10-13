@@ -7,7 +7,7 @@ use crate::sidebar::model::{build, Item, SidebarState, TerminalItem};
 use crate::workspace::marks::edge;
 
 fn session(agent: AgentKind, id: &str, status: Status, t0: Instant) -> Session {
-    let mut s = Session::new((agent, id.to_string()), t0);
+    let mut s = Session::new(gilvt_agent::local_key(agent, id), t0);
     s.status = status;
     s.name = format!("task {id}");
     s.pane = Some(id.len() as u64);
@@ -32,7 +32,7 @@ fn status_names_cover_every_status() {
     for (status, name, detail) in table {
         assert_eq!((status_name(&status), status_detail(&status).as_str()), (name, detail), "{status:?}");
     }
-    assert_eq!(session_id(&(AgentKind::Codex, "0199".into())), "codex:0199");
+    assert_eq!(session_id(&gilvt_agent::local_key(AgentKind::Codex, "0199")), "codex:0199");
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn menus_keep_labels_checks_and_rects() {
 fn palette_rows_and_buttons() {
     use crate::launcher::sessions_model::{LiveAt, Row as PaletteRow};
     let row = |id: &str, live: Option<&str>| PaletteRow {
-        key: (AgentKind::Claude, id.to_string()),
+        key: gilvt_agent::local_key(AgentKind::Claude, id),
         entry: 0,
         letter: 'C',
         title: format!("i9 {id}"),
@@ -245,7 +245,7 @@ fn sidebar_rows_carry_git_only_when_the_row_draws_a_line() {
 fn pending_and_close_confirm_map_plain_data() {
     use crate::agents::PendingResume;
     let p = pending(&[PendingResume {
-        key: (AgentKind::Codex, "0199".into()),
+        key: gilvt_agent::local_key(AgentKind::Codex, "0199"),
         pane: 7,
         cwd: Some("/w/a".into()),
         name: "补测试".into(),
@@ -255,7 +255,7 @@ fn pending_and_close_confirm_map_plain_data() {
     assert!(pending(&[]).is_empty());
     let c = close_confirm(
         "quit",
-        &[gilvt_agent::SessionSummary { key: (AgentKind::Claude, "x".into()), pane: Some(2), name: "修登录".into(), status: "思考中".into() }],
+        &[gilvt_agent::SessionSummary { key: gilvt_agent::local_key(AgentKind::Claude, "x"), pane: Some(2), name: "修登录".into(), status: "思考中".into() }],
         &[],
     );
     assert_eq!((c.action, c.items[0].session.as_str(), c.items[0].pane, c.items[0].status.as_str()), ("quit", "claude:x", Some(2), "思考中"));
@@ -288,6 +288,7 @@ fn a_terminal_row_maps_to_kind_terminal_without_a_session() {
     let r = &sb.rows[0];
     assert_eq!((r.kind, r.session.as_str(), r.agent, r.status, r.cwd.as_str()), ("terminal", "", "", "terminal", "/work/repo"));
     assert_eq!((r.section.as_str(), r.pane, r.rect), ("project:repo", Some(7), Some([8.0, 96.0, 224.0, 40.0])));
+    assert_eq!(r.host, None);
     assert!(r.git.is_none());
     assert_eq!((sb.terminals, sb.header.as_str()), (1, "会话 · 0 · 终端 1"));
     let buttons: Vec<_> = sb.group_buttons.iter().map(|b| (b.name, b.active, b.rect.is_some())).collect();
@@ -378,4 +379,55 @@ fn editor_bar_names() {
     assert_eq!(editor_bar(&Bar::SaveError { message: "x".into(), jump: None }), "save_error");
     assert_eq!(editor_bar(&Bar::Deleted), "deleted");
     assert_eq!(editor_bar(&Bar::Confirm(crate::editor::view::ReopenIntent(Default::default()))), "confirm");
+}
+
+#[test]
+fn session_id_keeps_local_strings_and_prefixes_remote_hosts() {
+    use gilvt_agent::host::{Host, HostId};
+    assert_eq!(session_id(&gilvt_agent::local_key(AgentKind::Claude, "a")), "claude:a");
+    let remote = (AgentKind::Claude, "a".to_string(), Host::Remote(HostId("dev@h:22".into())));
+    assert_eq!(session_id(&remote), "dev@h:22|claude:a");
+}
+
+#[test]
+fn rows_carry_their_host() {
+    use crate::launcher::sessions_model::Row as PaletteRow;
+    use gilvt_agent::host::{Host, HostId};
+    let t0 = Instant::now();
+    let local = session(AgentKind::Claude, "l", Status::Idle, t0);
+    let mut remote = session(AgentKind::Claude, "r", Status::Idle, t0);
+    remote.key = (AgentKind::Claude, "r".to_string(), Host::Remote(HostId("dev@h:22".into())));
+    let sessions = [local.clone(), remote.clone()];
+    let items = [item(&local, "lab", false), item(&remote, "lab", false)];
+    let m = build(&items, &[], &SidebarState::default(), t0, &|_| "12:40".into());
+    let lookup = |k: &SessionKey| sessions.iter().find(|s| &s.key == k);
+    let sb = sidebar(Some(&m), Grouping::Project, None, &lookup, &|_| None, None, &|_| None);
+    let hosts: Vec<(String, Option<String>)> = sb.rows.iter().map(|r| (r.session.clone(), r.host.clone())).collect();
+    assert!(hosts.contains(&("claude:l".into(), Some("local".into()))), "{hosts:?}");
+    assert!(hosts.contains(&("dev@h:22|claude:r".into(), Some("dev@h:22".into()))), "{hosts:?}");
+    let prow = |key: SessionKey| PaletteRow {
+        key,
+        entry: 0,
+        letter: 'C',
+        title: "t".into(),
+        title_source: gilvt_agent::TitleSource::Prompt,
+        turns_label: "1 轮".into(),
+        dir: "~".into(),
+        dir_missing: false,
+        branch: None,
+        when: "now".into(),
+        size: 0,
+        live: None,
+        archived: false,
+    };
+    let rows = palette_rows(&[prow(local.key.clone()), prow(remote.key.clone())], 0, &|_| false, &|_| None);
+    assert_eq!((rows[0].host.as_str(), rows[1].host.as_str()), ("local", "dev@h:22"));
+}
+
+#[test]
+fn the_bar_message_is_the_save_error_text_only() {
+    use crate::editor::view::Bar;
+    assert_eq!(editor_bar_message(&Bar::SaveError { message: "devbox 未连接，未保存".into(), jump: None }), Some("devbox 未连接，未保存".to_string()));
+    assert_eq!(editor_bar_message(&Bar::Modified { closing: false }), None);
+    assert_eq!(editor_bar_message(&Bar::None), None);
 }

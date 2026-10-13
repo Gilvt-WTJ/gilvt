@@ -1,8 +1,10 @@
-//! The few git queries the viewer needs, via the system `git` (same behavior as the user's CLI).
+//! The few git queries gilvt needs, via the system `git`: the Mac's viewer and CLI and the remote daemon (R2a §8.1 `GitChanges`) share them.
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+use gilvt_ipc::remote::{ChangeEntry, ChangeStatus};
 
 fn git(dir: &Path) -> Command {
     let mut c = Command::new("git");
@@ -47,13 +49,15 @@ pub fn is_commit(root: &Path, rev: &str) -> bool {
     git(root).args(["rev-parse", "--verify", "--quiet", &spec]).stdout(Stdio::null()).status().is_ok_and(|s| s.success())
 }
 
-/// Existing files that differ from `rev` (tracked changes plus untracked files), absolute, sorted.
-pub fn changed_files(root: &Path, rev: &str) -> io::Result<Vec<PathBuf>> {
+/// Existing files that differ from `rev`: tracked changes, then untracked files; absolute, sorted, without duplicates.
+/// Deleted files are left out (they cannot be shown).
+pub fn changed_entries(root: &Path, rev: &str) -> io::Result<Vec<ChangeEntry>> {
     if is_option(rev) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("invalid revision: {rev}")));
     }
-    let mut files = Vec::new();
-    for args in [vec!["diff", "--name-only", "-z", rev, "--"], vec!["ls-files", "--others", "--exclude-standard", "-z"]] {
+    let mut files: Vec<ChangeEntry> = Vec::new();
+    let runs = [(ChangeStatus::Modified, vec!["diff", "--name-only", "-z", rev, "--"]), (ChangeStatus::Untracked, vec!["ls-files", "--others", "--exclude-standard", "-z"])];
+    for (status, args) in runs {
         let out = git(root).args(&args).output()?;
         if !out.status.success() {
             return Err(io::Error::other(format!("git {} failed", args[0])));
@@ -61,13 +65,30 @@ pub fn changed_files(root: &Path, rev: &str) -> io::Result<Vec<PathBuf>> {
         for name in out.stdout.split(|&b| b == 0).filter(|n| !n.is_empty()) {
             let path = root.join(String::from_utf8_lossy(name).as_ref());
             if path.is_file() {
-                files.push(path);
+                files.push(ChangeEntry { status, path });
             }
         }
     }
-    files.sort();
-    files.dedup();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files.dedup_by(|a, b| a.path == b.path);
     Ok(files)
+}
+
+/// Existing files that differ from `rev` (tracked changes plus untracked files), absolute, sorted.
+pub fn changed_files(root: &Path, rev: &str) -> io::Result<Vec<PathBuf>> {
+    Ok(changed_entries(root, rev)?.into_iter().map(|e| e.path).collect())
+}
+
+/// The repository containing `path` and the file's contents at `rev` (None: not there, a new file). None outside a
+/// repository. `git` reports paths relative to the canonical root (e.g. /private/tmp on macOS), so both are
+/// canonicalized before taking the relative path.
+pub fn preview_base(path: &Path, rev: &str) -> io::Result<Option<(PathBuf, Option<String>)>> {
+    let Some(root) = path.parent().and_then(repo_root) else { return Ok(None) };
+    let canon_root = root.canonicalize().unwrap_or_else(|_| root.clone());
+    let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let rel = canon_path.strip_prefix(&canon_root).unwrap_or(path).to_path_buf();
+    let old = show_file(&canon_root, rev, &rel)?;
+    Ok(Some((root, old)))
 }
 
 #[cfg(test)]
@@ -136,5 +157,40 @@ mod tests {
     fn outside_a_repo() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(repo_root(dir.path()), None);
+    }
+
+    #[test]
+    fn entries_carry_a_status_and_agree_with_changed_files() {
+        let repo = testrepo::make();
+        let root = repo_root(repo.path()).unwrap();
+        std::fs::write(repo.path().join("a.txt"), "one\nTWO\n").unwrap();
+        std::fs::write(repo.path().join("new.txt"), "x\n").unwrap();
+        let entries = changed_entries(&root, "HEAD").unwrap();
+        let named: Vec<(ChangeStatus, String)> = entries.iter().map(|e| (e.status, e.path.file_name().unwrap().to_string_lossy().into_owned())).collect();
+        assert_eq!(named, vec![(ChangeStatus::Modified, "a.txt".into()), (ChangeStatus::Untracked, "new.txt".into())]);
+        let paths: Vec<PathBuf> = entries.into_iter().map(|e| e.path).collect();
+        assert_eq!(paths, changed_files(&root, "HEAD").unwrap());
+    }
+
+    #[test]
+    fn a_deleted_file_is_not_listed() {
+        let repo = testrepo::make();
+        std::fs::remove_file(repo.path().join("a.txt")).unwrap();
+        assert!(changed_entries(&repo_root(repo.path()).unwrap(), "HEAD").unwrap().is_empty());
+    }
+
+    #[test]
+    fn preview_base_finds_the_root_and_the_old_text() {
+        let repo = testrepo::make();
+        let file = repo.path().join("a.txt");
+        std::fs::write(&file, "changed\n").unwrap();
+        let (root, base) = preview_base(&file, "HEAD").unwrap().unwrap();
+        assert_eq!(root.canonicalize().unwrap(), repo.path().canonicalize().unwrap());
+        assert_eq!(base.as_deref(), Some("one\ntwo\n"));
+        std::fs::write(repo.path().join("n.txt"), "x\n").unwrap();
+        assert_eq!(preview_base(&repo.path().join("n.txt"), "HEAD").unwrap().unwrap().1, None, "new at HEAD");
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("x"), "x").unwrap();
+        assert_eq!(preview_base(&outside.path().join("x"), "HEAD").unwrap(), None);
     }
 }

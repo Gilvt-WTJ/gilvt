@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn the_list_tracks_the_entries_and_resets_per_session() {
-        let key = (AgentKind::Claude, "s1".to_string());
+        let key = gilvt_agent::local_key(AgentKind::Claude, "s1");
         let mut ui = TimelineUi::default();
         let turns = vec![turn(1, &["a"]), turn(2, &["b", "c"])];
         let e = ui.sync(&key, &turns, 1);
@@ -179,8 +179,8 @@ mod tests {
         assert_eq!((e.len(), ui.list.item_count()), (5, 5));
         assert_eq!(ui.rows_for(&key), 4, "the head is not a timeline row");
         assert_eq!(ui.entries_for(&key), e.as_slice());
-        assert!(ui.entries_for(&(AgentKind::Codex, "s2".to_string())).is_empty());
-        assert_eq!(ui.rows_for(&(AgentKind::Codex, "s2".to_string())), 0);
+        assert!(ui.entries_for(&gilvt_agent::local_key(AgentKind::Codex, "s2")).is_empty());
+        assert_eq!(ui.rows_for(&gilvt_agent::local_key(AgentKind::Codex, "s2")), 0);
         // Same Arcs and nothing toggled: the same entries, not rebuilt.
         let again = ui.sync(&key, &turns, 1);
         assert!(Rc::ptr_eq(&e, &again));
@@ -193,7 +193,7 @@ mod tests {
         let e = ui.sync(&key, &turns, 2);
         assert_eq!((e.len(), ui.list.item_count()), (5, 5));
         // Another session: expansion cleared, filter kept.
-        let e = ui.sync(&(AgentKind::Codex, "s2".to_string()), &turns[..1], 2);
+        let e = ui.sync(&gilvt_agent::local_key(AgentKind::Codex, "s2"), &turns[..1], 2);
         assert_eq!((e.len(), ui.list.item_count()), (3, 3));
         assert!(ui.open.turns.is_empty());
         assert_eq!(ui.filter, Filter::Failed);
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn a_turn_expanded_after_switching_survives_the_next_sync() {
-        let (a, b) = ((AgentKind::Claude, "a".to_string()), (AgentKind::Claude, "b".to_string()));
+        let (a, b) = (gilvt_agent::local_key(AgentKind::Claude, "a"), gilvt_agent::local_key(AgentKind::Claude, "b"));
         let mut ui = TimelineUi::default();
         ui.sync(&a, &[turn(1, &["x"]), turn(2, &["y"])], 1);
         // The monitor's 补课 jump to session b's turn 1, before the inspector draws b.
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn an_expanded_turn_is_scrolled_to_once() {
-        let key = (AgentKind::Claude, "a".to_string());
+        let key = gilvt_agent::local_key(AgentKind::Claude, "a");
         let turns = [turn(1, &["x"]), turn(2, &["y"]), turn(3, &["z"])];
         let mut ui = TimelineUi::default();
         ui.sync(&key, &turns, 1);

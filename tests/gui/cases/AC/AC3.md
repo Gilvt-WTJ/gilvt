@@ -3,14 +3,13 @@ requires: remote
 checklist: AC3
 scenarios: []
 
-第一次连接走本地缓存，命中「远端组件不存在」；第二次缓存已清，按「正在更新」重新上传。「正在更新远端组件…」一行完成后会被 `\r\x1b[K` 清掉，状态里看不到，所以第二次只断言结果，文字由 judge 看。
+在 `remote.install = "always"` 下（R2a 起默认的 ask 会询问更新，见 AC19），第一次连接走本地缓存，命中「远端组件不存在」；第二次缓存已清，按「正在更新」重新上传。「正在更新远端组件…」一行完成后会被 `\r\x1b[K` 清掉，状态里看不到，所以第二次只断言结果，文字由 judge 看。
 
 ## steps
 ```gilvt-steps
+restart --set 'remote.install="always"'
 wait   windows[0].tabs[0].panes[0].foreground == "shell" && windows[0].tabs[0].panes[0].screen_tail[*] contains "sandbox$" timeout=15s
 type   'ssh devbox-test\n'
-wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "要在 devbox-test 上安装远端组件吗" timeout=30s
-type   'Y\n'
 wait   windows[0].tabs[0].panes[0].remote.enhanced == true timeout=60s
 type   'exit\n'
 wait   windows[0].tabs[0].panes[0].remote == null timeout=15s
@@ -25,10 +24,10 @@ wait   windows[0].tabs[0].panes[0].remote == null timeout=15s
 type   'clear\n'
 type   'ssh devbox-test\n'
 wait   windows[0].tabs[0].panes[0].remote.enhanced == true timeout=60s
-assert hosts[0].install == "allowed"
 shot   ac3-updated
 type   'exit\n'
 wait   windows[0].tabs[0].panes[0].remote == null timeout=15s
+restart --set 'remote.install="ask"'
 ```
 
 ## judge

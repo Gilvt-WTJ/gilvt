@@ -220,6 +220,17 @@ fn file_targets_resolve_against_the_session_cwd() {
 }
 
 #[test]
+fn quick_look_of_a_remote_session_never_names_a_mac_file() {
+    let cwd = Path::new("/home/u/repo");
+    let home = Path::new("/Users/u");
+    assert_eq!(quick_look_target("src/lib.rs", Some(cwd), Some(home), false), QuickLook::Open(PathBuf::from("/home/u/repo/src/lib.rs")));
+    assert_eq!(quick_look_target("src/lib.rs", None, Some(home), false), QuickLook::Nothing);
+    for raw in ["src/lib.rs", "/etc/hosts", "~/notes.md"] {
+        assert_eq!(quick_look_target(raw, Some(cwd), Some(home), true), QuickLook::NotYetRemote, "{raw}");
+    }
+}
+
+#[test]
 fn durations_and_history_lines() {
     assert_eq!(duration_label(Duration::from_millis(100)), "0.1s");
     assert_eq!(duration_label(Duration::from_millis(3240)), "3.2s");

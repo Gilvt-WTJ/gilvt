@@ -43,6 +43,7 @@ const FILE_LINK_MARK: &str = "↗ ";
 /// Everything a row needs, shared by the list's render callback.
 pub struct RowRenderer {
     pub doc: Rc<MdDoc>,
+    pub overrides: Rc<super::remote::MdOverrides>,
     pub spans: Rc<CodeSpans>,
     pub style: Style,
     pub view: WeakEntity<PreviewView>,
@@ -276,7 +277,7 @@ impl Builder<'_> {
                 actions.push(Action::Footnotes);
                 continue;
             }
-            if st.link.as_ref().is_some_and(|d| self.r.doc.file_links.contains(d)) {
+            if st.link.as_ref().is_some_and(|d| self.r.doc.file_links.contains(d) && !self.r.overrides.missing_links.contains(d)) {
                 text.push_str(FILE_LINK_MARK);
                 runs.push(run(FILE_LINK_MARK.len(), s.text_font(false, false), c.link));
             }
@@ -528,7 +529,7 @@ impl Builder<'_> {
         let s = self.s();
         let c = &s.colors;
         let (border, muted, text, size) = (c.border, c.muted, c.text, s.scaled(12.0));
-        match self.r.doc.images.get(src) {
+        match self.r.overrides.images.get(src).or_else(|| self.r.doc.images.get(src)) {
             Some(Image::Local { path, width, height }) => {
                 let mut frame = div().w_full().max_w(px(*width));
                 frame.style().aspect_ratio = Some(width / height);
@@ -544,6 +545,7 @@ impl Builder<'_> {
                 placeholder(border, muted, text, size, alt, &detail)
             }
             Some(Image::Unavailable { path, reason }) => placeholder(border, muted, text, size, alt, &format!("{reason} · {path}")),
+            Some(Image::Pending) => placeholder(border, muted, text, size, alt, crate::remote::fs::loading_text()),
             None => placeholder(border, muted, text, size, alt, src),
         }
     }

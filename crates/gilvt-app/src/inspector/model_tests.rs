@@ -5,7 +5,7 @@ use gilvt_agent::TurnOutcome;
 use super::*;
 
 fn session(agent: AgentKind, id: &str, pane: Option<PaneId>, t0: Instant) -> Session {
-    let mut s = Session::new((agent, id.into()), t0);
+    let mut s = Session::new(gilvt_agent::local_key(agent, id), t0);
     s.pane = pane;
     s
 }

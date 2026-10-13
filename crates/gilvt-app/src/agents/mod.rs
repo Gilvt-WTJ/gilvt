@@ -7,6 +7,7 @@ mod foreground;
 mod pending;
 mod process;
 mod project;
+mod remote_feed;
 mod recorder;
 mod state;
 mod tails;
@@ -19,6 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use gilvt_agent::{newest_claude_transcript, GitInfo, newest_codex_rollout, scan_agent_processes, AgentKind, BindingConfidence, Change, Lease, LeaseStore, PaneId, ProcessObservation, Registry, RuntimeRef, Session, SessionKey, Store, TerminalOwner};
+use gilvt_agent::host::{Host, HostId};
 use gilvt_ipc::Request;
 use gpui::{App, AsyncApp, Global};
 
@@ -27,10 +29,11 @@ use self::state::{parse_hook_request, Core, Discovery};
 pub use self::foreground::is_shell;
 pub use self::pending::{resume_allowed, PendingResume};
 pub use self::process::describe as describe_process;
-pub use self::project::{fallback_name, project_root};
+pub use self::project::{fallback_name, project_root, remote_project};
 pub use self::state::PaneKey;
 use self::foreground::Foreground;
 use self::tails::{Out, Tails};
+use self::worker::RemoteFeed;
 use self::timelines::{anchor_for, HookFeed};
 pub use self::timelines::TimelineView;
 use crate::theme::AppSettings;
@@ -51,10 +54,29 @@ pub fn state_dir() -> Option<PathBuf> {
     Some(home.join("Library/Application Support/gilvt/state"))
 }
 
+/// A hook request and the machine it ran on (this Mac via the IPC socket, or an ssh host via its bridge).
+pub struct HookIn {
+    pub host: Host,
+    /// The ssh link a remote hook arrived on (None: a local hook). Re-checked when the hook is applied, because the
+    /// link may have ended in between (a replay burst: Hook then LinkDown).
+    pub link: Option<String>,
+    pub request: Request,
+}
+
+/// Whether a queued hook may still be applied: a remote one only while `(host, link)` still resolves to the pane it was
+/// attributed to; otherwise the pane already left the link and the hook would resurrect an ended session.
+fn hook_still_current(src: Option<(&str, &str, PaneId)>, pane_of_link: impl Fn(&str, &str) -> Option<PaneId>) -> bool {
+    src.is_none_or(|(host, link, pane)| pane_of_link(host, link) == Some(pane))
+}
+
 pub struct Agents {
     core: Core,
+    /// Where hooks enter (the IPC socket for local ones, the bridges for remote ones).
+    hook_tx: async_channel::Sender<HookIn>,
     tails: Option<Tails>,
     watching: Vec<(SessionKey, PathBuf)>,
+    /// Remote transcripts followed over the bridges (R2a §5.5).
+    remote_follows: remote_feed::RemoteFollows,
     /// Project names of session directories, resolved in the background.
     projects: HashMap<PathBuf, String>,
     resolving: HashSet<PathBuf>,
@@ -73,6 +95,129 @@ pub struct Agents {
 }
 
 impl Global for Agents {}
+
+impl Agents {
+    /// A hook from an ssh host's bridge, already attributed to `pane` (R2a §5.2): the same pipeline as local ones.
+    pub fn remote_hook(host: &str, link: &str, pane: PaneId, agent: String, event: String, payload: serde_json::Value, cx: &mut App) {
+        let Some(tx) = cx.try_global::<Agents>().map(|a| a.hook_tx.clone()) else { return };
+        let request = Request::Hook { pane: Some(pane), agent, event, payload, link: None, tmux: false };
+        let _ = tx.try_send(HookIn { host: Host::Remote(HostId(host.to_string())), link: Some(link.to_string()), request });
+    }
+
+    /// `pane` left its ssh link: its remote sessions end (R2a §5.3).
+    pub fn remote_link_ended(pane: PaneId, cx: &mut App) {
+        let Some(agents) = cx.try_global::<Agents>() else { return };
+        if !agents.core.registry.sessions().any(|s| s.pane == Some(pane) && s.is_live() && s.key.2.is_remote()) {
+            return;
+        }
+        let changes = cx.global_mut::<Agents>().core.registry.end_remote_in_pane(pane, Instant::now());
+        after_changes(changes, cx);
+    }
+}
+
+/// A transcript push from an ssh host (R2a §4.2).
+pub enum RemoteChunk {
+    Append { offset: u64, bytes: Vec<u8> },
+    /// The file shrank or was replaced; `size` is its length now (history, see `RemoteFollows::reset`).
+    Reset { size: u64 },
+}
+
+impl Agents {
+    /// The inspector shows its loading state: a remote session's history is still on its way.
+    pub fn transcript_loading(&self, key: &SessionKey) -> bool {
+        self.remote_follows.loading(key)
+    }
+
+    /// Transcripts followed on `host` (DebugState `hosts[].follows`).
+    pub fn remote_follow_count(&self, host: &str) -> usize {
+        self.remote_follows.count(host)
+    }
+
+    pub fn remote_transcript(host: &str, agent: &str, session_id: &str, chunk: RemoteChunk, cx: &mut App) {
+        let Some(agent) = AgentKind::from_name(agent) else { return };
+        let key: SessionKey = (agent, session_id.to_string(), Host::Remote(HostId(host.to_string())));
+        if !cx.has_global::<Agents>() {
+            return;
+        }
+        let agents = cx.global_mut::<Agents>();
+        let feeds = match chunk {
+            RemoteChunk::Reset { size } => match agents.remote_follows.reset(&key, size) {
+                Some(true) => vec![RemoteFeed::Reset, RemoteFeed::HistoryDone],
+                Some(false) => vec![RemoteFeed::Reset],
+                None => vec![],
+            },
+            RemoteChunk::Append { offset, bytes } => match agents.remote_follows.append(&key, offset, &bytes) {
+                Some(a) => {
+                    let mut v = vec![RemoteFeed::Lines { lines: a.lines, history: a.history }];
+                    if a.history_done {
+                        v.push(RemoteFeed::HistoryDone);
+                    }
+                    v
+                }
+                None => vec![],
+            },
+        };
+        if feeds.is_empty() {
+            return;
+        }
+        if let Some(tails) = &agents.tails {
+            feeds.into_iter().for_each(|f| tails.remote(key.clone(), f));
+        }
+        cx.defer(move |cx| workspace::notify_sessions(&[key], cx));
+    }
+
+    /// A bridge to `host` came up again: follow its sessions again from what arrived.
+    pub fn remote_reconnected(host: &str, cx: &mut App) {
+        let Some(agents) = cx.try_global::<Agents>() else { return };
+        let cmds = agents.remote_follows.reconnected(host);
+        run_follow_cmds(cmds, cx);
+    }
+
+    fn remote_following(key: &SessionKey, size: u64, cx: &mut App) {
+        let agents = cx.global_mut::<Agents>();
+        if agents.remote_follows.following(key, size) {
+            if let Some(tails) = &agents.tails {
+                tails.remote(key.clone(), RemoteFeed::HistoryDone);
+            }
+        }
+        let key = key.clone();
+        cx.defer(move |cx| workspace::notify_sessions(&[key], cx));
+    }
+}
+
+/// Sends the follow / unfollow requests. A follow that fails (no bridge yet, timeout) just stops waiting: the
+/// reconnect re-follows from what arrived.
+fn run_follow_cmds(cmds: Vec<remote_feed::FollowCmd>, cx: &mut App) {
+    use gilvt_ipc::remote::{RemoteRequest, RemoteResponse};
+    use remote_feed::{FollowCmd, FOLLOW_TIMEOUT};
+    for cmd in cmds {
+        match cmd {
+            FollowCmd::Follow { host, key, path, from, restart } => {
+                if restart {
+                    if let Some(tails) = &cx.global::<Agents>().tails {
+                        tails.remote(key.clone(), RemoteFeed::Reset);
+                    }
+                }
+                let req = RemoteRequest::TranscriptFollow { agent: key.0.name().into(), session_id: key.1.clone(), path, from };
+                crate::remote::bridge::request(&host, req, FOLLOW_TIMEOUT, Box::new(move |res, cx| match res {
+                    Ok(RemoteResponse::Following { size }) => Agents::remote_following(&key, size, cx),
+                    other => {
+                        // No bridge: the reconnect follows again. Anything else (timeout, daemon error): retry.
+                        use crate::remote::bridge::RequestError;
+                        let retry = !matches!(other, Err(RequestError::NotConnected | RequestError::Disconnected));
+                        if cx.has_global::<Agents>() {
+                            cx.global_mut::<Agents>().remote_follows.follow_failed(&key, Instant::now(), retry);
+                        }
+                    }
+                }), cx);
+            }
+            FollowCmd::Unfollow { host, key } => {
+                let req = RemoteRequest::TranscriptUnfollow { agent: key.0.name().into(), session_id: key.1.clone() };
+                crate::remote::bridge::request(&host, req, FOLLOW_TIMEOUT, Box::new(|_, _| {}), cx);
+            }
+        }
+    }
+}
 
 impl Agents {
     /// The snapshot recorder (the 「产物」 tab reads its ledgers).
@@ -148,8 +293,12 @@ impl Agents {
         }
     }
 
-    /// The session's project: git root name, else the cwd's last component.
-    pub fn project(&self, s: &Session) -> String {
+    /// The session's project: git root name, else the cwd's last component; a remote session's is
+    /// `<host display> · <last directory>` (the display name is read from `RemoteHosts`, R2a §5.4).
+    pub fn project(&self, s: &Session, cx: &App) -> String {
+        if let Host::Remote(h) = &s.key.2 {
+            return remote_project(&crate::remote::display_of(&h.0, cx), s.cwd.as_deref());
+        }
         match &s.cwd {
             Some(cwd) => self.project_of_dir(cwd),
             None => crate::i18n::text("其他", "Other").into(),
@@ -166,6 +315,9 @@ impl Agents {
 
     /// The session's repository facts, if its directory is in a git repository and has been looked up.
     pub fn git(&self, s: &Session) -> Option<&GitInfo> {
+        if s.key.2.is_remote() {
+            return None;
+        }
         self.git_of_dir(s.cwd.as_ref()?)
     }
 
@@ -184,7 +336,7 @@ impl Agents {
                 .core
                 .registry
                 .sessions()
-                .filter(|s| s.is_live())
+                .filter(|s| s.is_live() && !s.key.2.is_remote())
                 .filter_map(|s| {
                     let cwd = s.cwd.clone()?;
                     let known = a.git.contains_key(&cwd);
@@ -238,6 +390,10 @@ impl Agents {
                 session_id: s.session_id().to_string(),
                 name: s.name.clone(),
                 last_status: gilvt_agent::status_label(&s.status),
+                host: match &s.key.2 {
+                    gilvt_agent::host::Host::Local => None,
+                    gilvt_agent::host::Host::Remote(h) => Some(h.0.clone()),
+                },
             });
         }
         self.pending.for_pane(pane).map(PendingResume::to_snap)
@@ -331,14 +487,17 @@ fn git_cache_update(cached: Option<&Option<GitInfo>>, outcome: gilvt_agent::Quer
 }
 
 /// Sets up the global and its background work. Returns where the IPC server sends `Hook` requests.
-pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
+pub fn init(cx: &mut App) -> async_channel::Sender<HookIn> {
     let store = state_dir().map_or_else(Store::in_memory, |d| Store::open(&d));
     let (batch_tx, batch_rx) = async_channel::unbounded();
     let (wake_tx, wake_rx) = async_channel::unbounded::<()>();
+    let (hook_tx, hook_rx) = async_channel::unbounded::<HookIn>();
     cx.set_global(Agents {
         core: Core::new(store),
+        hook_tx: hook_tx.clone(),
         tails: Some(Tails::spawn(batch_tx)),
         watching: Vec::new(),
+        remote_follows: Default::default(),
         projects: HashMap::new(),
         resolving: HashSet::new(),
         git: HashMap::new(),
@@ -358,7 +517,6 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
         }
     })
     .detach();
-    let (hook_tx, hook_rx) = async_channel::unbounded::<Request>();
     cx.spawn(async move |cx| {
         while let Ok(first) = hook_rx.recv().await {
             let mut requests = vec![first];
@@ -371,10 +529,14 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
                     requests
                         .into_iter()
                         .zip(anchors)
-                        .filter_map(|(r, anchor)| match r {
-                            Request::Hook { pane, agent, event, payload } => {
-                                let h = parse_hook_request(pane, &agent, &event, &payload)?;
-                                Some((h, HookFeed { event, payload, anchor, at }))
+                        .filter_map(|(HookIn { host, link, request }, anchor)| match request {
+                            Request::Hook { pane, agent, event, payload, .. } => {
+                                let origin = match (&host, link, pane) {
+                                    (Host::Remote(h), Some(link), Some(pane)) => Some((h.0.clone(), link, pane)),
+                                    _ => None,
+                                };
+                                let h = parse_hook_request(pane, &agent, &event, &payload)?.with_host(host);
+                                Some((h, HookFeed { event, payload, anchor, at }, origin))
                             }
                             _ => None,
                         })
@@ -384,12 +546,23 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
             let applied = cx.update(|cx| {
                 let visible = workspace::visible_panes(cx);
                 let now = Instant::now();
+                // A burst can hold a Hook and then the LinkDown that ended its pane's link: that LinkDown already ran.
+                let links = cx.try_global::<crate::remote::RemoteHosts>();
+                let parsed: Vec<_> = parsed
+                    .into_iter()
+                    .filter(|(_, _, origin)| {
+                        hook_still_current(origin.as_ref().map(|(h, l, p)| (h.as_str(), l.as_str(), *p)), |host, link| {
+                            links.and_then(|r| r.pane_of_link(host, link))
+                        })
+                    })
+                    .map(|(h, feed, _)| (h, feed))
+                    .collect();
                 let agents = cx.global_mut::<Agents>();
                 let mut changes: Vec<Change> = Vec::new();
                 let mut modes: Vec<SessionKey> = Vec::new();
                 for (h, feed) in parsed {
                     changes.extend(agents.core.hook(&h, |p| visible.contains(&p), now));
-                    if h.meta.agent_id.is_none() {
+                    if h.meta.agent_id.is_none() && !h.host.is_remote() {
                         if let Some(key) = agents.core.timeline_key(&h) {
                             let cwd = agents.core.registry.get(&key).and_then(|s| s.cwd.clone()).or_else(|| h.meta.cwd.clone());
                             agents.recorder.signals(&key, cwd, hook_signals(&h.events, Source::Hook, false), feed.at);
@@ -429,6 +602,9 @@ pub fn init(cx: &mut App) -> async_channel::Sender<Request> {
                 let keys: Vec<SessionKey> = views.iter().map(|(key, _)| key.clone()).collect();
                 agents.timelines.extend(views);
                 for (key, batch) in &batches {
+                    if key.2.is_remote() {
+                        continue;
+                    }
                     let (lite, cwd) = agents.core.registry.get(key).map_or((false, None), |s| (s.lite, s.cwd.clone()));
                     agents.recorder.signals(key, cwd, batch_signals(batch, lite), SystemTime::now());
                 }
@@ -496,6 +672,8 @@ async fn poll_loop(cx: &mut AsyncApp) {
                 workspace::notify_all(cx);
             }
             after_changes(changes, cx);
+            let cmds = cx.global_mut::<Agents>().remote_follows.tick(Instant::now());
+            run_follow_cmds(cmds, cx);
             Agents::track_dirs(workspace::terminal_dirs(cx), cx);
             if ticks % GIT_POLLS == 1 {
                 Agents::refresh_git(cx);
@@ -589,7 +767,7 @@ fn reconcile_external(
                 BindingConfidence::Unresolved,
             ),
         };
-        let key = (process.agent, session_id.clone());
+        let key = gilvt_agent::local_key(process.agent, session_id.clone());
         if next.contains_key(&key) {
             continue;
         }
@@ -621,10 +799,10 @@ fn reconcile_external(
 
 /// Terminal anchors of hook requests, read as they arrive: the pane's absolute cursor line for a session
 /// `PreToolUse` (spec §5), else None. Other requests do not touch the terminals.
-fn anchors(requests: &[Request], cx: &App) -> Vec<Option<gilvt_agent::Anchor>> {
+fn anchors(requests: &[HookIn], cx: &App) -> Vec<Option<gilvt_agent::Anchor>> {
     requests
         .iter()
-        .map(|r| match r {
+        .map(|r| match &r.request {
             Request::Hook { pane, event, payload, .. } => {
                 anchor_for(*pane, event, payload, |p| workspace::absolute_cursor_line(p, cx))
             }
@@ -666,6 +844,9 @@ fn after_changes(changes: Vec<Change>, cx: &mut App) {
         }
         agents.watching = set;
     }
+    let remote = agents.core.remote_follow_set();
+    let cmds = agents.remote_follows.sync(&remote, Instant::now());
+    run_follow_cmds(cmds, cx);
     resolve_projects(cx);
     cx.defer(workspace::notify_all);
 }
@@ -677,6 +858,7 @@ fn resolve_projects(cx: &mut App) {
         .core
         .registry
         .sessions()
+        .filter(|s| !s.key.2.is_remote())
         .filter_map(|s| s.cwd.clone())
         .chain(agents.term_dirs.iter().cloned())
         .filter(|c| !agents.projects.contains_key(c) && !agents.resolving.contains(c))
@@ -719,7 +901,7 @@ mod occupied_tests {
     }
 
     fn pending(pane: u64) -> PendingResume {
-        let a = AgentSnap { kind: "claude".into(), session_id: "p".into(), name: "n".into(), last_status: "空闲".into() };
+        let a = AgentSnap { kind: "claude".into(), session_id: "p".into(), name: "n".into(), last_status: "空闲".into(), host: None };
         PendingResume::from_snap(pane, None, &a).unwrap()
     }
 
@@ -744,6 +926,20 @@ mod occupied_tests {
         let mut s = core.registry.sessions().next().unwrap().clone();
         s.pane = None;
         assert!(occupied_panes([&s], &[]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod hook_race_tests {
+    use super::hook_still_current;
+
+    #[test]
+    fn a_queued_remote_hook_is_dropped_once_its_link_left_the_pane() {
+        let live = |_: &str, l: &str| (l == "L1").then_some(7u64);
+        assert!(hook_still_current(None, live), "local hooks carry no link");
+        assert!(hook_still_current(Some(("h", "L1", 7)), live));
+        assert!(!hook_still_current(Some(("h", "L1", 8)), live), "the link moved to another pane");
+        assert!(!hook_still_current(Some(("h", "L2", 7)), live), "the link is gone (LinkDown ran first)");
     }
 }
 

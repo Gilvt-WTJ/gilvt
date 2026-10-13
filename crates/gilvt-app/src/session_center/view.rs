@@ -230,7 +230,8 @@ impl SessionCenterView {
     pub(crate) fn row_dir(row: &model::Row, cx: &App) -> model::RowDir {
         let history = cx.try_global::<History>();
         let agents = cx.try_global::<Agents>();
-        model::row_dir(
+        model::row_dir_of(
+            &row.key,
             &row.cwd,
             crate::launcher::label_home(),
             |p| history.is_none_or(|h| h.dir_exists(p)),
@@ -303,7 +304,7 @@ impl SessionCenterView {
                 .snapshot
                 .entries
                 .iter()
-                .map(|entry| ((entry.agent, entry.session_id.clone()), entry))
+                .map(|entry| (gilvt_agent::local_key(entry.agent, entry.session_id.clone()), entry))
                 .collect();
             for item in &mut inbox {
                 if let Some(entry) = history.get(&item.key) {
@@ -468,13 +469,14 @@ impl SessionCenterView {
             cx.emit(SessionsEvent::Navigate(runtime));
             return;
         }
-        let Some(entry) = self
-            .snapshot
-            .entries
-            .iter()
-            .find(|entry| entry.agent == row.key.0 && entry.session_id == row.key.1)
-        else {
-            return;
+        let entry = match model::resume_target(&row.key, &row.cwd, &self.snapshot.entries) {
+            model::ResumeTarget::Local(entry) => entry,
+            model::ResumeTarget::Remote { host, command } => {
+                cx.emit(SessionsEvent::RunRemote { host, command });
+                return;
+            }
+            // Like a local row without a history entry: nothing to resume (the Session Center has no message line).
+            model::ResumeTarget::RemoteNoDir | model::ResumeTarget::Nothing => return,
         };
         let launch = cx.global::<AppSettings>().0.agent.launch(entry.agent);
         match sessions_model::resume(entry, None, launch, Path::exists) {

@@ -100,6 +100,7 @@ fn layout_key(head: &Head) -> String {
 pub fn render(ws: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) -> (AnyElement, bool) {
     let theme = crate::theme::current(cx);
     let k = Colors::new(&theme.ui, theme.dark);
+    ws.inspector_follow_remote(cx);
     if ws.inspector().tab == InspectorTab::Config {
         ws.sync_config_summary(cx);
     }
@@ -109,12 +110,14 @@ pub fn render(ws: &mut Workspace, window: &mut Window, cx: &mut Context<Workspac
     let session = focused.and_then(|p| model::follow(agents.registry().sessions(), p));
     let view = session.and_then(|s| agents.timeline(&s.key));
     let card = session.map(|s| model::card(s, view.as_deref(), agents.permission_mode(&s.key), clock));
-    let banner = model::banner(agents.registry().sessions(), session, reachable(ws, window.window_handle(), cx), |s| agents.project(s), clock.now);
+    let banner = model::banner(agents.registry().sessions(), session, reachable(ws, window.window_handle(), cx), |s| agents.project(s, cx), clock.now);
     let mut tick = model::needs_tick(card.as_ref(), banner.as_ref());
     let plain = focused.map_or(Plain::Shell, |p| ws.plain_kind(p));
     let followed = session.map(|s| (s.key.clone(), s.cwd.clone()));
     let session_live = session.is_some_and(|s| s.is_live());
     let tab = ws.inspector().tab;
+    // A remote session whose history is still on its way, and nothing to show yet.
+    let loading = session.is_some_and(|s| agents.transcript_loading(&s.key)) && view.as_ref().map_or(true, |v| v.turns.is_empty());
 
     let body = match tab {
         InspectorTab::Artifacts => {
@@ -124,6 +127,17 @@ pub fn render(ws: &mut Workspace, window: &mut Window, cx: &mut Context<Workspac
         }
         InspectorTab::Config => super::config_view::render(ws, k, cx),
         InspectorTab::Process => match (card, followed) {
+            (Some(_), Some(_)) if loading => div()
+                .id("inspector-scroll")
+                .flex_1()
+                .min_h(px(0.))
+                .overflow_y_scroll()
+                .px(px(10.))
+                .pt(px(8.))
+                .pb(px(14.))
+                .children(banner.as_ref().map(|b| render_banner(b, &k)))
+                .child(div().px(px(8.)).py(px(40.)).flex().justify_center().text_color(k.empty).child(crate::i18n::text("正在读取远端会话的过程…", "Loading the remote session…")))
+                .into_any_element(),
             (Some(card), Some((key, cwd))) => {
                 let plan = view.as_ref().and_then(|v| model::plan(&v.plan));
                 let head = Head { banner, card, plan, failed: view.as_ref().is_some_and(|v| v.failed) };

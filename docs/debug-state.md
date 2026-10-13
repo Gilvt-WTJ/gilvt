@@ -20,7 +20,7 @@ GUI 验收测试通过 socket 读取 gilvt 的界面状态（`Request::DebugStat
 | `windows` | 数组 | 每个工作区窗口的状态，按 gpui 列出窗口的顺序，见下 |
 | `chat_process` | 对象 | 监控官的对话进程（S2 §6.2），**总是存在**：`{ running, status, provider, pid, turns, starts }`。`running`：对话进程在跑；`status`：同 `windows[].monitor.chat.status`（`idle` / `starting` / `answering` / `stopping` / `error`）；`provider`：正在跑的通道（`claude` / `codex`，没有进程时 `null`）；`pid`：进程号（没有进程时 `null`）；`turns`：这个进程结束过的轮数；`starts`：本次 gilvt 运行里启动过几次对话进程（懒启动：发第一条消息前为 `0`；空闲 30 分钟结束后再发消息会加 1） |
 | `update` | 对象 | 自动更新（Sparkle），**总是存在**：`{ available, mode, ready }`。`available`：这个构建带 Sparkle 并已启动（只有 `GILVT_SPARKLE=1` 打包的正式版为真；开发构建和 GUI 沙盒里为 `false`）；`mode`：生效的 `[update] mode`（`download` / `check` / `off`，没配置时 `download`）；`ready`：已下载、等退出时安装的版本号（如 `"0.2.0"`，此时侧栏底部有「已下载，退出时安装」提示），没有时为 `null` |
-| `hosts` | 数组 | 本次运行用过的 ssh 主机：`{ id, display, hostname, install, installed, bridge, links }`。`install`：`ask` / `allowed` / `never`（这台主机记住的选择）；`installed`：已知装在那里的 build id；`bridge`：`none` / `connecting` / `up` / `down` / `mismatch`；`links`：这台主机上正在进行的 ssh 登录 |
+| `hosts` | 数组 | 本次运行用过的 ssh 主机：`{ id, display, hostname, install, installed, bridge, links, cursor, epoch, gap, follows, watches }`。`install`：`ask` / `allowed` / `never`（这台主机记住的选择）；`installed`：已知装在那里的 build id；`bridge`：`none` / `connecting` / `up` / `down` / `mismatch`；`links`：这台主机上正在进行的 ssh 登录；`cursor`：从这台主机的 daemon 收到的最大事件 `seq`（重连时作为 `Hello.cursor` 发回）；`epoch`：那个 daemon 的启动时间（毫秒），还没有收到 Welcome 时为 `null`；`gap`：本次运行里是否有一次重连报告丢失了 hook（`Welcome.gap`）；`follows`：正在跟踪的远端 transcript 数（检查器）；`watches`：daemon 已确认的被监视远端文件数（固定预览、Quick Look、编辑器；同一个文件只算一次；`Watch` 得到 `Ok` 才计入，bridge 断开后归零。用例等 `watches` 达到预期，就表示之后的改动一定会被推送） |
 | `settings` | 对象（键可能不存在） | `⌘,` 设置窗口的状态，见下 `## settings`；窗口关着时**没有这个键**（不是 `null`），用 `settings exists` 判断是否打开 |
 | `untranslated` | 数组 | 英文界面里仍是中文的界面文字，**总是存在**：界面语言为英文（`settings.language == "en"`）时，列出这次 state 里含汉字或全角标点的字符串，每项 `{ path, text }`（`path` 如 `windows[0].tabs[0].title`）；中文界面时总是 `[]`。用户内容按键名跳过：`screen_tail`、`selection`、`marked_text`、`input_text`、`query`、`text`、`cwd`、`path`、`dir`、`repo`、`repo_root`、`config_path`、`command`、`running_command`、`error_line`、`branch`、`detached`、`quote`、`follow_ups`、`tty`、`session`、`session_key`、`key`、`id`、`cursor`、`snapshot_through`。语言列表里用本语言写的语言名（`简体中文`）和语言页图标 `文A` 不算。其余字段里的中文都算漏翻，所以用例要用英文提示词和 ASCII 路径。用法：`assert untranslated[*] exists count=0` |
 
@@ -85,6 +85,7 @@ GUI 验收测试通过 socket 读取 gilvt 的界面状态（`Request::DebugStat
 | `visible` | 布尔 | 画出来了：分区展开（或是正在重命名的行）时为 `true`，折叠分区里的行为 `false` |
 | `rect` | rect 或 `null` | 整行（含圆角背景）；`visible` 为 `false`，或滚出左栏可见区时为 `null` |
 | `git` | 对象或 `null` | 会话目录的 git 状态，行上画了 git 行才有：`{ line, branch, detached, dirty, ahead, behind, linked_worktree, repo_root, repo }`。`line` 是行上画出的文字（`⎇ main ●2 ↑1↓0`；在 linked worktree 里前面加目录名：`gilvt-wt · ⎇ main`；放不下时先去掉 ↑↓、再去掉 ●，最后截断分支名）；`branch` 是分支名（detached HEAD 时 `null`），`detached` 是此时的短提交（否则 `null`），`dirty` 是有改动 / 未跟踪的路径数，`ahead` / `behind` 相对上游（没有上游为 0），`linked_worktree`，`repo_root` 是该工作树的顶层目录，`repo` 是主仓库的目录名（同一仓库的主目录与各 worktree 的会话 `repo` 相同，左栏按它归为同一个项目）。不在 git 仓库里、会话已结束、待恢复的行为 `null`；终端行总是 `null`。值约每 10 秒刷新，执行中的会话已有值时不刷新 |
+| `host` | 字符串或 `null` | 会话行：`"local"` 或会话所在的 ssh 主机（`user@hostname:port`）；终端行为 `null` |
 | `summary` | 字符串或 `null` | 行上紫色「✦ …」一行的文字（不含「✦ 」）：该会话 / 终端「✦ AI 总结」里「近期」的第一句。`[monitor]` 未开启、`sidebar_summary` 关闭、目录在 `exclude_paths` 里、或还没有总结时为 `null`（左栏只显示已有总结，不会触发总结） |
 
 ### `tabs[]`
@@ -117,8 +118,10 @@ pane（`panes[]`）：
 | `cursor` | 对象或 `null` | 终端 pane：上一帧终端光标所在的格子 `{ "row", "col", "rect" }`，`row` / `col` 是可见区里的行列（从 0 起），`rect` 是这一格；TUI（Claude Code）隐藏光标时仍是它的位置。预览 / 编辑器 pane、第一帧之前为 `null` |
 | `commands` | 数组 | 终端 pane：shell 集成（OSC 133）记下的最近 10 条命令块，**最新在前**：`[{ "id", "command", "exit", "running", "has_output", "error_line" }]`。`id` 在 pane 内递增；`command` 是输入的命令原文（shell 没发来时为 `null`，超长截断并以 `…` 结尾）；`exit` 是退出码（还在运行、或没看到结束时为 `null`）；`running` 表示还在运行；`has_output` 表示抓到了输出尾部（备用屏或读不到时为 `false`）；`error_line` 是命令失败时输出的最后一个非空行（S2 起来自 PTY 精确捕获），否则为 `null`。只在内存里，不含输出文字。其他 pane 为 `[]` |
 | `running_command` | 字符串或 `null` | 终端 pane：正在运行的命令（shell 没发原文时为 `""`）；没有在运行的命令、其他 pane 为 `null` |
-| `host` | 字符串或 `null` | 终端 pane 所在的主机：`local`，或 ssh 主机的 `user@hostname:port`；其他种类的 pane 为 `null` |
+| `host` | 字符串或 `null` | 终端：所在的主机；预览、编辑器：所显示文件的主机（`local` 或 `user@hostname:port`；stdin 预览为 `null`）；监控官为 `null` |
 | `remote` | 对象或 `null` | 终端 pane 处在 ssh 里时：`{ link, host, display, hostname, enhanced, cwd }`。`display` 是用户输入的主机名；`hostname` 是远端 `uname -n`；`enhanced`：经由 gilvt-remote 登录（装了远端组件）；`cwd`：远端 shell 上报的目录（OSC 7），未知为 `null`。此时上面的 `cwd` 为 `null` |
+| `loading` | 布尔 | 预览、编辑器在等远端主机的回应（R2a §8）；终端为 false |
+| `size` | 数字或 `null` | 固定预览已载入文档的字节数（只有大小，不含内容）；其他为 `null` |
 
 ### `editors[]`
 
@@ -128,7 +131,7 @@ pane（`panes[]`）：
 |---|---|---|
 | `pane` | 数字 | PaneId（与 `tabs[].panes[].id` 相同） |
 | `tab` | 数字 | 所在标签在 `tabs[]` 里的下标 |
-| `path` | 字符串 | 文件的绝对路径（没有路径时为 `""`）；只有路径，**不含文件内容** |
+| `path` | 字符串 | 文件的绝对路径（没有路径时为 `""`；远端编辑器为远端路径）；只有路径，**不含文件内容** |
 | `dirty` | 布尔 | 有未保存的修改 |
 | `readonly` | 布尔 | 只读（文件被拒绝或过大等，头部显示「只读」） |
 | `cursor` | 对象 | 光标 `{ "line", "col" }`，从 1 起算，与状态栏的「第 N 行，第 M 列」一致 |
@@ -155,6 +158,9 @@ pane（`panes[]`）：
 | `bar_buttons` | 数组 | 当前横条的按钮，从左到右：`[{ "label", "rect" }]`（标签与画出的一致，如 `重新载入`、`对比`、`仍然覆盖`）；`bar` 为 `none` 时为 `[]` |
 | `status_encoding_rect` | rect 或 `null` | 状态栏里的编码一段（点击打开编码菜单） |
 | `status_line_ending_rect` | rect 或 `null` | 状态栏里的换行符一段（点击打开换行符菜单；只读缓冲区上点击不打开） |
+| `host` | 字符串 | `local`，或文件所在 ssh 主机的 `user@hostname:port` |
+| `loading` | 布尔 | 远端文件还在读取（此时是空的只读 pane） |
+| `bar_message` | 字符串或 `null` | `bar == "save_error"` 时红色横条的文字（如「devbox 未连接，未保存」）；其他为 `null` |
 
 `bar` 的取值：
 
@@ -314,7 +320,7 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 
 | `kind` | 字段 |
 |---|---|
-| `quicklook` | `path`（文件路径；stdin 为 `null`），`base`（diff 基准，如 `与 HEAD 相比`、`仅文件`；加载前为 `null`），`mode`（`unified` / `split` / `rendered`），`code`（代码 / diff 文字区域的 rect，Markdown 渲染视图里是整个文档区；加载前为 `null`），`changed_since`（仅「本轮」diff 有意义：磁盘上的文件与这一轮的「后」快照不同；其他情况为 `false`），`selection`（鼠标选区 `⌘C` 会复制的文字：代码视图里 Tab 保持为 Tab、行间 `\n`；渲染视图里每个文本块（段落、标题、列表项、代码块、表格单元格）一行；没有选区为 `null`） |
+| `quicklook` | `path`（文件路径；stdin 为 `null`），`base`（diff 基准，如 `与 HEAD 相比`、`仅文件`；加载前为 `null`），`mode`（`unified` / `split` / `rendered`），`code`（代码 / diff 文字区域的 rect，Markdown 渲染视图里是整个文档区；加载前为 `null`），`changed_since`（仅「本轮」diff 有意义：磁盘上的文件与这一轮的「后」快照不同；其他情况为 `false`），`selection`（鼠标选区 `⌘C` 会复制的文字：代码视图里 Tab 保持为 Tab、行间 `\n`；渲染视图里每个文本块（段落、标题、列表项、代码块、表格单元格）一行；没有选区为 `null`）；`host`（文件所在主机：`local` 或 `user@hostname:port`；stdin / 没有文件为 `null`），`loading`（在等远端主机：⌘点击远端路径或远端 `gilvt diff` 时先出现一个 `loading` 为 true、`path` 为 null 的 Quick Look），`size`（已载入文档的字节数，载入前为 `null`；验收用例用它区分远端文件与 Mac 上的同名文件） |
 | `finder` | `query`，`selected`（选中的下标），`items`（列出的文件数） |
 | `sessions` | `query`，`selected`（光标所在行），`items`（行数，不含分组标题），`filter`：`{ "scope": "current" \| "all", "stale": 布尔, "archived": 布尔 }`，`rows`、`chips`、`confirm`、`banner`、`cleanup`（见下） |
 | `cleanup` | 清理向导（`⌘⇧K`、会话面板底栏「清理… ⌘⇧K」、「会话」菜单「清理…」；打开时代替会话面板，`Esc` 返回）：`preset`、`column`、`selected`、`computing`、`presets`、`rows`、`summary`、`buttons`、`confirm`、`banner`（见下） |
@@ -327,9 +333,10 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `rows` | 数组 | 列出的会话行，按顺序（分组标题不算）：`{ session, title, title_source, agent, meta, dir, dir_missing, right, live, binding, pid, tty, selected, marked, rect }`。`title_source` 说明 `title` 从哪来：`saved`（在 gilvt 里改的名字）/ `custom`（Agent 里改的标题）/ `ai`（Agent 生成的标题）/ `prompt`（从提示词里取的）。`title` 是会话名（改过名就是新名字），`meta` 是标题下的灰字，`right` 是最后活动时间或运行位置；外部会话显示终端与 TTY。`live`：运行中（不能移到废纸篓），`binding` 是 `none` / `exact` / `inferred` / `unresolved`，`pid` / `tty` 是外部 runtime 身份信息（无则为 `null`）。滚出列表可见区的行 `rect` 为 `null` |
+| `rows` | 数组 | 列出的会话行，按顺序（分组标题不算）：`{ host, session, title, title_source, agent, meta, dir, dir_missing, right, live, binding, pid, tty, selected, marked, rect }`。`title_source` 说明 `title` 从哪来：`saved`（在 gilvt 里改的名字）/ `custom`（Agent 里改的标题）/ `ai`（Agent 生成的标题）/ `prompt`（从提示词里取的）。`title` 是会话名（改过名就是新名字），`meta` 是标题下的灰字，`right` 是最后活动时间或运行位置；外部会话显示终端与 TTY。`live`：运行中（不能移到废纸篓），`binding` 是 `none` / `exact` / `inferred` / `unresolved`，`pid` / `tty` 是外部 runtime 身份信息（无则为 `null`）。滚出列表可见区的行 `rect` 为 `null` |
 | `chips` | 数组 | 筛选条 `{ label, active, rect }`：当前项目名（只有有当前项目时才有）、`全部项目`、`≥ 7 天未活动`、`已归档` |
 | `confirm` | 对象或 `null` | 移到废纸篓的确认条（在按键提示的位置）：`{ text, buttons: [{ label, rect }] }`，`text` 如 `2 个会话 · 0.2 MB 将移到废纸篓（可从废纸篓还原）`（有附属数据时 `2 个会话 · 0.2 MB + 附属 0.1 MB 将移到…`；附属大小在后台计算，算完之前是 `2 个会话 · 0.2 MB + 附属 计算中… 将移到…`，此时按钮与 `↩` 照常可用），按钮依次是「取消」「移到废纸篓」 |
+| `host_errors` | 字符串数组 | 历史读取失败的主机各一行（「devbox：历史读取失败」），按主机 id 排序；没有时 `[]` |
 | `banner` | 字符串或 `null` | 面板顶部的红色横幅（`已复制会话 ID`、`运行中的会话不能移到废纸篓` 等，几秒后消失） |
 | `cleanup` | 对象或 `null` | 按键提示末尾的「清理… ⌘⇧K」入口 `{ label, rect }`，点击打开清理向导；确认条显示时为 `null` |
 
@@ -392,6 +399,8 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 | `toast` | 字符串或 `null` | 标签条下方的提示：`已复制`、`已超出回滚范围`、`该 pane 已关闭`、`这一轮还在进行，结束后才能看 diff` 等（2.5 秒后消失） |
 | `rows` | 数组 | 时间线上列出的每一项，按顺序（`timeline_rows` 个），见下 |
 | `artifacts` | 对象或 `null` | 「产物」标签的内容，只有当前标签是 `artifacts` 时才非 `null`，见下 |
+| `source` | 字符串或 `null` | 正在跟随的会话在哪里运行：`local` / `remote`；没有跟随的会话时 `null` |
+| `loading` | 布尔 | 跟随的远端会话的历史还没有全部到达，时间线为空时显示「正在读取远端会话的过程…」 |
 | `config` | 对象或 `null` | M5a「配置」标签的只读摘要，只有当前标签是 `config` 时才非 `null`，见下 |
 
 「配置」标签（`inspector.config`）不会导出 MCP 命令、URL、token 或环境变量值：

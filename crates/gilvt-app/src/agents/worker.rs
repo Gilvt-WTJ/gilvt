@@ -51,10 +51,36 @@ struct SubTail {
     linked: bool,
 }
 
+/// Where a session's transcript lines come from (spec R2a §5.5).
+pub enum TranscriptSource {
+    /// A file on this Mac.
+    Local(Tail),
+    /// Pushed by an ssh host's daemon (the main thread forwards them).
+    Remote(RemoteQueue),
+}
+
+#[derive(Default)]
+pub struct RemoteQueue {
+    /// Lines (`true`: history) and `None` for `HistoryDone`, in the order they came: the catch-up goes out where
+    /// `HistoryDone` stood, before any live batch that followed it.
+    pending: Vec<Option<(Vec<String>, bool)>>,
+    /// History, reduced as it arrives (the latest usage and model), for one catch-up batch once it is complete.
+    history: Vec<gilvt_agent::Event>,
+    /// The session's first real prompt, seen in the history.
+    first_prompt: Option<String>,
+    caught_up: bool,
+}
+
+pub enum RemoteFeed {
+    Lines { lines: Vec<String>, history: bool },
+    HistoryDone,
+    Reset,
+}
+
 struct Entry {
     fed: Fed,
     /// The session transcript / rollout.
-    tail: Option<Tail>,
+    source: Option<TranscriptSource>,
     /// Being watched (a live session with a transcript).
     live: bool,
     /// The next read is history: the registry takes it as [`Batch::Catchup`].
@@ -67,7 +93,7 @@ struct Entry {
 
 impl Entry {
     fn new(agent: AgentKind) -> Entry {
-        Entry { fed: Fed::new(agent), tail: None, live: false, fresh: false, subs: BTreeMap::new(), view: None }
+        Entry { fed: Fed::new(agent), source: None, live: false, fresh: false, subs: BTreeMap::new(), view: None }
     }
 }
 
@@ -88,19 +114,27 @@ impl Worker {
         let wanted: HashMap<SessionKey, PathBuf> = set.into_iter().collect();
         for (key, path) in &wanted {
             let e = self.entries.entry(key.clone()).or_insert_with(|| Entry::new(key.0));
-            match &e.tail {
-                Some(t) if t.path() == path => {}
+            if key.2.is_remote() {
+                // Its lines are pushed by the bridge (`remote`); the path is on the ssh host.
+                if !matches!(e.source, Some(TranscriptSource::Remote(_))) {
+                    e.source = Some(TranscriptSource::Remote(RemoteQueue::default()));
+                }
+                e.fresh = false;
+                continue;
+            }
+            match &e.source {
+                Some(TranscriptSource::Local(t)) if t.path() == path => {}
                 Some(_) => {
                     // Another transcript for the same session: start over rather than replay it into the old
                     // rows twice.
                     e.fed = Fed::new(key.0);
                     e.fed.dirty = true;
                     e.subs.clear();
-                    e.tail = Some(Tail::new(path.clone()));
+                    e.source = Some(TranscriptSource::Local(Tail::new(path.clone())));
                     e.fresh = true;
                 }
                 None => {
-                    e.tail = Some(Tail::new(path.clone()));
+                    e.source = Some(TranscriptSource::Local(Tail::new(path.clone())));
                     e.fresh = true;
                 }
             }
@@ -118,6 +152,26 @@ impl Worker {
         e.fed.apply(&key, |t| t.apply_hook(&h.event, &h.payload, h.anchor, h.at));
     }
 
+    /// Remote lines / markers from the main thread (R2a §5.5).
+    pub fn remote(&mut self, key: SessionKey, feed: RemoteFeed) {
+        let e = self.entries.entry(key.clone()).or_insert_with(|| Entry::new(key.0));
+        if !matches!(e.source, Some(TranscriptSource::Remote(_))) {
+            e.source = Some(TranscriptSource::Remote(RemoteQueue::default()));
+        }
+        let Some(TranscriptSource::Remote(q)) = e.source.as_mut() else { unreachable!() };
+        match feed {
+            RemoteFeed::Lines { lines, history } => q.pending.push(Some((lines, history))),
+            RemoteFeed::HistoryDone => q.pending.push(None),
+            RemoteFeed::Reset => {
+                // Back to the catch-up state: the lines that follow are history until `HistoryDone` (the main
+                // thread sends it at once when there is nothing to catch up on).
+                *q = RemoteQueue::default();
+                e.fed = Fed::new(key.0);
+                e.fed.dirty = true;
+            }
+        }
+    }
+
     /// The user answered an approval dialog of session `key` (a session without a timeline yet has nothing
     /// waiting).
     pub fn approval_answered(&mut self, key: &SessionKey, at: std::time::SystemTime) {
@@ -129,27 +183,65 @@ impl Worker {
     /// Reads what the watched transcripts gained: every line to the timeline, the parsed events to `emit`
     /// for the registry. Then the subagent transcripts of Claude sessions.
     pub fn read(&mut self, emit: &mut dyn FnMut(SessionKey, Batch)) {
-        for (key, e) in self.entries.iter_mut().filter(|(_, e)| e.live) {
-            let Some(tail) = e.tail.as_mut() else { continue };
-            let fresh = std::mem::take(&mut e.fresh);
-            let mut lines = Vec::new();
-            for _ in 0..if fresh { CATCHUP_READS } else { 1 } {
-                match tail.read_new() {
-                    Ok(new) if !new.is_empty() => lines.extend(new),
-                    _ => break,
+        for (key, e) in self.entries.iter_mut() {
+            match e.source.as_mut() {
+                Some(TranscriptSource::Local(tail)) if e.live => {
+                    let fresh = std::mem::take(&mut e.fresh);
+                    let mut lines = Vec::new();
+                    for _ in 0..if fresh { CATCHUP_READS } else { 1 } {
+                        match tail.read_new() {
+                            Ok(new) if !new.is_empty() => lines.extend(new),
+                            _ => break,
+                        }
+                    }
+                    for line in &lines {
+                        e.fed.apply(key, |t| t.apply_transcript_line(line));
+                    }
+                    let events = parse(key, &lines);
+                    let batch = if fresh { catchup(events) } else { Batch::Live(events) };
+                    if !batch.is_empty() {
+                        emit(key.clone(), batch);
+                    }
+                    if key.0 == AgentKind::Claude {
+                        let transcript = tail.path().to_path_buf();
+                        read_subagents(key, e, &transcript);
+                    }
                 }
-            }
-            for line in &lines {
-                e.fed.apply(key, |t| t.apply_transcript_line(line));
-            }
-            let events = parse(key, &lines);
-            let batch = if fresh { catchup(events) } else { Batch::Live(events) };
-            if !batch.is_empty() {
-                emit(key.clone(), batch);
-            }
-            if key.0 == AgentKind::Claude {
-                let transcript = tail.path().to_path_buf();
-                read_subagents(key, e, &transcript);
+                Some(TranscriptSource::Remote(q)) => {
+                    // Only the main session: subagent transcripts are not followed remotely (R2a §1).
+                    for item in std::mem::take(&mut q.pending) {
+                        let Some((lines, history)) = item else {
+                            if !q.caught_up {
+                                q.caught_up = true;
+                                let batch = Batch::Catchup { events: std::mem::take(&mut q.history), first_prompt: q.first_prompt.take() };
+                                if !batch.is_empty() {
+                                    emit(key.clone(), batch);
+                                }
+                            }
+                            continue;
+                        };
+                        for line in &lines {
+                            e.fed.apply(key, |t| t.apply_transcript_line(line));
+                        }
+                        let events = parse(key, &lines);
+                        if history && !q.caught_up {
+                            // Bounded: keep what a current reading needs (the latest usage and model, the first
+                            // prompt), not the whole history.
+                            if q.first_prompt.is_none() {
+                                if let Batch::Catchup { first_prompt, .. } = catchup(events.clone()) {
+                                    q.first_prompt = first_prompt;
+                                }
+                            }
+                            q.history.extend(events);
+                            if let Batch::Catchup { events, .. } = catchup(std::mem::take(&mut q.history)) {
+                                q.history = events;
+                            }
+                        } else if !events.is_empty() {
+                            emit(key.clone(), Batch::Live(events));
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -173,7 +265,7 @@ impl Worker {
     pub fn dirs(&self) -> HashSet<PathBuf> {
         let mut dirs = HashSet::new();
         for (key, e) in self.entries.iter().filter(|(_, e)| e.live) {
-            let Some(tail) = &e.tail else { continue };
+            let Some(TranscriptSource::Local(tail)) = &e.source else { continue };
             dirs.extend(tail.path().parent().map(Path::to_path_buf));
             let subs = subagents_dir(tail.path());
             if key.0 == AgentKind::Claude && subs.is_dir() {

@@ -15,9 +15,17 @@ use crate::launcher::sessions_model;
 use crate::sidebar::model::{self, Grouping, Model, SectionKind};
 use crate::workspace::marks::{Edge, EdgeColor, Mark};
 
-/// "claude:<session id>".
+/// "claude:<session id>"; a remote session is "<HostId>|claude:<session id>".
 pub fn session_id(key: &SessionKey) -> String {
-    format!("{}:{}", key.0.name(), key.1)
+    gilvt_agent::session_key_id(key)
+}
+
+/// `editors[].bar_message`.
+pub fn editor_bar_message(bar: &crate::editor::view::Bar) -> Option<String> {
+    match bar {
+        crate::editor::view::Bar::SaveError { message, .. } => Some(message.clone()),
+        _ => None,
+    }
 }
 
 /// The editor pane's bar as `editors[].bar` names it.
@@ -264,6 +272,7 @@ pub fn sidebar<'a>(
                 rect: rect.flatten(),
                 git: if r.git.is_empty() { None } else { key.and_then(|k| git(k)).map(|g| git_state(&r.git, &g)) },
                 summary: r.summary.clone(),
+                host: key.map(|k| k.2.id_str().to_string()),
             }
         })
         .collect();
@@ -331,6 +340,7 @@ pub fn palette_rows(
     rows.iter()
         .enumerate()
         .map(|(i, r)| SessionsRow {
+            host: r.key.2.id_str().to_string(),
             session: session_id(&r.key),
             title: r.title.clone(),
             title_source: match r.title_source {

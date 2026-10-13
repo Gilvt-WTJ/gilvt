@@ -8,7 +8,7 @@ const AWAY: Seen = Seen { frontmost: false, visible: false };
 const LOOKING: Seen = Seen { frontmost: true, visible: true };
 
 fn session(agent: AgentKind, t0: Instant) -> Session {
-    let mut s = Session::new((agent, "11111111-2222-4333-8444-555555555555".into()), t0);
+    let mut s = Session::new(gilvt_agent::local_key(agent, "11111111-2222-4333-8444-555555555555"), t0);
     s.pane = Some(7);
     s.name = "修登录页".into();
     s
@@ -303,7 +303,7 @@ fn an_osc_does_not_use_up_the_context_notice() {
 fn clicks_go_to_the_session_not_a_reused_pane_id() {
     let t0 = Instant::now();
     let s = session(AgentKind::Claude, t0);
-    let mut other = Session::new((AgentKind::Codex, "99999999-2222-4333-8444-555555555555".into()), t0);
+    let mut other = Session::new(gilvt_agent::local_key(AgentKind::Codex, "99999999-2222-4333-8444-555555555555"), t0);
     other.pane = Some(7);
     assert_eq!(click_target(7, Some(&s.key), Some(&s), Some(&s)), Some(7));
     assert_eq!(click_target(4, None, None, None), Some(4), "plain pane");
@@ -317,7 +317,7 @@ fn clicks_go_to_the_session_not_a_reused_pane_id() {
 }
 
 fn session_in_pane(id: &str, pane: PaneId) -> Session {
-    let mut s = Session::new((AgentKind::Claude, id.to_string()), std::time::Instant::now());
+    let mut s = Session::new(gilvt_agent::local_key(AgentKind::Claude, id), std::time::Instant::now());
     s.pane = Some(pane);
     s
 }
@@ -337,14 +337,14 @@ fn osc_posts_are_attributed_to_the_session() {
 fn restored_pane_id_does_not_capture_a_stale_notification() {
     // The notification was posted for session A in pane 3. After a restart pane 3 exists again (stable ids),
     // but it now holds a different session B, and A is not live: the click goes nowhere.
-    let a = (AgentKind::Claude, "a".to_string());
+    let a = gilvt_agent::local_key(AgentKind::Claude, "a");
     let b = session_in_pane("b", 3);
     assert_eq!(click_target(3, Some(&a), Some(&b), None), None);
 }
 
 #[test]
 fn a_session_that_moved_is_followed_by_key() {
-    let a_key = (AgentKind::Claude, "a".to_string());
+    let a_key = gilvt_agent::local_key(AgentKind::Claude, "a");
     let a = session_in_pane("a", 8);
     let other = session_in_pane("b", 3);
     assert_eq!(click_target(3, Some(&a_key), Some(&other), Some(&a)), Some(8));

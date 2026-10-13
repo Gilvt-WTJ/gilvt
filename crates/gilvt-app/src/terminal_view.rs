@@ -3,7 +3,7 @@
 
 use std::cell::Cell;
 use std::ops::{Range, RangeInclusive};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -39,6 +39,8 @@ pub enum TerminalViewEvent {
     RemoteEnded { link: String },
     /// Cmd+click on a file path; `in_editor` for Cmd+Shift+click.
     OpenPath { hit: PathHit, in_editor: bool },
+    /// Cmd+click in an ssh pane (R2a §8.3): the token's candidates, to `Stat` on the host. `in_editor` for Cmd+Shift.
+    OpenRemotePath { probe: gilvt_term::paths::PathProbe, in_editor: bool },
     /// A message for the user (shown as the error banner).
     Notice(&'static str),
     /// ⌘P: open the file palette for this pane.
@@ -387,6 +389,7 @@ impl TerminalView {
             }
             // The first prompt of a new pane releases a launcher command; command blocks come later.
             TermEvent::Prompt(mark) => {
+                if let Some(r) = self.remote.as_mut() { r.observe_mark(mark); }
                 if let Some(text) = self.launch_queue.on_prompt(mark) {
                     self.type_text(text, cx);
                 }
@@ -481,6 +484,13 @@ impl TerminalView {
     pub fn paste_text(&mut self, text: &str) {
         self.session.clear_selection();
         self.session.write_input(encode_paste(text, self.mode()));
+    }
+
+    /// An ssh pane at the remote shell's prompt with nothing queued to type (R2a §5.6).
+    pub fn remote_idle(&self) -> bool {
+        let fg = self.session.foreground_name();
+        let at_prompt = self.remote.as_ref().is_some_and(|r| r.at_prompt());
+        crate::remote::resume::safe_to_type_remote(fg.as_deref(), at_prompt) && !self.launch_pending()
     }
 
     /// A launcher command still waits for this pane's first prompt.
@@ -585,8 +595,12 @@ impl TerminalView {
                 .filter(|u| gilvt_term::links::is_openable(u))
             {
                 open_link(&url);
-            } else if let Some(hit) = self.path_at(row, col) {
-                cx.emit(TerminalViewEvent::OpenPath { hit, in_editor: m.shift });
+            } else {
+                match self.path_click(row, col, cx) {
+                    PathClick::Local(hit) => cx.emit(TerminalViewEvent::OpenPath { hit, in_editor: m.shift }),
+                    PathClick::Remote(probe) => cx.emit(TerminalViewEvent::OpenRemotePath { probe, in_editor: m.shift }),
+                    PathClick::Nothing => {}
+                }
             }
             return;
         }
@@ -622,12 +636,24 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// The existing file named by the text at (row, col), resolved against this pane's cwd.
-    fn path_at(&self, row: usize, col: usize) -> Option<PathHit> {
-        let layout = self.layout.as_ref()?;
-        let remote = self.remote.as_ref().map(|r| r.cwd().map(std::path::Path::to_path_buf));
-        let (cwd, assume) = link_context(self.cwd(), remote);
-        gilvt_term::paths::path_at(&layout.snapshot, row, col, cwd.as_deref(), |p| assume || p.is_file())
+    fn path_click(&self, row: usize, col: usize, cx: &gpui::App) -> PathClick {
+        let Some(layout) = self.layout.as_ref() else { return PathClick::Nothing };
+        match &self.remote {
+            Some(r) => {
+                let home = cx.try_global::<crate::remote::RemoteHosts>().and_then(|h| h.hosts.get(&r.remote.host)).and_then(|h| h.home.clone());
+                path_click(&layout.snapshot, row, col, r.cwd(), Some(home.as_deref()), |p| p.is_file())
+            }
+            None => path_click(&layout.snapshot, row, col, self.cwd().as_deref(), None, |p| p.is_file()),
+        }
+    }
+
+    /// The hover underline: a remote pane underlines the shortest reading without asking the host.
+    fn path_at(&self, row: usize, col: usize, cx: &gpui::App) -> Option<PathHit> {
+        match self.path_click(row, col, cx) {
+            PathClick::Local(hit) => Some(hit),
+            PathClick::Remote(probe) => probe.first(),
+            PathClick::Nothing => None,
+        }
     }
 
     /// Recomputes `hovered_link` for a mouse at `position` with the current Cmd (platform
@@ -643,7 +669,7 @@ impl TerminalView {
                     .as_ref()
                     .and_then(|l| gilvt_term::links::link_span_at(&l.snapshot, row, col))
                     .map(|(_, span)| (row, span))
-                    .or_else(|| self.path_at(row, col).map(|hit| (row, hit.cols)))
+                    .or_else(|| self.path_at(row, col, cx).map(|hit| (row, hit.cols)))
             });
         if next != self.hovered_link {
             self.hovered_link = next;
@@ -1031,23 +1057,62 @@ mod tests {
     }
 }
 
-/// The cwd and existence test ⌘-click uses: in an ssh pane, the remote cwd and "anything may exist"
-/// (the click is refused with a notice, spec §6) instead of checking the local disk.
-pub(crate) fn link_context(local_cwd: Option<PathBuf>, remote: Option<Option<PathBuf>>) -> (Option<PathBuf>, bool) {
-    match remote {
-        Some(cwd) => (cwd, true),
-        None => (local_cwd, false),
+/// What ⌘-click (and the hover underline) on a path does (R2a §8.3). A pane on an ssh host never consults `exists`
+/// (this Mac's disk): its token becomes candidates for the host to `Stat`. `remote_home`: Some(the host's `$HOME`,
+/// from `Welcome.home`) for such a pane.
+#[derive(Debug)]
+pub(crate) enum PathClick {
+    Local(PathHit),
+    Remote(gilvt_term::paths::PathProbe),
+    Nothing,
+}
+
+pub(crate) fn path_click(snapshot: &Snapshot, row: usize, col: usize, cwd: Option<&Path>, remote_home: Option<Option<&Path>>, exists: impl Fn(&Path) -> bool) -> PathClick {
+    match remote_home {
+        // No candidate (no cwd reported yet for a relative name, `~/` before the host told its home): nothing to ask.
+        Some(home) => gilvt_term::paths::path_probe(snapshot, row, col, cwd, home).filter(|p| !p.paths().is_empty()).map_or(PathClick::Nothing, PathClick::Remote),
+        None => gilvt_term::paths::path_at(snapshot, row, col, cwd, exists).map_or(PathClick::Nothing, PathClick::Local),
     }
 }
 
 #[cfg(test)]
-mod link_context_tests {
-    use super::link_context;
-    use std::path::PathBuf;
+mod path_click_tests {
+    use super::*;
+
     #[test]
-    fn remote_panes_never_resolve_against_local_disk() {
-        assert_eq!(link_context(Some("/l".into()), None), (Some(PathBuf::from("/l")), false));
-        assert_eq!(link_context(None, Some(Some("/r".into()))), (Some(PathBuf::from("/r")), true));
-        assert_eq!(link_context(None, Some(None)), (None, true));
+    fn a_remote_pane_never_asks_the_local_disk() {
+        // The same name exists on this Mac, in the cwd the pane reports: the pane is on a host, so its click produces
+        // candidates for the host to Stat, and `exists` (this Mac's disk) is never called.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("decoy.txt"), "local").unwrap();
+        let snapshot = gilvt_term::snapshot::snapshot_of("decoy.txt", 80, 2);
+        let asked = std::cell::Cell::new(false);
+        let click = path_click(&snapshot, 0, 1, Some(dir.path()), Some(None), |p| {
+            asked.set(true);
+            p.is_file()
+        });
+        assert!(!asked.get(), "a remote click must not look at this Mac's disk");
+        let PathClick::Remote(probe) = click else { panic!("{click:?}") };
+        assert_eq!(probe.paths(), vec![dir.path().join("decoy.txt")], "candidates, to be Stat'ed on the host");
+    }
+
+    #[test]
+    fn a_local_pane_opens_the_existing_local_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("here.txt"), "x").unwrap();
+        let snapshot = gilvt_term::snapshot::snapshot_of("here.txt gone.txt", 80, 2);
+        let click = path_click(&snapshot, 0, 1, Some(dir.path()), None, |p| p.is_file());
+        assert!(matches!(click, PathClick::Local(ref h) if h.path == dir.path().join("here.txt")), "{click:?}");
+        assert!(matches!(path_click(&snapshot, 0, 12, Some(dir.path()), None, |p| p.is_file()), PathClick::Nothing), "a missing local file is not a link");
+    }
+
+    #[test]
+    fn a_remote_token_with_nothing_to_ask_is_not_a_link() {
+        // No cwd reported yet (a relative name), or `~/` before the host told its home: no candidate, so no Quick
+        // Look placeholder and no Stat.
+        let snapshot = gilvt_term::snapshot::snapshot_of("a.txt ~/b.txt", 80, 2);
+        assert!(matches!(path_click(&snapshot, 0, 1, None, Some(None), |_| unreachable!()), PathClick::Nothing));
+        assert!(matches!(path_click(&snapshot, 0, 8, Some(std::path::Path::new("/home/dev")), Some(None), |_| unreachable!()), PathClick::Nothing));
+        assert!(matches!(path_click(&snapshot, 0, 8, None, Some(Some(std::path::Path::new("/home/dev"))), |_| unreachable!()), PathClick::Remote(_)));
     }
 }

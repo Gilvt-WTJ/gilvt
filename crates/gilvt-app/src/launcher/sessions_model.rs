@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use gilvt_agent::host::Host;
 use gilvt_agent::{AgentKind, HistoryEntry, PaneId, RuntimeRef, SessionKey, TitleSource};
 use gpui::Modifiers;
 
@@ -123,6 +124,10 @@ pub struct Input<'a> {
     pub branch: &'a dyn Fn(&Path) -> Option<String>,
     /// Whether a session is archived (still archived at its current turn count).
     pub archived: &'a dyn Fn(&HistoryEntry) -> bool,
+    /// Where `entries[i]` is; empty: every entry is local.
+    pub hosts: &'a [Host],
+    /// The name the user typed for a remote host (`devbox`); None: unknown, the HostId is shown.
+    pub host_label: &'a dyn Fn(&Host) -> Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -189,6 +194,8 @@ pub enum Line {
     Header(String),
     /// Index into `List::rows`.
     Row(usize),
+    /// 「devbox：历史读取失败」. Not a row.
+    Notice(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -237,19 +244,29 @@ pub fn build(i: &Input) -> List {
     let scope = effective_scope(i.filters, i.current);
     let (mut ours, mut others) = (Vec::new(), Vec::new());
     for (ix, e) in i.entries.iter().enumerate() {
-        let key: SessionKey = (e.agent, e.session_id.clone());
+        let host = i.hosts.get(ix).cloned().unwrap_or(Host::Local);
+        let key: SessionKey = (e.agent, e.session_id.clone(), host.clone());
+        let label = match &host {
+            Host::Remote(h) => Some((i.host_label)(&host).unwrap_or_else(|| h.0.clone())),
+            Host::Local => None,
+        };
         // A running session is never archived (resumed from 已归档 it is back among the others), as the
         // sidebar shows it.
-        let archived = !i.live.contains_key(&key) && (i.archived)(e);
+        let archived = !host.is_remote() && !i.live.contains_key(&key) && (i.archived)(e);
         if archived != i.filters.archived {
             continue;
         }
         if i.filters.stale && !is_stale(e, i.now) {
             continue;
         }
-        let project = (i.project)(&e.cwd);
+        let project = if host.is_remote() {
+            Project { root: PathBuf::from(format!("{}|{}", host.id_str(), e.cwd.display())), name: crate::agents::remote_project(label.as_deref().unwrap_or_default(), Some(&e.cwd)) }
+        } else {
+            (i.project)(&e.cwd)
+        };
         let own = i.current.is_some_and(|c| c.root == project.root);
-        if scope == Scope::Current && !own {
+        // A remote row has no local project: it is listed in the current scope too (its host is the scope).
+        if scope == Scope::Current && !own && !host.is_remote() {
             continue;
         }
         let saved = (i.saved_name)(&key);
@@ -279,15 +296,18 @@ pub fn build(i: &Input) -> List {
             } else {
                 format!("{} 轮", e.turns)
             },
-            dir: shorten_dir(&e.cwd, i.home, DIR_MAX_CHARS),
-            dir_missing: !(i.dir_exists)(&e.cwd),
-            branch: (i.branch)(&e.cwd),
+            dir: match &label {
+                Some(l) => format!("{l} · {}", shorten_dir(&e.cwd, None, DIR_MAX_CHARS)),
+                None => shorten_dir(&e.cwd, i.home, DIR_MAX_CHARS),
+            },
+            dir_missing: label.is_none() && !(i.dir_exists)(&e.cwd),
+            branch: if label.is_none() { (i.branch)(&e.cwd) } else { None },
             when,
             size: e.size,
             live,
             archived,
         };
-        if own { ours.push((row, project)) } else { others.push((row, project)) }
+        if own || (host.is_remote() && scope == Scope::Current) { ours.push((row, project)) } else { others.push((row, project)) }
     }
     let plain = |(r, _): (Row, Project)| r;
     let mut list = List::default();

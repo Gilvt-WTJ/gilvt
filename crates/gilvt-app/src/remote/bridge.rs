@@ -7,10 +7,11 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gilvt_ipc::remote::{read_frame, write_frame, AppMsg, DaemonMsg, LocalMsg, RemoteEvent};
+use gilvt_ipc::remote::{is_frame_too_large, read_frame, write_frame, AppMsg, DaemonMsg, LocalMsg, RemoteEvent, RemoteRequest, RemoteResponse, OPEN_TOO_LARGE};
 use gilvt_ipc::BridgeSpec;
 use gpui::{App, Global};
 
+use super::requests::Pending;
 use super::{BridgeStatus, RemoteHosts};
 
 /// `spec.args` is the user's options followed by the destination. gilvt's `-o` come first (for `-o` the
@@ -34,9 +35,69 @@ pub fn backoff(attempt: u32) -> Duration {
 
 struct BridgeHandle {
     child: Child,
-    // Keeps the writer thread's channel open for the life of the bridge.
-    _tx: mpsc::Sender<AppMsg>,
+    /// To the writer thread; also keeps its channel open for the life of the bridge.
+    tx: mpsc::Sender<AppMsg>,
     generation: u64,
+    /// Replies waiting for a daemon `Response` (main thread only).
+    pending: Pending<Reply>,
+}
+
+pub type Reply = Box<dyn FnOnce(Result<RemoteResponse, RequestError>, &mut App)>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RequestError {
+    /// No bridge up for the host.
+    NotConnected,
+    /// The bridge ended before the answer.
+    Disconnected,
+    TimedOut,
+    /// The daemon answered `Error`.
+    Remote(String),
+}
+
+/// [`request`] as a future (resolves on the main thread's executor with the same answer / error / timeout).
+pub fn request_async(host: &str, req: RemoteRequest, timeout: Duration, cx: &mut App) -> impl std::future::Future<Output = Result<RemoteResponse, RequestError>> + 'static {
+    let (tx, rx) = async_channel::bounded(1);
+    request(host, req, timeout, Box::new(move |r, _| { let _ = tx.try_send(r); }), cx);
+    async move { rx.recv().await.unwrap_or(Err(RequestError::Disconnected)) }
+}
+
+/// Sends `req` on `host`'s bridge; `reply` runs on the main thread exactly once (answer, error, timeout).
+pub fn request(host: &str, req: RemoteRequest, timeout: Duration, reply: Reply, cx: &mut App) {
+    let up = cx.try_global::<RemoteHosts>().and_then(|r| r.hosts.get(host)).is_some_and(|h| h.bridge == BridgeStatus::Up);
+    let generation = cx.try_global::<BridgeHandles>().and_then(|g| g.map.get(host)).map(|h| h.generation);
+    let (true, Some(generation)) = (up, generation) else {
+        cx.defer(move |cx| reply(Err(RequestError::NotConnected), cx));
+        return;
+    };
+    let handle = cx.global_mut::<BridgeHandles>().map.get_mut(host).expect("checked above");
+    let id = handle.pending.add(reply);
+    if handle.tx.send(AppMsg::Request { id, req }).is_err() {
+        if let Some(reply) = handle.pending.take(id) {
+            cx.defer(move |cx| reply(Err(RequestError::Disconnected), cx));
+        }
+        return;
+    }
+    let host = host.to_string();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(timeout).await;
+        let _ = cx.update(|cx| {
+            let reply = cx.global_mut::<BridgeHandles>().map.get_mut(&host).filter(|h| h.generation == generation).and_then(|h| h.pending.take(id));
+            if let Some(reply) = reply {
+                reply(Err(RequestError::TimedOut), cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// A bridge handle left the map: kill its ssh and fail every reply still waiting.
+fn retire(h: BridgeHandle, cx: &mut App) {
+    let BridgeHandle { child, mut pending, .. } = h;
+    kill_and_reap(child);
+    for reply in pending.drain() {
+        reply(Err(RequestError::Disconnected), cx);
+    }
 }
 
 type Event = (String, u64, Option<DaemonMsg>);
@@ -106,17 +167,15 @@ pub fn ensure(host: &str, cx: &mut App) {
         g.next_generation
     };
     let (tx, rx) = mpsc::channel::<AppMsg>();
-    let hello = LocalMsg::Bridge { hello: AppMsg::Hello { build_id: spec.build_id.clone(), app_instance: instance, cursor: 0 } };
+    let (cursor, epoch) = cx.global::<RemoteHosts>().hosts.get(host).map_or((0, None), |h| (h.cursor, h.epoch));
+    let hello = LocalMsg::Bridge { hello: AppMsg::Hello { build_id: spec.build_id.clone(), app_instance: instance, cursor, epoch } };
+    let (writer_events, writer_host) = (events.clone(), host.to_string());
     std::thread::spawn(move || {
         let mut w = BufWriter::new(stdin);
         if write_frame(&mut w, &hello).is_err() {
             return;
         }
-        for m in rx {
-            if write_frame(&mut w, &m).is_err() {
-                break;
-            }
-        }
+        pump(rx, &mut w, |reply| writer_events.send_blocking((writer_host.clone(), generation, Some(reply))).is_ok());
     });
     let h = host.to_string();
     std::thread::spawn(move || {
@@ -128,8 +187,35 @@ pub fn ensure(host: &str, cx: &mut App) {
         }
         let _ = events.send_blocking((h, generation, None));
     });
-    cx.global_mut::<BridgeHandles>().map.insert(host.to_string(), BridgeHandle { child, _tx: tx, generation });
+    cx.global_mut::<BridgeHandles>().map.insert(host.to_string(), BridgeHandle { child, tx, generation, pending: Pending::default() });
     set_status(host, BridgeStatus::Connecting, cx);
+}
+
+/// The writer thread's loop: frames out in order. A request refused for being over the frame cap fails on its own
+/// (`on_too_large` carries the reply to the main thread; false from it ends the pump); any other error ends it.
+fn pump<W: std::io::Write>(msgs: impl IntoIterator<Item = AppMsg>, w: &mut W, mut on_too_large: impl FnMut(DaemonMsg) -> bool) {
+    for m in msgs {
+        match write_frame(w, &m) {
+            Ok(()) => {}
+            // Refused before a byte was written: this request fails, the bridge (and the host's hooks) go on.
+            Err(e) if is_frame_too_large(&e) => {
+                if let Some(reply) = too_large_reply(&m) {
+                    if !on_too_large(reply) {
+                        return;
+                    }
+                }
+            }
+            Err(_) => return,
+        }
+    }
+}
+
+/// What the main thread should hear when `write_frame` refused `m` for being over the frame cap (R2a plan ruling 23).
+fn too_large_reply(m: &AppMsg) -> Option<DaemonMsg> {
+    match m {
+        AppMsg::Request { id, .. } => Some(DaemonMsg::Response { id: *id, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }),
+        _ => None,
+    }
 }
 
 fn set_status(host: &str, s: BridgeStatus, cx: &mut App) {
@@ -167,25 +253,72 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
         return;
     }
     match msg {
-        Some(DaemonMsg::Welcome { hostname, .. }) => {
+        Some(DaemonMsg::Welcome { hostname, epoch, gap, home, .. }) => {
             set_status(host, BridgeStatus::Up, cx);
             cx.global_mut::<BridgeHandles>().attempts.remove(host);
+            if let Some(h) = cx.global_mut::<RemoteHosts>().hosts.get_mut(host) {
+                h.welcomed(epoch, gap);
+                h.home = home;
+            }
             for (pane, pr) in cx.global_mut::<RemoteHosts>().set_hostname(host, hostname) {
                 super::apply_to_pane(pane, Some(pr), cx);
             }
+            super::watch::rewatch(host, cx);
+            crate::agents::Agents::remote_reconnected(host, cx);
         }
         Some(DaemonMsg::Mismatch { .. }) => {
             set_status(host, BridgeStatus::Mismatch, cx);
             if let Some(h) = cx.global_mut::<BridgeHandles>().map.remove(host) {
-                kill_and_reap(h.child);
+                retire(h, cx);
+            }
+            super::watch::bridge_down(host, cx);
+        }
+        Some(DaemonMsg::Event { seq, event }) => {
+            if let Some(h) = cx.global_mut::<RemoteHosts>().hosts.get_mut(host) {
+                h.saw(seq);
+            }
+            match event {
+                RemoteEvent::LinkDown { link } => super::link_ended(&link, cx),
+                RemoteEvent::Hook { link, agent, event, payload } => {
+                    if let Some(pane) = cx.global::<RemoteHosts>().pane_of_link(host, &link) {
+                        crate::agents::Agents::remote_hook(host, &link, pane, agent, event, payload, cx);
+                    }
+                }
+                RemoteEvent::LinkUp(_) => {}
+                RemoteEvent::Open { link, request } => {
+                    // Only for a pane still on that link (a late event of an ended login opens nothing).
+                    if let Some(pane) = cx.global::<RemoteHosts>().pane_of_link(host, &link) {
+                        super::open::open(host, pane, *request, cx);
+                    }
+                }
             }
         }
-        Some(DaemonMsg::Event { event: RemoteEvent::LinkDown { link }, .. }) => super::link_ended(&link, cx),
-        Some(_) => {}
+        Some(DaemonMsg::Response { id, resp }) => {
+            let reply = cx.global_mut::<BridgeHandles>().map.get_mut(host).and_then(|h| h.pending.take(id));
+            if let Some(reply) = reply {
+                reply(
+                    match resp {
+                        RemoteResponse::Error { message } => Err(RequestError::Remote(message)),
+                        other => Ok(other),
+                    },
+                    cx,
+                );
+            }
+        }
+        Some(DaemonMsg::TranscriptAppend { agent, session_id, offset, bytes }) => {
+            if let Ok(bytes) = gilvt_ipc::remote::decode_bytes(&bytes) {
+                crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Append { offset, bytes }, cx);
+            }
+        }
+        Some(DaemonMsg::FileChanged { path, fingerprint }) => super::watch::file_changed(host, &path, fingerprint, cx),
+        Some(DaemonMsg::TranscriptReset { agent, session_id, size }) => {
+            crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Reset { size }, cx);
+        }
         None => {
             if let Some(h) = cx.global_mut::<BridgeHandles>().map.remove(host) {
-                kill_and_reap(h.child);
+                retire(h, cx);
             }
+            super::watch::bridge_down(host, cx);
             let was = cx.global::<RemoteHosts>().hosts.get(host).map(|h| h.bridge);
             if was == Some(BridgeStatus::Mismatch) {
                 return;
@@ -215,8 +348,10 @@ pub fn link_count_changed(cx: &mut App) {
                     return;
                 }
                 if let Some(h) = cx.global_mut::<BridgeHandles>().map.remove(&host) {
-                    kill_and_reap(h.child);
+                    retire(h, cx);
                 }
+                // The reader's later `None` is ignored as stale: forget the daemon-side watches here.
+                super::watch::bridge_down(&host, cx);
                 cx.global_mut::<BridgeHandles>().attempts.remove(&host);
                 set_status(&host, BridgeStatus::None, cx);
             });
@@ -228,6 +363,26 @@ pub fn link_count_changed(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_writer_pump_fails_an_oversized_request_once_and_goes_on() {
+        let big = AppMsg::Request { id: 1, req: RemoteRequest::WriteFile { path: "/x".into(), bytes: "A".repeat(gilvt_ipc::remote::MAX_FRAME as usize), expect: None } };
+        let small = AppMsg::Request { id: 2, req: RemoteRequest::Stat { paths: vec!["/y".into()] } };
+        let mut out = Vec::new();
+        let mut replies = Vec::new();
+        pump(vec![big, small.clone()], &mut out, |r| { replies.push(r); true });
+        assert_eq!(replies, vec![DaemonMsg::Response { id: 1, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }]);
+        assert_eq!(read_frame::<AppMsg>(&mut &out[..]).unwrap(), Some(small), "the later frame was still written");
+    }
+
+    #[test]
+    fn an_oversized_request_fails_only_itself() {
+        let big = AppMsg::Request { id: 7, req: RemoteRequest::WriteFile { path: "/x".into(), bytes: "A".repeat(gilvt_ipc::remote::MAX_FRAME as usize), expect: None } };
+        let mut out = Vec::new();
+        let e = write_frame(&mut out, &big).unwrap_err();
+        assert!(is_frame_too_large(&e) && out.is_empty(), "refused whole, nothing written");
+        assert_eq!(too_large_reply(&big), Some(DaemonMsg::Response { id: 7, resp: RemoteResponse::Error { message: OPEN_TOO_LARGE.into() } }));
+    }
 
     #[test]
     fn argv_reuses_the_master_and_never_prompts() {

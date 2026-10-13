@@ -45,6 +45,9 @@ pub struct AgentSnap {
     pub name: String,
     #[serde(default)]
     pub last_status: String,
+    /// The ssh host (`HostId`) of a remote session; absent: this Mac.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,7 +231,7 @@ mod tests {
     #[test]
     fn agent_record_survives() {
         let mut p = pane(1);
-        p.agent = Some(AgentSnap { kind: "claude".into(), session_id: "s1".into(), name: "修复登录".into(), last_status: "空闲".into() });
+        p.agent = Some(AgentSnap { kind: "claude".into(), session_id: "s1".into(), name: "修复登录".into(), last_status: "空闲".into(), host: None });
         let json = serde_json::to_string(&p).unwrap();
         assert_eq!(serde_json::from_str::<PaneSnap>(&json).unwrap(), p);
     }

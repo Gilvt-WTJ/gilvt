@@ -5,7 +5,7 @@ use gilvt_agent::{AgentKind, ReviewPage, TurnCursor};
 use super::model::*;
 
 fn key(id: &str) -> gilvt_agent::SessionKey {
-    (AgentKind::Claude, id.to_string())
+    gilvt_agent::local_key(AgentKind::Claude, id)
 }
 
 fn cursor(id: &str) -> TurnCursor {

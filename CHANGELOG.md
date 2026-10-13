@@ -7,6 +7,29 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- SSH: `claude` and `codex` running in the remote shell of a gilvt ssh pane now appear in the sidebar like local
+  ones: status, tab dots, notifications and jumping to an approval (`⇧⌘J`), the close confirmation, the
+  inspector's timeline, and the sessions palette (`⇧⌘R`) with the remote host's history and resuming there.
+  Agents inside remote tmux are not detected yet.
+- SSH: in a gilvt ssh pane, `gilvt view`, `gilvt diff` and ⌘-click on a path preview the remote host's files in
+  gilvt (a pinned preview follows changes on the host), and the built-in editor opens and saves them: a file changed
+  on the host since it was opened brings up the usual reload / compare / overwrite bar, and saving while the
+  connection is down keeps your changes unsaved and says so; changes made on the host while the connection was down
+  are picked up when it comes back. The editor's header names the host (`devbox:~/repo/src`). A path that does not
+  exist on the host says so, and one the host cannot look at (permission denied) says why.
+
+### Changed
+
+- SSH: after gilvt is upgraded, the first connection to a host that has an older remote helper installed now asks
+  before updating it (it used to update silently); answer `n` to log in plain this time, `N` to never install
+  on that host. `[remote] install = "always"` still updates without asking.
+
+### Fixed
+
+- `gilvt view --help` and `gilvt diff --help` print the usage instead of failing with an unknown option.
+
 ## [0.2.1] - 2026-10-09
 
 ### Fixed

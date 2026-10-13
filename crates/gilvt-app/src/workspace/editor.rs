@@ -4,22 +4,29 @@
 
 use std::path::{Path, PathBuf};
 
+use gilvt_agent::host::HostPath;
 use gilvt_editor::{EditorError, OpenOptions};
 use gpui::{div, prelude::*, px, App, Context, Entity, Window};
 
 use super::{split_target, to_rect, PaneView, Tab, Workspace};
 use crate::editor::route::{self, Placement};
 use crate::editor::popup::MenuKind;
-use crate::editor::view::{load_model_with, EditorEvent, EditorView};
+use crate::editor::view::{load_model_with, EditorEvent, EditorView, RemoteOpenError};
 use crate::pane_tree::{next_pane_id, Axis, PaneId, PaneTree};
 use crate::preview_view::{open_in_editor, OpenRequest};
 use crate::theme::{hsla, mix, CellMetrics};
 
-/// The tab and pane (by id) that already edit `path`, comparing canonical paths.
-pub(super) fn find_open(panes: &[(usize, PaneId, Option<PathBuf>)], path: &Path) -> Option<(usize, PaneId)> {
+/// The tab and pane (by id) that already edit `want`. Files of this Mac compare canonically; a remote file compares by
+/// host and path as written (it is not a path of this Mac, so it is never canonicalized here), and never matches a
+/// local editor.
+pub(super) fn find_open(panes: &[(usize, PaneId, Option<HostPath>)], want: &HostPath) -> Option<(usize, PaneId)> {
     let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let want = canon(path);
-    panes.iter().find(|(_, _, p)| p.as_deref().is_some_and(|p| canon(p) == want)).map(|&(ti, id, _)| (ti, id))
+    let same = |p: &HostPath| match (p.local_path(), want.local_path()) {
+        (Some(a), Some(b)) => canon(a) == canon(b),
+        (None, None) => p == want,
+        _ => false,
+    };
+    panes.iter().find(|(_, _, p)| p.as_ref().is_some_and(same)).map(|&(ti, id, _)| (ti, id))
 }
 
 /// Tab to activate after tab `closed` is removed: the tab it was opened from if it still exists, else its left neighbour.
@@ -132,6 +139,59 @@ impl Workspace {
         self.open_editor_with(path, line, origin, flip, OpenOptions::default(), window, cx);
     }
 
+    /// Opens a file of this Mac or of an ssh host in the built-in editor (R2a §8.3). A remote path is never opened as
+    /// a Mac path.
+    pub fn open_editor_at(&mut self, path: gilvt_agent::host::HostPath, line: Option<u32>, origin: Option<PaneId>, flip: bool, window: &mut Window, cx: &mut Context<Self>) {
+        match path.local_path() {
+            Some(local) => self.open_editor(local.to_path_buf(), line, origin, flip, window, cx),
+            None => self.open_remote_editor(path, line, origin, flip, window, cx),
+        }
+    }
+
+    /// R2a §8.3: the pane shows at once (「正在读取…」), the buffer is built when the host answers. Focused if already open.
+    fn open_remote_editor(&mut self, path: HostPath, line: Option<u32>, origin: Option<PaneId>, flip: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.ended_confirm = None;
+        self.finder = None;
+        self.sessions = None;
+        self.new_agent = None;
+        self.editor_refusal = None;
+        if let Some((_, id)) = find_open(&self.open_editors(cx), &path) {
+            if let (Some(PaneView::Editor(v)), Some(line)) = (self.panes.get(&id).cloned(), line) {
+                v.update(cx, |v, cx| v.goto_line(line as usize, cx));
+            }
+            self.focus_pane(id, window, cx);
+            return;
+        }
+        let Some(host) = path.remote_host().map(str::to_string) else { return };
+        let fs = crate::remote::fs::RemoteFs::new(&host, cx);
+        let view = cx.new(|cx| EditorView::new_remote_loading(path.clone(), fs.display.clone(), cx));
+        view.update(cx, |v, cx| v.attach(window, cx));
+        // An editor opened from a preview replaces it.
+        self.quicklook = None;
+        let id = self.place_editor(view.clone(), origin, flip, window, cx);
+        let read = fs.read_file(path.path.clone(), gilvt_ipc::remote::MAX_REMOTE_EDIT_BYTES, cx);
+        cx.spawn_in(window, async move |ws, cx| {
+            let result = read.await;
+            let _ = ws.update_in(cx, |ws, window, cx| {
+                // The pane was closed while reading: nothing to fill, nothing to refuse.
+                if !matches!(ws.panes.get(&id), Some(PaneView::Editor(v)) if *v == view) {
+                    return;
+                }
+                let Err(e) = view.update(cx, |v, cx| v.finish_remote_open(result, line, cx)) else { return };
+                // The buttons would open a Mac path, so none of them; the reason is the usual one.
+                let message = match e {
+                    RemoteOpenError::Editor(e) => refusal(&e).0,
+                    RemoteOpenError::Fs(m) => m,
+                };
+                ws.close_pane(id, window, cx);
+                let buttons = RefusalButtons { external: false, preview: false, reopen: false };
+                ws.editor_refusal = Some(EditorRefusal { path: path.path.clone(), message, buttons, line, origin, flip });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// [`Self::open_editor`] with an encoding / read-only choice; returns the editor showing `path` (`None` when
     /// it was refused). An editor already open on `path` is focused as it is (`opts` do not apply to it).
     #[allow(clippy::too_many_arguments)]
@@ -151,7 +211,7 @@ impl Workspace {
         self.new_agent = None;
         self.editor_refusal = None;
         // 1. Already open in this window: focus it (switching tab and flashing; `focus_pane` also closes Quick Look).
-        if let Some((_, id)) = find_open(&self.open_editors(cx), &path) {
+        if let Some((_, id)) = find_open(&self.open_editors(cx), &HostPath::local(path.clone())) {
             let view = match self.panes.get(&id) {
                 Some(PaneView::Editor(v)) => Some(v.clone()),
                 _ => None,
@@ -181,6 +241,13 @@ impl Workspace {
             view.update(cx, |v, cx| v.goto_line(line as usize, cx));
         }
         // 3. Place it.
+        self.place_editor(view.clone(), origin, flip, window, cx);
+        Some(view)
+    }
+
+    /// Puts a new editor pane where `route` says (a split of `origin`'s pane or a file tab), wires its events and
+    /// focuses it. Returns its pane id.
+    fn place_editor(&mut self, view: Entity<EditorView>, origin: Option<PaneId>, flip: bool, window: &mut Window, cx: &mut Context<Self>) -> PaneId {
         let target = split_target(&self.tabs, self.active, origin).map(|(ti, p)| (ti, p, self.tabs[ti].id));
         let placement = match target {
             Some((ti, pane, _)) => route::route(self.tabs[ti].tree.panes().len(), self.target_cols(ti, pane, window, cx), flip),
@@ -220,7 +287,7 @@ impl Workspace {
             }
         }
         self.focus_active(window, cx);
-        Some(view)
+        id
     }
 
     /// The refusal banner's 「以只读方式打开」 / 「选择编码打开…」: the file with the detected encoding, read-only
@@ -255,12 +322,12 @@ impl Workspace {
     }
 
     /// Every editor pane of this window: (tab index, pane, file).
-    fn open_editors(&self, cx: &App) -> Vec<(usize, PaneId, Option<PathBuf>)> {
+    fn open_editors(&self, cx: &App) -> Vec<(usize, PaneId, Option<HostPath>)> {
         let mut out = Vec::new();
         for (ti, tab) in self.tabs.iter().enumerate() {
             for id in tab.tree.panes() {
                 if let Some(PaneView::Editor(v)) = self.panes.get(&id) {
-                    out.push((ti, id, v.read(cx).path().map(Path::to_path_buf)));
+                    out.push((ti, id, v.read(cx).host_path()));
                 }
             }
         }
@@ -272,7 +339,7 @@ impl Workspace {
         self.open_editors(cx)
             .into_iter()
             .filter(|(_, id, _)| matches!(self.panes.get(id), Some(PaneView::Editor(v)) if v.read(cx).is_dirty()))
-            .map(|(_, id, path)| (id, path.unwrap_or_default()))
+            .map(|(_, id, path)| (id, path.map(|p| p.path).unwrap_or_default()))
             .collect()
     }
 
@@ -359,9 +426,21 @@ mod tests {
         let p = dir.path().join("a.md");
         std::fs::write(&p, "x").unwrap();
         let alias = dir.path().join(".").join("a.md");
-        let panes = vec![(0, 5, Some(p.clone())), (1, 9, None)];
-        assert_eq!(find_open(&panes, &alias), Some((0, 5)));
-        assert_eq!(find_open(&panes, &dir.path().join("b.md")), None);
+        let panes = vec![(0, 5, Some(HostPath::local(p.clone()))), (1, 9, None)];
+        assert_eq!(find_open(&panes, &HostPath::local(alias)), Some((0, 5)));
+        assert_eq!(find_open(&panes, &HostPath::local(dir.path().join("b.md"))), None);
+    }
+
+    #[test]
+    fn a_remote_path_never_matches_a_local_editor() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("a.txt");
+        std::fs::write(&f, "x").unwrap();
+        let panes = vec![(0, 1, Some(HostPath::local(&f))), (0, 2, Some(HostPath::remote("dev@h:22", &f)))];
+        assert_eq!(find_open(&panes, &HostPath::remote("dev@h:22", &f)), Some((0, 2)));
+        assert_eq!(find_open(&panes, &HostPath::local(&f)), Some((0, 1)));
+        assert_eq!(find_open(&panes, &HostPath::remote("dev@other:22", &f)), None, "same path, another host");
+        assert_eq!(find_open(&panes[..1], &HostPath::remote("dev@h:22", &f)), None, "never the Mac's file");
     }
 
     #[test]

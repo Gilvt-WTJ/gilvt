@@ -2,8 +2,14 @@
 //! to it over the IPC socket, bridges feed it from the remote daemon.
 
 pub mod bridge;
+pub mod fs;
+pub mod history;
+pub mod open;
 pub mod pane;
 pub mod prefs;
+pub mod requests;
+pub mod resume;
+pub mod watch;
 
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -33,6 +39,29 @@ pub struct HostEntry {
     pub bridge: BridgeStatus,
     pub spec: Option<BridgeSpec>,
     pub last_link_end: Option<Instant>,
+    /// The highest event `seq` received from this host's daemon (sent back in `Hello.cursor`).
+    pub cursor: u64,
+    /// That daemon's `epoch` (None: no Welcome yet this run).
+    pub epoch: Option<u64>,
+    /// A Welcome reported lost hooks at least once (R2a §4.3; only shown in DebugState).
+    pub gap: bool,
+    /// The remote `$HOME` from the last Welcome (R2a §8.1).
+    pub home: Option<std::path::PathBuf>,
+}
+
+impl HostEntry {
+    /// A Welcome from daemon `epoch`. Another daemon numbers its events from 1 again: start the cursor over.
+    pub fn welcomed(&mut self, epoch: u64, gap: bool) {
+        if self.epoch != Some(epoch) {
+            self.cursor = 0;
+        }
+        self.epoch = Some(epoch);
+        self.gap |= gap;
+    }
+
+    pub fn saw(&mut self, seq: u64) {
+        self.cursor = self.cursor.max(seq);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -64,7 +93,7 @@ impl RemoteHosts {
         self.next += 1;
         let link = format!("{}-{}", self.instance, self.next);
         let hostname = self.prefs.hosts.get(&host).and_then(|h| h.hostname.clone());
-        self.hosts.entry(host.clone()).or_insert(HostEntry { display: display.clone(), hostname: hostname.clone(), bridge: BridgeStatus::None, spec: None, last_link_end: None });
+        self.hosts.entry(host.clone()).or_insert(HostEntry { display: display.clone(), hostname: hostname.clone(), bridge: BridgeStatus::None, spec: None, last_link_end: None, cursor: 0, epoch: None, gap: false, home: None });
         self.links.insert(link.clone(), LinkEntry { pane, host, display, hostname, enhanced: false, note: None });
         link
     }
@@ -96,6 +125,16 @@ impl RemoteHosts {
         e.pane
     }
 
+    /// The pane of `link`, when it is a live link of `host` that has a pane (R2a §5.2).
+    pub fn pane_of_link(&self, host: &str, link: &str) -> Option<u64> {
+        self.links.get(link).filter(|l| l.host == host).and_then(|l| l.pane)
+    }
+
+    /// What the user typed for `host` (`devbox`); the HostId itself when it is not known.
+    pub fn display(&self, host: &str) -> String {
+        self.hosts.get(host).map_or_else(|| host.to_string(), |h| h.display.clone())
+    }
+
     pub fn links_of(&self, host: &str) -> Vec<String> {
         self.links.iter().filter(|(_, e)| e.host == host).map(|(l, _)| l.clone()).collect()
     }
@@ -115,6 +154,7 @@ pub fn init(cx: &mut App) {
     let prefs = crate::agents::state_dir().map(|d| RemotePrefs::load(&d)).unwrap_or_default();
     let instance = format!("{:08x}", std::process::id() ^ (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0)));
     cx.set_global(RemoteHosts::new(instance, prefs));
+    cx.set_global(watch::RemoteWatches::default());
 }
 
 pub fn answer_begin(q: Query, cx: &mut App) {
@@ -131,6 +171,22 @@ pub fn answer_begin(q: Query, cx: &mut App) {
     q.respond(Response::RemoteBegin { link, install, installed: cached.installed, arch: cached.arch, hostname: cached.hostname });
 }
 
+/// [`RemoteHosts::display`] from anywhere that has the `App` (sidebar, notifications, inspector banner).
+pub fn display_of(host: &str, cx: &App) -> String {
+    cx.try_global::<RemoteHosts>().map_or_else(|| host.to_string(), |r| r.display(host))
+}
+
+pub fn not_yet_remote() -> &'static str {
+    crate::i18n::text(NOT_YET_REMOTE.0, NOT_YET_REMOTE.1)
+}
+
+/// The command that resumes session `session_id` of `agent` on an ssh host, run in `cwd` there. Always the bare agent
+/// name: the Mac's launch setting (e.g. `/opt/homebrew/bin/claude`) names a file on this Mac, and only the bare name
+/// goes through the host's gilvt wrapper (hooks) (R2a §9).
+pub fn resume_command(agent: gilvt_agent::AgentKind, session_id: &str, cwd: &std::path::Path) -> String {
+    gilvt_agent::resume_command(agent.name(), agent, session_id, cwd)
+}
+
 /// Applies `r` to `pane` in whichever window has it.
 pub fn apply_to_pane(pane: u64, r: Option<PaneRemote>, cx: &mut App) {
     for w in cx.windows().into_iter().filter_map(|w| w.downcast::<crate::workspace::Workspace>()) {
@@ -138,21 +194,31 @@ pub fn apply_to_pane(pane: u64, r: Option<PaneRemote>, cx: &mut App) {
     }
 }
 
-fn clear_pane_if_link(pane: u64, link: &str, cx: &mut App) {
+/// Clears `pane`'s remote state when it is still on `link`. True when it was (the caller then ends the pane's remote
+/// sessions); false when the pane is gone or already on another link.
+fn clear_pane_if_link(pane: u64, link: &str, cx: &mut App) -> bool {
+    let mut cleared = false;
     for w in cx.windows().into_iter().filter_map(|w| w.downcast::<crate::workspace::Workspace>()) {
         let _ = w.update(cx, |ws, _, cx| {
             if ws.has_pane(pane) && ws.pane_remote(pane, cx).is_none_or(|r| r.link == link) {
                 ws.set_pane_remote(pane, None, cx);
+                cleared = true;
             }
         });
     }
+    cleared
 }
 
 pub fn link_ended(link: &str, cx: &mut App) {
     let pane = cx.global_mut::<RemoteHosts>().end(link);
-    // Not when the pane has already moved on to another link (a replaced link ends after its successor began).
-    if let Some(p) = pane { clear_pane_if_link(p, link, cx); }
-    bridge::link_count_changed(cx); // Task 9: closes an idle bridge after the grace period
+    if let Some(p) = pane {
+        // Not when the pane has already moved on to another link (a replaced link ends after its successor began):
+        // the successor's sessions stay.
+        if clear_pane_if_link(p, link, cx) {
+            crate::agents::Agents::remote_link_ended(p, cx);
+        }
+    }
+    bridge::link_count_changed(cx); // closes an idle bridge after the grace period
 }
 
 /// A request from `gilvt ssh` (everything but RemoteBegin, which is a query).
@@ -187,7 +253,23 @@ pub fn save_prefs(cx: &mut App) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_remote_resume_uses_the_bare_agent_name() {
+        use gilvt_agent::AgentKind;
+        let cwd = std::path::Path::new("/home/dev/my repo");
+        assert_eq!(resume_command(AgentKind::Claude, "s-1", cwd), "cd '/home/dev/my repo' && claude --resume s-1");
+        assert_eq!(resume_command(AgentKind::Codex, "s-2", cwd), "cd '/home/dev/my repo' && codex resume s-2");
+    }
+
     fn hosts() -> RemoteHosts { RemoteHosts::new("abcd0123".into(), RemotePrefs::default()) }
+
+    #[test]
+    fn display_is_what_the_user_typed_or_the_host_id() {
+        let mut r = hosts();
+        r.begin(Some(1), "dev@h:22".into(), "devbox".into());
+        assert_eq!(r.display("dev@h:22"), "devbox");
+        assert_eq!(r.display("dev@x:22"), "dev@x:22", "unknown host: its id");
+    }
 
     #[test]
     fn begin_linked_end() {
@@ -202,6 +284,37 @@ mod tests {
         assert_eq!(r.end(&l), Some(4));
         assert_eq!(r.end(&l), None);
         assert_eq!(r.links_of("dev@h:22"), vec!["abcd0123-2".to_string()]);
+    }
+
+    #[test]
+    fn a_new_epoch_resets_the_cursor() {
+        let mut r = hosts();
+        r.begin(Some(1), "dev@h:22".into(), "devbox".into());
+        let h = r.hosts.get_mut("dev@h:22").unwrap();
+        h.welcomed(100, false);
+        h.saw(40);
+        h.saw(39);
+        assert_eq!((h.cursor, h.epoch), (40, Some(100)), "the highest seq seen");
+        h.welcomed(100, false);
+        assert_eq!(h.cursor, 40, "same daemon: keep the cursor");
+        h.welcomed(200, true);
+        assert_eq!((h.cursor, h.epoch, h.gap), (0, Some(200), true), "a restarted daemon counts from 1 again");
+        h.welcomed(200, false);
+        assert!(h.gap, "gap stays once seen");
+    }
+
+    #[test]
+    fn hooks_of_unknown_or_foreign_links_find_no_pane() {
+        let mut r = hosts();
+        let l1 = r.begin(Some(4), "dev@h:22".into(), "devbox".into());
+        let l2 = r.begin(Some(5), "dev@other:22".into(), "other".into());
+        let l3 = r.begin(None, "dev@h:22".into(), "devbox".into());
+        assert_eq!(r.pane_of_link("dev@h:22", &l1), Some(4));
+        assert_eq!(r.pane_of_link("dev@h:22", &l2), None, "a link of another host");
+        assert_eq!(r.pane_of_link("dev@h:22", &l3), None, "a link without a pane");
+        assert_eq!(r.pane_of_link("dev@h:22", "zzz-9"), None, "unknown");
+        r.end(&l1);
+        assert_eq!(r.pane_of_link("dev@h:22", &l1), None, "ended");
     }
 
     #[test]

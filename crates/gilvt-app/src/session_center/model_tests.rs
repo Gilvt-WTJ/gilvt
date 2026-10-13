@@ -7,7 +7,7 @@ use super::model::{self, LiveSession, Selection, Tab};
 use crate::review::{ReviewInboxItem, ReviewPriority};
 
 fn key(id: &str) -> gilvt_agent::SessionKey {
-    (AgentKind::Claude, id.into())
+    gilvt_agent::local_key(AgentKind::Claude, id)
 }
 
 fn inbox(id: &str, priority: ReviewPriority) -> ReviewInboxItem {
@@ -244,6 +244,21 @@ fn a_queue_row_shows_its_directory_as_the_palette_does() {
 }
 
 #[test]
+fn a_remote_row_shows_its_cwd_without_local_git_or_missing_flag() {
+    use gilvt_agent::host::{Host, HostId};
+    let key: gilvt_agent::SessionKey = (gilvt_agent::AgentKind::Claude, "s".into(), Host::Remote(HostId("dev@h:22".into())));
+    let cwd = std::path::Path::new("/home/dev/repo");
+    let dir = model::row_dir_of(&key, cwd, None, |_| false, |_| Some("local-branch".into()));
+    assert_eq!(dir.dir, "/home/dev/repo");
+    assert_eq!(dir.branch, None);
+    assert!(!dir.missing);
+    let local = gilvt_agent::local_key(gilvt_agent::AgentKind::Claude, "s".to_string());
+    let dir = model::row_dir_of(&local, cwd, None, |_| false, |_| Some("b".into()));
+    assert_eq!(dir.branch.as_deref(), Some("b"));
+    assert!(dir.missing);
+}
+
+#[test]
 fn a_queue_row_whose_directory_is_gone_is_flagged_and_an_unknown_cwd_shows_none() {
     let gone = model::row_dir(
         std::path::Path::new("/Users/u/work/gone"),
@@ -263,4 +278,34 @@ fn a_queue_row_whose_directory_is_gone_is_flagged_and_an_unknown_cwd_shows_none(
     item.lines_removed = 0;
     let row = &model::build(Tab::Review, "", 1, &[item], &[]).rows[0];
     assert_eq!(model::queue_subtitle(row, &unknown), "Claude");
+}
+
+#[test]
+fn a_remote_row_never_resumes_a_mac_history_entry() {
+    use gilvt_agent::host::{Host, HostId};
+    let entry = gilvt_agent::HistoryEntry {
+        agent: AgentKind::Claude,
+        session_id: "same-id".into(),
+        cwd: "/Users/u/repo".into(),
+        transcript: "/Users/u/.claude/projects/p/same-id.jsonl".into(),
+        first_prompt: String::new(),
+        topic_prompt: String::new(),
+        custom_title: None,
+        ai_title: None,
+        started: None,
+        last_active: SystemTime::UNIX_EPOCH,
+        turns: 1,
+        model: None,
+        size: 1,
+    };
+    let entries = [entry];
+    let local = key("same-id");
+    assert_eq!(model::resume_target(&local, std::path::Path::new("/Users/u/repo"), &entries), model::ResumeTarget::Local(&entries[0]));
+    let remote = (AgentKind::Claude, "same-id".to_string(), Host::Remote(HostId("dev@h:22".into())));
+    assert_eq!(
+        model::resume_target(&remote, std::path::Path::new("/home/dev/repo"), &entries),
+        model::ResumeTarget::Remote { host: "dev@h:22".into(), command: "cd /home/dev/repo && claude --resume same-id".into() }
+    );
+    assert_eq!(model::resume_target(&remote, std::path::Path::new(""), &entries), model::ResumeTarget::RemoteNoDir);
+    assert_eq!(model::resume_target(&key("other"), std::path::Path::new("/x"), &entries), model::ResumeTarget::Nothing);
 }

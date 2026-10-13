@@ -66,7 +66,7 @@ fn tool<'a>(items: &'a [Item], id: &str) -> Option<&'a ToolItem> {
 }
 
 fn codex_key() -> SessionKey {
-    (AgentKind::Codex, "codex-1".into())
+    gilvt_agent::local_key(AgentKind::Codex, "codex-1")
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn lines_and_hooks_reach_only_their_own_session() {
     write_lines(&codex_path, &rollout);
     let claude_path = copy_run1(dir.path());
     let codex = codex_key();
-    let claude: SessionKey = (AgentKind::Claude, RUN1.into());
+    let claude: SessionKey = gilvt_agent::local_key(AgentKind::Claude, RUN1);
     let mut w = Worker::default();
     w.watch(vec![(codex.clone(), codex_path), (claude.clone(), claude_path.clone())]);
     let (_, views) = pass(&mut w);
@@ -133,7 +133,7 @@ fn lines_and_hooks_reach_only_their_own_session() {
     let row = tool(&current.items, "call_new").unwrap();
     assert_eq!((row.anchor, row.started), (anchor, Some(at)));
     // A hook of a session no transcript is watched for (yet) starts its timeline.
-    let other: SessionKey = (AgentKind::Claude, "no-transcript".into());
+    let other: SessionKey = gilvt_agent::local_key(AgentKind::Claude, "no-transcript");
     let prompt = json!({"hook_event_name": "UserPromptSubmit", "prompt": "hi"});
     w.hook(other.clone(), HookFeed { event: String::new(), payload: prompt, anchor: None, at });
     let (_, views) = pass(&mut w);
@@ -144,7 +144,7 @@ fn lines_and_hooks_reach_only_their_own_session() {
 fn subagent_transcripts_nest_under_their_agent_call() {
     let dir = tempfile::tempdir().unwrap();
     let transcript = copy_run1(dir.path());
-    let key: SessionKey = (AgentKind::Claude, RUN1.into());
+    let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, RUN1);
     let mut w = Worker::default();
     w.watch(vec![(key.clone(), transcript.clone())]);
     let (_, views) = pass(&mut w);
@@ -274,7 +274,7 @@ fn a_resumed_session_is_named_from_its_history() {
     let id = "22222222-3333-4444-8555-0000000000a4";
     let path = dir.path().join(format!("{id}.jsonl"));
     std::fs::copy(format!("{FIXTURES}/claude/transcript-interactive.jsonl"), &path).unwrap();
-    let key: SessionKey = (AgentKind::Claude, id.into());
+    let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, id);
     let t0 = std::time::Instant::now();
     let start = json!({"session_id": id, "transcript_path": path, "cwd": "/Users/u/proj",
                        "hook_event_name": "SessionStart", "source": "resume"});
@@ -339,4 +339,55 @@ fn a_resumed_codex_session_is_named_from_its_history() {
     let s = core.registry.get(&key).unwrap();
     assert!(s.lite);
     assert_eq!((s.name.as_str(), &s.status), (first, &Status::Idle), "history names it but runs no turn");
+}
+
+#[test]
+fn a_remote_source_catches_up_then_goes_live_and_resets() {
+    use gilvt_agent::host::{Host, HostId};
+    let key: SessionKey = (AgentKind::Codex, "r".into(), Host::Remote(HostId("dev@h:22".into())));
+    let usage = |n: u64| format!(r#"{{"timestamp":"2026-01-01T00:00:00Z","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{{"total_tokens":{n}}},"model_context_window":1000}}}}}}"#);
+    let mut w = Worker::default();
+    w.watch(vec![(key.clone(), "/home/dev/r.jsonl".into())]);
+    let mut out = Vec::new();
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(10), usage(20)], history: true });
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(out.is_empty(), "history waits for HistoryDone");
+    w.remote(key.clone(), RemoteFeed::HistoryDone);
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(matches!(&out[..], [(_, Batch::Catchup { events, .. })] if matches!(events.as_slice(), [Event::Usage { context_tokens: 20, .. }])), "{out:?}");
+    out.clear();
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(30)], history: false });
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(matches!(&out[..], [(_, Batch::Live(events))] if matches!(events.as_slice(), [Event::Usage { context_tokens: 30, .. }])));
+    assert!(w.dirs().is_empty(), "no local directory to watch for a remote session");
+    w.remote(key.clone(), RemoteFeed::Reset);
+    assert!(w.publish().iter().any(|(k, _)| k == &key), "the timeline is rebuilt");
+    // After a reset the daemon pushes the file again: what is below the reset's size is catch-up, not live events.
+    out.clear();
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(40)], history: true });
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(out.is_empty(), "history after a reset waits for HistoryDone too");
+    w.remote(key.clone(), RemoteFeed::HistoryDone);
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(matches!(&out[..], [(_, Batch::Catchup { events, .. })] if matches!(events.as_slice(), [Event::Usage { context_tokens: 40, .. }])), "{out:?}");
+}
+
+#[test]
+fn remote_catchup_goes_out_before_the_live_lines_that_followed_it() {
+    // History, HistoryDone and live lines all queued before one read: the older catch-up must not land after the
+    // newer live batch (it would roll the status back).
+    use gilvt_agent::host::{Host, HostId};
+    let key: SessionKey = (AgentKind::Codex, "r2".into(), Host::Remote(HostId("dev@h:22".into())));
+    let usage = |n: u64| format!(r#"{{"timestamp":"2026-01-01T00:00:00Z","type":"event_msg","payload":{{"type":"token_count","info":{{"last_token_usage":{{"total_tokens":{n}}},"model_context_window":1000}}}}}}"#);
+    let mut w = Worker::default();
+    w.watch(vec![(key.clone(), "/home/dev/r2.jsonl".into())]);
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(10)], history: true });
+    w.remote(key.clone(), RemoteFeed::HistoryDone);
+    w.remote(key.clone(), RemoteFeed::Lines { lines: vec![usage(30)], history: false });
+    let mut out = Vec::new();
+    w.read(&mut |k, b| out.push((k, b)));
+    assert!(
+        matches!(&out[..], [(_, Batch::Catchup { .. }), (_, Batch::Live(events))] if matches!(events.as_slice(), [Event::Usage { context_tokens: 30, .. }])),
+        "{out:?}"
+    );
 }

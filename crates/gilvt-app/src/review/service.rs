@@ -260,7 +260,7 @@ mod tests {
 
     fn document(id: &str) -> Arc<ReviewDocument> {
         Arc::new(ReviewDocument {
-            key: (AgentKind::Claude, id.into()),
+            key: gilvt_agent::local_key(AgentKind::Claude, id),
             snapshot_through: TurnCursor::Claude {
                 prompt_uuid: "p".into(),
             },
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn the_revision_moves_only_when_the_store_changes() {
         let mut service = service();
-        let key = (AgentKind::Claude, "s".to_string());
+        let key = gilvt_agent::local_key(AgentKind::Claude, "s");
         let start = service.revision();
         service.set_pinned(&key, true).unwrap();
         assert_eq!(service.revision(), start + 1);
@@ -290,8 +290,8 @@ mod tests {
     #[test]
     fn an_old_detail_result_cannot_replace_the_new_selection() {
         let mut service = service();
-        let old = service.begin_detail((AgentKind::Claude, "old".into()));
-        let new = service.begin_detail((AgentKind::Codex, "new".into()));
+        let old = service.begin_detail(gilvt_agent::local_key(AgentKind::Claude, "old"));
+        let new = service.begin_detail(gilvt_agent::local_key(AgentKind::Codex, "new"));
         assert!(!service.finish_detail(old, Ok(document("old"))));
         assert!(service.detail_loading());
         assert!(service.detail().is_none());

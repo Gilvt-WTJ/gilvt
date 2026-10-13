@@ -128,6 +128,13 @@ pub(crate) fn header_dir(path: Option<&Path>, home: Option<&Path>, budget: usize
     }
 }
 
+/// A remote editor's header directory: `devbox:~/repo/src` (the host's `$HOME` as `~`), cut like [`header_dir`] but
+/// never losing the host, so a local and a remote file of the same name are told apart.
+pub(crate) fn remote_header_dir(display: &str, path: &Path, home: Option<&Path>, budget: usize) -> String {
+    let dir = header_dir(Some(path), home, budget.saturating_sub(display.chars().count() + 1).max(4));
+    format!("{display}:{dir}")
+}
+
 /// The notice bar's buttons, left to right: label, action, primary.
 pub(crate) fn bar_buttons(bar: &Bar) -> Vec<(&'static str, BarAction, bool)> {
     let t = crate::i18n::text;
@@ -211,7 +218,16 @@ pub(crate) fn header(view: &EditorView, p: &Palette, cx: &mut Context<EditorView
     let (muted, bg) = tones(p);
     let name = view.title();
     let width = view.layout.map_or(600., |l| l.bounds.size.width / px(1.));
-    let dir = header_dir(view.path(), label_home(), path_budget(width, name.chars().count()));
+    let budget = path_budget(width, name.chars().count());
+    let dir = match view.remote.as_ref() {
+        // Never the Mac's `~`: the host's `$HOME` from its Welcome.
+        Some(doc) => {
+            let host = doc.path.remote_host().unwrap_or_default();
+            let home = cx.try_global::<crate::remote::RemoteHosts>().and_then(|r| r.hosts.get(host)).and_then(|h| h.home.clone());
+            remote_header_dir(&doc.display, &doc.path.path, home.as_deref(), budget)
+        }
+        None => header_dir(view.path(), label_home(), budget),
+    };
     let mut left = div()
         .flex()
         .flex_1()
@@ -488,6 +504,12 @@ pub(crate) fn too_narrow(p: &Palette) -> impl IntoElement {
         .text_size(px(CHROME_TEXT))
         .text_color(muted)
         .child(crate::i18n::text(TOO_NARROW, "Window too narrow"))
+}
+
+/// A remote file whose first read has not answered: one centred 「正在读取…」 below the header (R2a §8.3).
+pub(crate) fn loading(p: &Palette) -> impl IntoElement {
+    let (muted, _) = tones(p);
+    div().flex_1().flex().items_center().justify_center().text_size(px(CHROME_TEXT)).text_color(muted).child(crate::remote::fs::loading_text())
 }
 
 /// The header's preview button: the shortcut while closed, the provider shown while open.
@@ -773,6 +795,17 @@ mod tests {
         assert_eq!(header_dir(Some(Path::new("/opt/a.md")), home, 40), "/opt");
         assert_eq!(header_dir(Some(Path::new("a.md")), home, 40), "");
         assert_eq!(header_dir(None, home, 40), "");
+    }
+
+    #[test]
+    fn a_remote_header_names_the_host_and_its_directory() {
+        let home = Some(Path::new("/home/dev"));
+        let p = Path::new("/home/dev/repo/src/main.rs");
+        assert_eq!(remote_header_dir("devbox", p, home, 200), "devbox:~/repo/src", "not the bare name: a local main.rs looks different");
+        assert_eq!(remote_header_dir("devbox", Path::new("/etc/hosts"), home, 200), "devbox:/etc");
+        assert_eq!(remote_header_dir("devbox", p, None, 200), "devbox:/home/dev/repo/src", "no Welcome yet: no ~");
+        let short = remote_header_dir("devbox", Path::new("/home/dev/a/very/long/nested/tree/x.rs"), home, 20);
+        assert!(short.starts_with("devbox:") && short.ends_with("tree"), "the host always shows: {short}");
     }
 
     #[test]

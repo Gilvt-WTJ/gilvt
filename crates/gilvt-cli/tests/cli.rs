@@ -107,3 +107,25 @@ fn diff_reports_a_missing_repository_or_revision() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(matches!(rx.try_recv().unwrap(), Request::Diff { rev: None, .. }));
 }
+
+#[test]
+fn an_unreadable_file_is_named_as_typed_outside_gilvt() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc_geteuid() } == 0 {
+        return; // root reads it anyway
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("secret.rs");
+    std::fs::write(&f, "x\n").unwrap();
+    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let out = gilvt().current_dir(dir.path()).args(["view", "secret.rs:2"]).output().unwrap();
+    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8(out.stderr).unwrap();
+    assert!(err.starts_with("gilvt: secret.rs: "), "the name typed, not {}: {err}", f.display());
+}
+
+extern "C" {
+    #[link_name = "geteuid"]
+    fn libc_geteuid() -> u32;
+}

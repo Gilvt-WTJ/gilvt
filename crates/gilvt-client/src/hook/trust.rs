@@ -137,12 +137,6 @@ impl Cache {
     }
 }
 
-/// `~/Library/Application Support/gilvt/state`.
-pub fn state_dir() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").filter(|h| !h.is_empty())?;
-    Some(PathBuf::from(home).join("Library/Application Support/gilvt/state"))
-}
-
 fn lock_is_fresh(lock: &Path) -> bool {
     std::fs::metadata(lock).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < LOCK_FRESH)
 }
@@ -152,8 +146,8 @@ pub enum Lookup {
     Miss { start_job: bool },
 }
 
-pub fn lookup(gilvt: &Path) -> Lookup {
-    let (Some(dir), Some(bin)) = (state_dir(), CodexBin::find(std::env::var_os("PATH").as_deref())) else {
+pub fn lookup(gilvt: &Path, state_dir: Option<&Path>) -> Lookup {
+    let (Some(dir), Some(bin)) = (state_dir, CodexBin::find(std::env::var_os("PATH").as_deref())) else {
         return Lookup::Miss { start_job: false };
     };
     let gilvt = gilvt.display().to_string();
@@ -178,9 +172,9 @@ pub fn spawn_job(gilvt: &Path) {
 }
 
 /// `gilvt hook codex-trust`: asks codex for the trust hashes of gilvt's hooks and caches them.
-pub fn run_job(gilvt: &Path) {
-    let Some(dir) = state_dir() else { return };
-    if std::fs::create_dir_all(&dir).is_err() {
+pub fn run_job(gilvt: &Path, state_dir: Option<&Path>) {
+    let Some(dir) = state_dir else { return };
+    if std::fs::create_dir_all(dir).is_err() {
         return;
     }
     let lock = dir.join("codex-trust.lock");

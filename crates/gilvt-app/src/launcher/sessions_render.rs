@@ -185,6 +185,10 @@ impl SessionsView {
                     .text_color(k.muted)
                     .child(title)
                     .into_any_element(),
+                Line::Notice(text) => {
+                    let error = hsla(TerminalView::palette(window, cx).ansi[1]);
+                    div().h(px(ROW_HEIGHT)).px_3().flex().items_center().text_size(px(11.)).text_color(error).child(text).into_any_element()
+                }
                 Line::Row(i) => self.render_row(i, boxes, k, cx),
             })
             .collect()

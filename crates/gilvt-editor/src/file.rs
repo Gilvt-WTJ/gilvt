@@ -147,16 +147,7 @@ impl Buffer {
             return Err(EditorError::TooLarge { size: meta.len(), limit });
         }
         let bytes = fs::read(path)?;
-        let (decoded, lossy) = decode_with(&bytes, opts.encoding, opts.read_only)?;
-        let mut buffer = Buffer::from_text(&decoded.text);
-        buffer.encoding = decoded.encoding;
-        buffer.line_ending = decoded.line_ending;
-        buffer.mixed_line_endings = decoded.mixed_line_endings;
-        buffer.path = Some(path.to_path_buf());
-        buffer.lossy = lossy;
-        buffer.explicit_encoding = opts.encoding;
-        buffer.forced_read_only = opts.read_only || lossy;
-        buffer.read_only = buffer.forced_read_only || !writable(path);
+        let mut buffer = Buffer::from_decoded_bytes(path, &bytes, opts, writable(path))?;
         buffer.disk = Some(disk_state(&meta, &bytes));
         Ok(buffer)
     }
@@ -169,6 +160,9 @@ impl Buffer {
     /// `NoPath` for a buffer without a file, `ReadOnly` for a read-only one, `ModifiedOnDisk`, and every
     /// error of `save_as`.
     pub fn save(&mut self) -> Result<(), EditorError> {
+        if self.detached {
+            return Err(detached_error());
+        }
         let path = self.path.clone().ok_or(EditorError::NoPath)?;
         if self.read_only {
             return Err(EditorError::ReadOnly);
@@ -184,6 +178,9 @@ impl Buffer {
     /// # Errors
     /// `NoPath`, `ReadOnly`, and every error of `save_as`; never `ModifiedOnDisk`.
     pub fn save_overwrite(&mut self) -> Result<(), EditorError> {
+        if self.detached {
+            return Err(detached_error());
+        }
         let path = self.path.clone().ok_or(EditorError::NoPath)?;
         if self.read_only {
             return Err(EditorError::ReadOnly);
@@ -200,6 +197,9 @@ impl Buffer {
     /// `Unrepresentable { line, col }` for a character the encoding cannot hold, `PermissionDenied` when the
     /// file or its directory cannot be written, `Io` for other failures.
     pub fn save_as(&mut self, path: &Path) -> Result<(), EditorError> {
+        if self.detached {
+            return Err(detached_error());
+        }
         if self.forced_read_only {
             return Err(EditorError::ReadOnly);
         }
@@ -219,6 +219,9 @@ impl Buffer {
     /// alone (`touch`) is not a change: the contents are compared. The buffer does not watch the file; call
     /// this when the window gains focus or on a timer.
     pub fn check_external(&mut self) -> ExternalState {
+        if self.detached {
+            return ExternalState::Unchanged;
+        }
         let (Some(path), Some(disk)) = (self.path.clone(), self.disk) else {
             return ExternalState::Unchanged;
         };
@@ -254,8 +257,115 @@ impl Buffer {
     /// # Errors
     /// `NoPath` for a buffer without a file, and every error of `open`; on error the buffer is unchanged.
     pub fn reload(&mut self) -> Result<(), EditorError> {
+        if self.detached {
+            return Err(detached_error());
+        }
         let path = self.path.clone().ok_or(EditorError::NoPath)?;
         let fresh = Buffer::open_with(&path, OpenOptions { encoding: self.explicit_encoding, read_only: self.forced_read_only })?;
+        self.take_fresh(fresh);
+        Ok(())
+    }
+
+    /// Reads the file again (with the buffer's explicit encoding) and replaces the whole text as ONE undo
+    /// step; the loaded text counts as saved. Undoing returns to the text from before the reload (the user's
+    /// version, which is then dirty again). Undo restores text only, not the encoding or line ending that
+    /// the reload took from the file: an accepted trade-off. When the text is already identical nothing is
+    /// recorded, but the disk state is refreshed and the buffer counts as saved.
+    ///
+    /// # Errors
+    /// `NoPath`; `ReadOnly` for a forced read-only (or lossy) buffer; and the read errors of `open`. On error
+    /// the buffer is unchanged.
+    pub fn reload_as_edit(&mut self) -> Result<Change, EditorError> {
+        if self.detached {
+            return Err(detached_error());
+        }
+        let path = self.path.clone().ok_or(EditorError::NoPath)?;
+        if self.forced_read_only {
+            return Err(EditorError::ReadOnly);
+        }
+        let meta = fs::metadata(&path)?;
+        if !meta.is_file() {
+            return Err(EditorError::NotAFile);
+        }
+        if meta.len() > MAX_FILE_SIZE {
+            return Err(EditorError::TooLarge { size: meta.len(), limit: MAX_FILE_SIZE });
+        }
+        let bytes = fs::read(&path)?;
+        let change = self.apply_reload_as_edit(&bytes)?;
+        self.disk = Some(disk_state(&meta, &bytes));
+        Ok(change)
+    }
+}
+
+fn detached_error() -> EditorError {
+    EditorError::Io(io::Error::other("not a file on this Mac"))
+}
+
+impl Buffer {
+    /// The decoding half of `open`: `bytes` as the file at `path` holds them.
+    fn from_decoded_bytes(path: &Path, bytes: &[u8], opts: OpenOptions, writable: bool) -> Result<Buffer, EditorError> {
+        let (decoded, lossy) = decode_with(bytes, opts.encoding, opts.read_only)?;
+        let mut buffer = Buffer::from_text(&decoded.text);
+        buffer.encoding = decoded.encoding;
+        buffer.line_ending = decoded.line_ending;
+        buffer.mixed_line_endings = decoded.mixed_line_endings;
+        buffer.path = Some(path.to_path_buf());
+        buffer.lossy = lossy;
+        buffer.explicit_encoding = opts.encoding;
+        buffer.forced_read_only = opts.read_only || lossy;
+        buffer.read_only = buffer.forced_read_only || !writable;
+        Ok(buffer)
+    }
+
+    /// Decoded from `bytes` exactly as `open` decodes a file, named `path` (title, syntax), read-only unless
+    /// `writable`; never reads or writes this Mac's disk afterwards.
+    pub fn detached(path: &Path, bytes: &[u8], opts: OpenOptions, writable: bool) -> Result<Buffer, EditorError> {
+        let mut buffer = Buffer::from_decoded_bytes(path, bytes, opts, writable)?;
+        buffer.detached = true;
+        Ok(buffer)
+    }
+
+    /// The bytes `save` would write (the buffer's encoding and line ending).
+    ///
+    /// # Errors
+    /// `ReadOnly` for a read-only buffer, `Unrepresentable` for a character the encoding cannot hold.
+    pub fn encode_for_save(&self) -> Result<Vec<u8>, EditorError> {
+        if self.read_only {
+            return Err(EditorError::ReadOnly);
+        }
+        encode(&self.text(), self.encoding, self.line_ending)
+    }
+
+    /// The text now in the buffer is what the file holds (after the owner wrote `encode_for_save()` somewhere).
+    pub fn mark_saved(&mut self) {
+        self.history.mark_saved();
+        self.meta_dirty = false;
+    }
+
+    /// Whether the file may be written, as its owner last learned (a detached buffer's host answers with each read).
+    /// A read-only the user chose, or a lossy decode, stays.
+    pub fn set_writable(&mut self, writable: bool) {
+        self.read_only = self.forced_read_only || !writable;
+    }
+
+    /// `reload` from bytes: history cleared, clean, caret kept; same encoding options.
+    pub fn replace_from_bytes(&mut self, bytes: &[u8], writable: bool) -> Result<(), EditorError> {
+        let path = self.path.clone().ok_or(EditorError::NoPath)?;
+        let fresh = Buffer::from_decoded_bytes(&path, bytes, OpenOptions { encoding: self.explicit_encoding, read_only: self.forced_read_only }, writable)?;
+        self.take_fresh(fresh);
+        Ok(())
+    }
+
+    /// `reload_as_edit` from bytes: one undo step, counts as saved.
+    pub fn reload_as_edit_from_bytes(&mut self, bytes: &[u8]) -> Result<Change, EditorError> {
+        if self.forced_read_only {
+            return Err(EditorError::ReadOnly);
+        }
+        self.apply_reload_as_edit(bytes)
+    }
+
+    /// `reload`'s second half: everything of `fresh` but the caret.
+    fn take_fresh(&mut self, fresh: Buffer) {
         let selection = self.selection;
         self.rope = fresh.rope;
         self.history = fresh.history;
@@ -270,38 +380,17 @@ impl Buffer {
         self.meta_dirty = false;
         self.revision += 1;
         self.set_selection(Selection { anchor: selection.anchor, head: selection.head });
-        Ok(())
     }
 
-    /// Reads the file again (with the buffer's explicit encoding) and replaces the whole text as ONE undo
-    /// step; the loaded text counts as saved. Undoing returns to the text from before the reload (the user's
-    /// version, which is then dirty again). Undo restores text only, not the encoding or line ending that
-    /// the reload took from the file: an accepted trade-off. When the text is already identical nothing is
-    /// recorded, but the disk state is refreshed and the buffer counts as saved.
-    ///
-    /// # Errors
-    /// `NoPath`; `ReadOnly` for a forced read-only (or lossy) buffer; and the read errors of `open`. On error
-    /// the buffer is unchanged.
-    pub fn reload_as_edit(&mut self) -> Result<Change, EditorError> {
-        let path = self.path.clone().ok_or(EditorError::NoPath)?;
-        if self.forced_read_only {
-            return Err(EditorError::ReadOnly);
-        }
-        let meta = fs::metadata(&path)?;
-        if !meta.is_file() {
-            return Err(EditorError::NotAFile);
-        }
-        if meta.len() > MAX_FILE_SIZE {
-            return Err(EditorError::TooLarge { size: meta.len(), limit: MAX_FILE_SIZE });
-        }
-        let bytes = fs::read(&path)?;
-        let (decoded, _) = decode_with(&bytes, self.explicit_encoding, false)?;
+    /// `reload_as_edit`'s middle: decode, replace as one undo step, take the file's encoding, count as saved.
+    fn apply_reload_as_edit(&mut self, bytes: &[u8]) -> Result<Change, EditorError> {
+        let (decoded, _) = decode_with(bytes, self.explicit_encoding, false)?;
         let selection = self.selection;
         let change = if decoded.text == self.text() {
             // Nothing changed: the same "no-op" shape `replace_as` reports for an empty replacement.
             Change { start_line: 0, old_lines: 1, new_lines: 1 }
         } else {
-            // `replace_as` refuses a read-only buffer; the guard above proved this one is not forced.
+            // `replace_as` refuses a read-only buffer; callers proved this one is not forced.
             let was_read_only = self.read_only;
             self.read_only = false;
             let result = self.replace_as(0..self.len_chars(), &decoded.text, EditKind::Other);
@@ -311,7 +400,6 @@ impl Buffer {
         self.encoding = decoded.encoding;
         self.line_ending = decoded.line_ending;
         self.mixed_line_endings = decoded.mixed_line_endings;
-        self.disk = Some(disk_state(&meta, &bytes));
         self.history.mark_saved();
         self.meta_dirty = false;
         self.set_selection(selection);
@@ -822,5 +910,60 @@ mod tests {
         let mut b = Buffer::open(&p).unwrap();
         b.set_line_ending(LineEnding::Lf);
         assert!(!b.dirty());
+    }
+
+    #[test]
+    fn a_detached_buffer_never_touches_the_local_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let decoy = file(&dir, "same.txt", b"local\n");
+        let mut b = Buffer::detached(&decoy, b"remote\n", OpenOptions::default(), true).unwrap();
+        assert!(b.is_detached());
+        assert_eq!(b.text(), "remote\n");
+        assert_eq!(b.path(), Some(decoy.as_path()), "named like the remote file");
+        b.replace(0..0, "x").unwrap();
+        assert_eq!(b.check_external(), ExternalState::Unchanged, "the Mac's file is not looked at");
+        assert!(b.save().is_err() && b.save_overwrite().is_err() && b.save_as(&decoy).is_err());
+        assert!(b.reload().is_err() && b.reload_as_edit().is_err());
+        assert_eq!(std::fs::read(&decoy).unwrap(), b"local\n", "the decoy is untouched");
+        assert_eq!(b.text(), "xremote\n", "and the buffer too");
+    }
+
+    #[test]
+    fn a_detached_buffer_takes_the_hosts_writable_flag() {
+        let mut b = Buffer::detached(std::path::Path::new("/r/a.txt"), b"x\n", OpenOptions::default(), true).unwrap();
+        b.set_writable(false);
+        assert!(b.read_only());
+        b.set_writable(true);
+        assert!(!b.read_only());
+        let mut forced = Buffer::detached(std::path::Path::new("/r/a.txt"), b"x\n", OpenOptions { encoding: None, read_only: true }, true).unwrap();
+        forced.set_writable(true);
+        assert!(forced.read_only(), "a chosen read-only stays");
+    }
+
+    #[test]
+    fn a_detached_buffer_encodes_marks_and_reloads_from_bytes() {
+        let path = std::path::Path::new("/home/dev/a.txt");
+        let mut b = Buffer::detached(path, b"one\r\ntwo\r\n", OpenOptions::default(), true).unwrap();
+        assert_eq!(b.line_ending(), LineEnding::CrLf);
+        b.replace(0..0, "0").unwrap();
+        assert!(b.dirty());
+        assert_eq!(b.encode_for_save().unwrap(), b"0one\r\ntwo\r\n", "the file's own line ending");
+        b.mark_saved();
+        assert!(!b.dirty());
+        b.reload_as_edit_from_bytes(b"theirs\r\n").unwrap();
+        assert_eq!((b.text().as_str(), b.dirty()), ("theirs\n", false));
+        b.undo();
+        assert_eq!(b.text(), "0one\ntwo\n", "taking the disk version is one undo step");
+        b.replace_from_bytes(b"fresh\n", true).unwrap();
+        assert!(!b.can_undo() && !b.dirty());
+        assert_eq!(b.text(), "fresh\n");
+    }
+
+    #[test]
+    fn a_detached_read_only_buffer_does_not_encode() {
+        let b = Buffer::detached(std::path::Path::new("/r/ro.txt"), b"x\n", OpenOptions::default(), false).unwrap();
+        assert!(b.read_only());
+        assert!(matches!(b.encode_for_save(), Err(EditorError::ReadOnly)));
+        assert!(matches!(Buffer::detached(std::path::Path::new("/r/bin"), b"\0\0\0\0", OpenOptions::default(), true), Err(EditorError::Binary)));
     }
 }

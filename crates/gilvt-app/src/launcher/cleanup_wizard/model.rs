@@ -369,7 +369,7 @@ pub fn candidates<'a>(
         .zip(states)
         .enumerate()
         .map(|(i, (entry, state))| {
-            let index = reviews.get(&(entry.agent, entry.session_id.clone()));
+            let index = reviews.get(&gilvt_agent::local_key(entry.agent, entry.session_id.clone()));
             let (tools, fully_reviewed) = review_facts(index, state);
             Candidate {
                 entry,

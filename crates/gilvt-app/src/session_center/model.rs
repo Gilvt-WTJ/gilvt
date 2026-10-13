@@ -170,6 +170,21 @@ pub fn row_dir(
     }
 }
 
+/// [`row_dir`] for a row of session `key`: a remote session's directory is on another machine, so it is shown as
+/// typed, with no branch (git cache) and no 「目录已不存在」 (history scan) -- both read this Mac's disk.
+pub fn row_dir_of(
+    key: &SessionKey,
+    cwd: &Path,
+    home: Option<&Path>,
+    exists: impl Fn(&Path) -> bool,
+    branch: impl Fn(&Path) -> Option<String>,
+) -> RowDir {
+    if key.2.is_remote() {
+        return RowDir { dir: cwd.display().to_string(), branch: None, missing: false };
+    }
+    row_dir(cwd, home, exists, branch)
+}
+
 /// The review header's grey line: 「<目录>[ · <分支>] · <agent>」.
 pub fn header_subtitle(row: &Row, dir: &RowDir) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -355,5 +370,30 @@ impl Selection {
             self.cursor = index;
             self.key = Some(row.key.clone());
         }
+    }
+}
+
+/// What activating a row that runs in no pane resumes.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ResumeTarget<'a> {
+    /// A session of this Mac: its history entry.
+    Local(&'a gilvt_agent::HistoryEntry),
+    /// A session of an ssh host: run `command` there (never matched against this Mac's history, where the same
+    /// `(agent, id)` would be another machine's session).
+    Remote { host: String, command: String },
+    /// A remote session whose directory is unknown.
+    RemoteNoDir,
+    Nothing,
+}
+
+/// [`ResumeTarget`] for row `key` (in `cwd`), with `entries` this Mac's history.
+pub fn resume_target<'a>(key: &SessionKey, cwd: &Path, entries: &'a [gilvt_agent::HistoryEntry]) -> ResumeTarget<'a> {
+    match &key.2 {
+        gilvt_agent::host::Host::Remote(_) if cwd.as_os_str().is_empty() => ResumeTarget::RemoteNoDir,
+        gilvt_agent::host::Host::Remote(h) => ResumeTarget::Remote { host: h.0.clone(), command: crate::remote::resume_command(key.0, &key.1, cwd) },
+        gilvt_agent::host::Host::Local => entries
+            .iter()
+            .find(|e| e.agent == key.0 && e.session_id == key.1)
+            .map_or(ResumeTarget::Nothing, ResumeTarget::Local),
     }
 }

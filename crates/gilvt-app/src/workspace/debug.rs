@@ -41,7 +41,7 @@ impl Workspace {
         let registry = agents.registry();
         let model = (!self.sidebar.hidden).then(|| crate::sidebar::view::model_for(self, me, cx));
         let trash: Option<Vec<SessionKey>> =
-            self.ended_confirm.as_ref().map(|c| c.entries.iter().map(|e| (e.agent, e.session_id.clone())).collect());
+            self.ended_confirm.as_ref().map(|c| c.entries.iter().map(|e| gilvt_agent::local_key(e.agent, e.session_id.clone())).collect());
         let mut sidebar = map::sidebar(model.as_ref(), self.sidebar.grouping, self.renaming_key(), &|k| registry.get(k), &rect, trash.as_deref(), &|k| registry.get(k).and_then(|s| agents.git(s)).cloned());
         // The entry's number is the one the sidebar drew in its latest frame.
         sidebar.review_entry = sidebar.visible.then(|| ds::ReviewEntry {
@@ -164,7 +164,7 @@ impl Workspace {
                 out.push(ds::EditorState {
                     pane: id,
                     tab: ti,
-                    path: v.path().map(|p| p.display().to_string()).unwrap_or_default(),
+                    path: v.host_path().map(|p| p.path.display().to_string()).unwrap_or_default(),
                     dirty: v.is_dirty(),
                     readonly: v.model.is_read_only(),
                     cursor: ds::EditorCursor { line: pos.line + 1, col: pos.col + 1 },
@@ -199,6 +199,9 @@ impl Workspace {
                     bar_buttons: map::editor_bar_buttons(&v.bar, id, rect),
                     status_encoding_rect: rect(RectId::EditorEncoding(id)),
                     status_line_ending_rect: rect(RectId::EditorLineEnding(id)),
+                    host: v.host_path().map_or_else(|| "local".to_string(), |p| p.host.id_str().to_string()),
+                    loading: v.remote.as_ref().is_some_and(|d| d.loading),
+                    bar_message: map::editor_bar_message(&v.bar),
                 });
             }
         }
@@ -281,6 +284,17 @@ impl Workspace {
             running_command,
             host: match view {
                 Some(PaneView::Terminal(t)) => Some(t.read(cx).remote().map_or("local".to_string(), |r| r.host.clone())),
+                Some(PaneView::Preview(p)) => p.read(cx).debug_host(),
+                Some(PaneView::Editor(e)) => Some(e.read(cx).host_path().map_or_else(|| "local".to_string(), |p| p.host.id_str().to_string())),
+                _ => None,
+            },
+            loading: match view {
+                Some(PaneView::Preview(p)) => p.read(cx).loading,
+                Some(PaneView::Editor(e)) => e.read(cx).remote.as_ref().is_some_and(|d| d.loading),
+                _ => false,
+            },
+            size: match view {
+                Some(PaneView::Preview(p)) => p.read(cx).debug_size(),
                 _ => None,
             },
             remote: match view {
@@ -335,6 +349,8 @@ impl Workspace {
             rows: Vec::new(),
             artifacts: None,
             config: None,
+            source: None,
+            loading: false,
         };
         if self.inspector.hidden {
             return hidden;
@@ -343,7 +359,7 @@ impl Workspace {
         let registry = agents.registry();
         let session = self.focused_pane().and_then(|p| crate::inspector::model::follow(registry.sessions(), p));
         let reachable = |p: PaneId| self.has_pane(p) || workspaces(cx).iter().any(|w| w.read(cx).is_ok_and(|o| o.has_pane(p)));
-        let banner = crate::inspector::model::banner(registry.sessions(), session, reachable, |s| agents.project(s), Instant::now());
+        let banner = crate::inspector::model::banner(registry.sessions(), session, reachable, |s| agents.project(s, cx), Instant::now());
         let entries = session.map_or(&[][..], |s| self.inspector.timeline.entries_for(&s.key));
         ds::Inspector {
             visible: true,
@@ -360,6 +376,8 @@ impl Workspace {
             tab: self.inspector.tab.name(),
             artifacts: self.debug_artifacts(session, rect, cx),
             config: self.debug_config(session, rect),
+            source: session.map(|s| if s.key.2.is_remote() { "remote" } else { "local" }),
+            loading: session.is_some_and(|s| agents.transcript_loading(&s.key)),
             ..hidden
         }
     }

@@ -1,19 +1,31 @@
 //! `gilvt-remote`: the piece of gilvt that runs on an ssh host (spec §2.1). Subcommands:
-//! `login`, `bridge`, `daemon`. Called as `gilvt` (the symlink in `<version>/bin/`) it will answer the
-//! `gilvt hook|view|diff` commands (R2).
+//! `login`, `bridge`, `daemon`. Called as `gilvt` (the `<build>/bin/gilvt` link) it answers `gilvt hook …`
+//! and `gilvt view` / `gilvt diff` (R2a §8.2).
 
 mod bridge;
 mod client;
 mod daemon;
+mod entry;
+mod files;
+mod follow;
+mod history;
+mod hooklog;
 mod links;
 mod login;
 mod paths;
 mod peer;
 mod sys;
+mod watch;
+mod workers;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    let argv0 = std::env::args_os().next().unwrap_or_default();
+    if std::path::Path::new(&argv0).file_name().is_some_and(|n| n == "gilvt") {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        return entry::run(&args);
+    }
     let argv: Vec<String> = std::env::args().skip(1).collect();
     match argv.first().map(String::as_str) {
         Some("--build-id") => match std::env::current_exe().ok().and_then(|e| paths::build_id_of(&e)) {

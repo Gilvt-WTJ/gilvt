@@ -14,7 +14,9 @@ mod editor;
 pub mod marks;
 mod new_agent;
 mod pane_drag;
+mod remote_files;
 pub mod nav;
+mod remote_resume;
 mod restore;
 mod run;
 mod sessions;
@@ -167,6 +169,8 @@ pub struct Workspace {
     error: Option<String>,
     /// A file the built-in editor refused to open (red banner below the tab bar).
     editor_refusal: Option<editor::EditorRefusal>,
+    /// The latest ⌘-click in an ssh pane: an earlier click answered late does nothing.
+    remote_clicks: remote_files::ClickGen,
     focus_handle: FocusHandle,
     sidebar: SidebarState,
     /// The pane flashing after `focus_pane`, and which flash it is.
@@ -255,6 +259,7 @@ impl Workspace {
             drag: None,
             error,
             editor_refusal: None,
+            remote_clicks: Default::default(),
             focus_handle: cx.focus_handle(),
             sidebar: SidebarState::new(prefs.sidebar_hidden, prefs.grouping),
             flash: None,
@@ -316,21 +321,38 @@ impl Workspace {
         self.finder = None;
         self.sessions = None;
         self.new_agent = None;
-        if let Some(Source::File(path)) = req.sources.get(req.index) {
-            self.recent.push(path.clone());
+        if let Some(Source::File(p)) = req.sources.get(req.index) {
+            if let Some(local) = p.local_path() {
+                self.recent.push(local.to_path_buf());
+            }
         }
         let view = cx.new(|cx| PreviewView::new(req, pin, window, cx));
         if pin {
             self.insert_preview_pane(view, origin, window, cx);
             return;
         }
+        self.show_quicklook(view, origin, window, cx);
+    }
+
+    /// A Quick Look that waits for a remote answer: shown at once, filled by `replace_request` or `fail`.
+    pub fn open_preview_pending(&mut self, origin: Option<PaneId>, window: &mut Window, cx: &mut Context<Self>) -> Entity<PreviewView> {
+        self.ended_confirm = None;
+        self.finder = None;
+        self.sessions = None;
+        self.new_agent = None;
+        let view = cx.new(|cx| PreviewView::pending(window, cx));
+        self.show_quicklook(view.clone(), origin, window, cx);
+        view
+    }
+
+    fn show_quicklook(&mut self, view: Entity<PreviewView>, origin: Option<PaneId>, window: &mut Window, cx: &mut Context<Self>) {
         let sub = cx.subscribe_in(&view, window, move |ws, _, event, window, cx| match event {
             PreviewEvent::Close | PreviewEvent::Leave => ws.close_quicklook(window, cx),
             PreviewEvent::Pin => ws.pin_quicklook(origin, false, window, cx),
             PreviewEvent::NewTab => ws.pin_quicklook(origin, true, window, cx),
             PreviewEvent::Opened(path) => ws.recent.push(path.clone()),
             // `open_editor` closes Quick Look once the editor exists; a refused file keeps it open under the banner.
-            PreviewEvent::Edit { path, line, flip } => ws.open_editor(path.clone(), *line, origin, *flip, window, cx),
+            PreviewEvent::Edit { path, line, flip } => ws.open_editor_at(path.clone(), *line, origin, *flip, window, cx),
             PreviewEvent::OpenExternal { path, line } => open_in_editor(path, *line),
         });
         self.quicklook = Some((view, sub));
@@ -367,6 +389,13 @@ impl Workspace {
         self.focus_active(window, cx);
     }
 
+    /// Closes Quick Look only when it still shows `view` (a remote answer arriving late must not close another).
+    pub(crate) fn close_quicklook_if(&mut self, view: &Entity<PreviewView>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.quicklook.as_ref().is_some_and(|(v, _)| v == view) {
+            self.close_quicklook(window, cx);
+        }
+    }
+
     fn close_quicklook(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.quicklook = None;
         self.focus_active(window, cx);
@@ -391,7 +420,7 @@ impl Workspace {
         let sub = cx.subscribe_in(&view, window, move |ws, _, event, window, cx| match event {
             PreviewEvent::Leave => ws.leave_preview(id, window, cx),
             PreviewEvent::Opened(path) => ws.recent.push(path.clone()),
-            PreviewEvent::Edit { path, line, flip } => ws.open_editor(path.clone(), *line, Some(id), *flip, window, cx),
+            PreviewEvent::Edit { path, line, flip } => ws.open_editor_at(path.clone(), *line, Some(id), *flip, window, cx),
             PreviewEvent::OpenExternal { path, line } => open_in_editor(path, *line),
             PreviewEvent::NewTab => ws.move_pane_to_new_tab(id, window, cx),
             PreviewEvent::Close | PreviewEvent::Pin => {}
@@ -464,8 +493,8 @@ impl Workspace {
                 cx.defer(move |cx| crate::remote::link_ended(&link, cx));
             }
             TerminalViewEvent::Notice(t) => ws.show_error(t.to_string(), cx),
+            TerminalViewEvent::OpenRemotePath { probe, in_editor } => ws.open_remote_path(id, probe.clone(), *in_editor, window, cx),
             TerminalViewEvent::OpenPath { hit, in_editor } => {
-                if ws.refuse_remote(id, cx) { return; }
                 if *in_editor {
                     ws.open_editor(hit.path.clone(), hit.line, Some(id), false, window, cx);
                 } else {
