@@ -164,7 +164,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
 const HOOK_READ_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// `run/gilvt.sock`: one request line per connection, like the app's socket (R2a §4.1). Hooks are attributed to a
-/// link and broadcast; anything else is ignored (R2a's second plan adds View / Diff here).
+/// link and broadcast; View / Diff are answered and broadcast as `Open` (R2a §8.2); anything else is ignored.
 ///
 /// Connections are handled one at a time, inline, in the order they were accepted (no thread per connection): hooks
 /// reach the app in the order they were sent, and a stuck client delays the others by at most `HOOK_READ_TIMEOUT`
@@ -178,14 +178,56 @@ fn serve_gilvt_sock(listener: UnixListener, state: &Arc<Mutex<State>>) {
         }
         let _ = conn.set_read_timeout(Some(HOOK_READ_TIMEOUT));
         // A client that connects and then says nothing fails the read at the timeout and is dropped.
-        if let Ok(gilvt_ipc::Request::Hook { agent, event, payload, link, tmux, .. }) = gilvt_ipc::read_request(&conn) {
-            let size = hook_size(&payload);
-            let mut s = state.lock().unwrap();
-            if let Some(link) = attribute(&s.links, link.as_deref(), tmux) {
-                s.broadcast_hook(RemoteEvent::Hook { link, agent, event, payload }, size);
+        match gilvt_ipc::read_request(&conn) {
+            Ok(gilvt_ipc::Request::Hook { agent, event, payload, link, tmux, .. }) => {
+                let size = hook_size(&payload);
+                let mut s = state.lock().unwrap();
+                if let Some(link) = attribute(&s.links, link.as_deref(), tmux) {
+                    s.broadcast_hook(RemoteEvent::Hook { link, agent, event, payload }, size);
+                }
             }
+            Ok(req @ (gilvt_ipc::Request::View { .. } | gilvt_ipc::Request::Diff { .. })) => {
+                let fits = open_fits(&req);
+                let reply = {
+                    let mut s = state.lock().unwrap();
+                    let (reply, event) = open_reply(&s.links, s.bridges.len(), req, fits);
+                    if let Some(event) = event {
+                        s.broadcast(event);
+                    }
+                    reply
+                };
+                let mut conn = conn;
+                let _ = conn.set_write_timeout(Some(Duration::from_secs(1)));
+                let _ = gilvt_ipc::write_response(&mut conn, &reply);
+            }
+            _ => {}
         }
     }
+}
+
+/// R2a §8.2: a View / Diff from a shell whose link is registered, with an app connected, is accepted (Ok, then an
+/// `Open` broadcast; like link events it is not kept for replay). Errors are codes the remote `gilvt` translates. An
+/// `Open` that would not fit in one frame is refused here: a refused frame is dropped by the writer anyway.
+/// The `Open` frame around `req` (`{"type":"event","seq":...,"event":{"type":"open","link":...,"request":...}}`) adds
+/// well under 256 bytes to the request's own JSON.
+fn open_fits(req: &gilvt_ipc::Request) -> bool {
+    serde_json::to_vec(req).is_ok_and(|v| v.len() + 256 <= MAX_FRAME as usize)
+}
+
+fn open_reply(links: &Links, bridges: usize, req: gilvt_ipc::Request, fits: bool) -> (gilvt_ipc::Response, Option<RemoteEvent>) {
+    let refuse = |code: &str| (gilvt_ipc::Response::Error { message: code.into() }, None);
+    let link = match &req {
+        gilvt_ipc::Request::View { link, .. } | gilvt_ipc::Request::Diff { link, .. } => link.clone(),
+        _ => None,
+    };
+    let Some(link) = link.filter(|l| links.contains(l)) else { return refuse(OPEN_NOT_LINKED) };
+    if bridges == 0 {
+        return refuse(OPEN_NOT_LINKED);
+    }
+    if !fits {
+        return refuse(OPEN_TOO_LARGE);
+    }
+    (gilvt_ipc::Response::Ok, Some(RemoteEvent::Open { link, request: Box::new(req) }))
 }
 
 fn try_lock(file: &std::fs::File) -> bool {
@@ -812,5 +854,36 @@ mod tests {
         read_frame::<DaemonMsg>(&mut b).unwrap();
         write_frame(&mut b, &AppMsg::Request { id: 5, req: RemoteRequest::History }).unwrap();
         assert!(matches!(read_frame::<DaemonMsg>(&mut b).unwrap(), Some(DaemonMsg::Response { id: 5, resp: RemoteResponse::HistoryList { .. } })));
+    }
+
+    fn view(link: Option<&str>, content: Option<String>) -> gilvt_ipc::Request {
+        gilvt_ipc::Request::View { pane: None, path: content.is_none().then(|| "/home/u/a.md".into()), content, as_type: None, line: None, col: None, pin: false, link: link.map(Into::into) }
+    }
+
+    #[test]
+    fn open_needs_a_registered_link_and_a_bridge() {
+        let mut links = Links::default();
+        links.up(LinkState { link: "t-1".into(), hostname: "h".into(), tty: None, pid: 1 });
+        let refused = gilvt_ipc::Response::Error { message: OPEN_NOT_LINKED.into() };
+        assert_eq!(open_reply(&links, 1, view(None, None), true), (refused.clone(), None), "no link");
+        assert_eq!(open_reply(&links, 1, view(Some("t-9"), None), true), (refused.clone(), None), "unknown link");
+        assert_eq!(open_reply(&links, 0, view(Some("t-1"), None), true), (refused, None), "no app connected");
+        let (reply, event) = open_reply(&links, 1, view(Some("t-1"), None), true);
+        assert_eq!(reply, gilvt_ipc::Response::Ok);
+        assert!(matches!(event, Some(RemoteEvent::Open { ref link, .. }) if link == "t-1"));
+    }
+
+    #[test]
+    fn an_open_too_large_for_a_frame_is_refused_not_broadcast() {
+        let mut links = Links::default();
+        links.up(LinkState { link: "t-1".into(), hostname: "h".into(), tty: None, pid: 1 });
+        // 10 MB of a character JSON writes as six bytes ("\u0001"): within the stdin cap, far over a frame.
+        let big = view(Some("t-1"), Some("\u{1}".repeat(gilvt_ipc::MAX_CONTENT_BYTES)));
+        assert!(!open_fits(&big));
+        assert_eq!(open_reply(&links, 1, big, false), (gilvt_ipc::Response::Error { message: OPEN_TOO_LARGE.into() }, None));
+        let small = view(Some("t-1"), Some("plain text\n".repeat(1000)));
+        assert!(open_fits(&small));
+        let (reply, _) = open_reply(&links, 1, small, true);
+        assert_eq!(reply, gilvt_ipc::Response::Ok);
     }
 }
