@@ -365,3 +365,38 @@ R1 的「版本变化后自动更新」那一行改为只在 `remote.install = "
 38. **Session Center 的恢复区分主机**：远端会话不再按 `(agent, id)` 去 Mac 的历史里找条目（那会是另一台机器上的会话），而是走与会话面板相同的远端恢复；远端会话的目录未知时与「本地会话找不到历史条目」一样什么也不做（Session Center 没有提示行）。
 39. **`HOME` 为空时 `gilvt_agent::default_state_dir` 返回 `None`**（与旧的 `trust::state_dir` 一致），不会在 agent 的 cwd 下写出相对路径的 `Library/Application Support/...`。
 40. **AC24、AC26 的步骤**：AC24 以 DebugState 里左栏这一行重新有 `pane`、状态不是 `ended` 判断恢复成功，不看屏幕上的命令行；AC26 的回车用 `key enter` 送，`~.` 不带换行由 `type` 一次送出，不做回显核对（ssh 吞掉转义序列，屏幕上不会出现）。
+
+### 9.4 第二份计划的裁决（§8）
+
+以下以本节为准（编号接着 9.3）。第 41–67 条是计划阶段的差异与裁决（原计划第 1–27 条）；第 68 条起是实施过程中新增的。
+
+41. **`HostFs` / `HostGit` 是枚举，不是 trait**：`HostFs::{Local, Remote(RemoteFs)}`，方法返回 `gpui::Task`。本地分支是把现有阻塞函数放到 `background_executor` 上（`Preview::load`、`git::changed_files`），行为逐字节不变；只有远端分支走 bridge。编辑器的本地打开 / 保存 **不** 经过 `HostFs`（仍是现有的同步路径），只有远端编辑器用 `RemoteFs`：这样本地编辑器的行为一行都不改。
+42. **`FileData` 多一个 `writable: bool`**：spec 的 `FileData { bytes, fingerprint }` 不够决定缓冲区是否只读（本地用 `writable(path)` 判断）。daemon 用 `access(W_OK)` 填。
+43. **`Fingerprint` 只在 daemon 上算**：`{ mtime_ns, size, sha256 }`，`sha256` 是小写十六进制。app 只保存、比较（`same_content` = size 与 sha256 都相同），从不计算；本地编辑器的 `DiskState`（`DefaultHasher`）不动。
+44. **`WriteFile` 的判定**（spec 只写了「`expect` 为空表示新建，目标已存在时返回 `Modified`」）：`expect` 为空：目标不存在才写，存在返回 `Modified { current }`；`expect` 非空：目标不存在时照写（与本地「文件被删除不阻止保存，会重新创建」一致，编辑器「已删除」条的「保存（重新创建）」靠它）；目标存在且 `mtime_ns`、`size` 与 `expect` 都相同时直接写；否则读出内容算 sha256，`size` 与 `sha256` 都相同（只是 `touch` 过）照写，不同返回 `Modified { current }`。判定与写入在同一个工作线程里连续完成。
+45. **预览超过 5 MB**：`ReadForPreview` 返回 `FileError { TooLarge }`，app 显示与本地完全相同的「文件过大」视图（`Content::TooLarge(size)`），因为这个上限与本地相同；「文件太大，远端暂不支持」用于远端编辑器（10 MB）与 Markdown 图片（5 MB）。
+46. **`base_text` 超过 5 MB 时不发**：`git_root` 照发、`base_text` 为空、新增 `base_skipped: true`，app 按「仅文件」显示（不做 diff）。否则一个大的旧版本加上文件本身可能超过 16 MB 单帧。
+47. **单帧保护**：daemon 的写线程遇到超过 16 MB 的 `Response` 时改发 `Response { id, Error { message: "too_large" } }`，遇到超过的推送就丢掉这一条；`write_frame` 在写任何字节之前就拒绝，所以 bridge 不会断（第一份计划 §9 第 5 条说过：超帧会让写线程退出，这台主机的 hook 一起断）。`gilvt view -` 的 10 MB stdin 经 JSON 转义可能超过 16 MB：daemon 在广播 `Open` 之前先算一次大小，超了就回 CLI 错误「文件太大，远端暂不支持」，不广播。
+48. **`Open` 是 `RemoteEvent`，不进补发缓冲**：与 `LinkUp` / `LinkDown` 一样走 `State::broadcast`（占一个 `seq`，不保存）。bridge 断开期间的 `gilvt view` 不会在重连后突然弹出。daemon 没有任何 bridge 时也回错误「这个 shell 没有连着 gilvt」。
+49. **`gilvt.sock` 的错误是代码，由 CLI 翻译**：daemon 回 `Response::Error { message: "not_linked" | "too_large" }`（常量 `OPEN_NOT_LINKED` / `OPEN_TOO_LARGE`），远端 `gilvt` 按自己的界面语言打印。daemon 的语言是启动它的那次登录的语言，不一定是这个 shell 的。没有 `GILVT_SOCKET` / `GILVT_LINK`（普通登录）或连不上 socket 时，CLI 打印同一句「这个 shell 没有连着 gilvt」并以 1 退出。
+50. **⌘点击是两次来回**：spec §8.3 规定点击时先发一次 `Stat`，存在时再打开（`ReadForPreview`）。两步之间先弹出一个「正在读取…」的 Quick Look 占位（`loading: true`），所以等待时有加载状态；`Stat` 一次带上这个 token 的所有候选路径（`:` 前缀 × `a/`、`b/`），选法与本地 `path_at` 相同（第一个存在的）。见「spec 缺陷」。
+51. **⌘点击在没有增强（普通登录）的远端 pane 里仍显示「这项功能暂不支持远端」**；增强但 bridge 不在时显示「devbox 未连接」（英文 `devbox is not connected`）。
+52. **远端打开文件失败的文字**：不存在 →「devbox 上没有这个文件」；未连接 →「devbox 未连接」；超过上限 →「文件太大，远端暂不支持」；其余 → daemon 的错误原文。
+53. **Markdown 链接与图片**：渲染时链接按存在处理（画 ↗），图片画「正在读取…」占位。随后一次批量 `Stat`（链接的全部候选 + 图片路径，每 256 个一批并发发出）：不存在的链接去掉 ↗（与本地「目标不存在」的链接画法相同：普通链接样式、点击提示）；图片存在、是支持的格式、不超过 5 MB 时 `ReadFile` 取回，写进 `$TMPDIR/gilvt-remote-images/<pid>/`，按 `(主机, 路径, mtime_ns, size)` 缓存（`Stat` 给出的就是 fingerprint 的这两项，不必为了缓存键再读一遍内容）。spec 的「把不存在的改为普通文本」按本地对不存在链接的画法实现。
+54. **`gilvt diff` 等待时**：先弹出「正在读取…」的 Quick Look 占位，`GitChanges` 回来后换成文件组；每个文件切换到时才 `ReadForPreview { rev }`。
+55. **Quick Look 也 `Watch`**：spec「Quick Look 与本地一样，只标记为过期」：本地 Quick Look 也监视文件，只是改为标记过期，所以远端 Quick Look 同样 `Watch`、收到 `FileChanged` 时标记过期；固定的预览重新读取。
+56. **远端编辑器的保存是异步的**：`SaveOutcome` 增加 `Pending`。编辑器自己的关闭条「保存」在保存完成后再关闭；窗口级「全部保存并关闭」遇到 `Pending` 与 `Modified` / `Failed` 一样中止关闭，把这个编辑器切到前台（它的保存在后台继续）。保存进行中再按 ⌘S 不发第二次（返回 `Pending`）。保存期间继续输入的内容：保存成功后 fingerprint 更新，但只有缓冲区版本号没变时才标记为已保存。
+57. **远端编辑器里不支持**：实时预览（`⌘⇧V`：渲染 / 改动两种提供者都会按路径读 Mac 的文件）、在外部编辑器中打开（`⌘⌥O`）。两处显示「这项功能暂不支持远端」。spec §8.3 的拒绝清单没有它们，但它们会读到 Mac 上的同名文件，违反「绝不回退到本地的同名路径」。
+58. **「另存为」**：app 里没有另存为的界面（`save_as` 只在 `gilvt-editor` 内部使用），所以「只允许同一台主机」这一条没有可做的界面；远端编辑器的每次写入都用它打开时的 `HostPath`，`RemoteDoc` 不提供改路径的入口。
+59. **远端编辑器只靠 `Watch` 发现外部修改**：本地编辑器在获得焦点时还会检查一次磁盘；远端不在获得焦点时发请求（每次切换焦点一次来回不值得），`Watch` 推送就是检查。
+60. **DebugState**：spec §8.4 的「预览 / Quick Look / 编辑器的条目增加 `host`、`loading`」落在：`overlay`（`kind == "quicklook"`）的 `host` / `loading` / `size`，`tabs[].panes[]` 的 `loading` / `size`，以及 **原有的 `panes[].host` 对预览与编辑器 pane 也填值**（原来只有终端有值、其他为 `null`；从 `null` 变成有值不是改名或删除，`VERSION` 保持 1；仓库里没有用例断言预览的 `host` 为 `null`，Task 13 用 grep 确认），`editors[]` 的 `host` / `loading` / `bar_message`，`hosts[]` 的 `watches`。`size` 是已载入文档的字节数（不含内容），验收用例靠它分辨远端文件与本地诱饵；`bar_message` 是红色保存失败条的文字，验收用例靠它确认「devbox 未连接，未保存」。
+61. **AC8 改写**：R1 的 AC8 断言「⌘点击远端路径显示暂不支持远端」，与本计划的行为相反。改写为 spec §8.5 的诱饵用例（同一行 ID，不留一条过时的行），其余新行为 AC30–AC36。
+62. **`git` 查询移进 `gilvt-client`**：`gilvt-viewer::git` 改为 `pub use gilvt_client::git`，路径不变；daemon 与本地 `changed_files` 用同一个函数（新增的 `changed_entries` 多带一个状态）。`gilvt-viewer` 因此依赖 `gilvt-client`（它只依赖 `gilvt-agent`、`gilvt-ipc`，没有环）。
+63. **app→daemon 的超帧请求只让这一个请求失败，不再拆掉 bridge**（预飞行发现：app 的 bridge 写线程在任何 `write_frame` 错误时 `break`，一次超过 16 MB 的 `WriteFile` 会结束写线程，这台主机的 hook 一起断）。两道防线：(1) `save_remote` 在编码之后先检查，字节数超过 `MAX_REMOTE_EDIT_BYTES` 就不发请求，红色保存失败条「文件太大，远端暂不支持」，缓冲区保持未保存（`remote_edit::too_large_to_save`）；(2) bridge 写线程遇到 `is_frame_too_large` 时把一条合成的 `Response { id, Error { OPEN_TOO_LARGE } }` 经 `events` 通道交给主线程（`too_large_reply`），该请求按 `FsFailure::TooLarge` 失败，写线程继续（Task 6、Task 12）。
+64. **远端 `gilvt view` / `gilvt diff` 到 app 能处理 `Open` 的那个提交才接上**：Task 5 只做 daemon 一侧（`run/gilvt.sock` 接收、广播 `Open`，用直接发到 socket 的 `Request` 测试），入口 `entry.rs` 的 `view` / `diff` 与它的测试放在 Task 8，和 `CHANGELOG.md` 的那一行同一个提交。这样每个提交里远端 `gilvt view` 的行为都与 app 一致（之前是「远端不支持这个命令」，之后是打开 Quick Look），不会出现「CLI 成功退出而 app 忽略 `Open`」的中间状态。
+65. **DebugState `hosts[].watches` 只数 daemon 已确认的 `Watch`**：`Watch` 得到 `Ok` 才计入，bridge 断开后清零，重连后随 `rewatch` 逐个回来（`WatchTable.acked`）。验收用例（AC30、AC35）等 `watches` 达到预期，就表示 daemon 的基线已经取好，之后的远端改动一定会推送；不是 app「想要监视」的数目。
+66. **超过 `MAX_REMOTE_EDIT_BYTES`（10 MB）的文件，fingerprint 只含 size 与 mtime，不算 sha256**：`fingerprint_of` 不读这种文件（`sha256` 为空串），`Fingerprint::same_content` 遇到任何一边没有哈希时要求 size 与 mtime 都相同；监视线程的 `poll` 只做 stat，被报告文件的 fingerprint 在释放 `watches` 锁之后才计算，所以一个在增长的日志不会被每 500 ms 整个读一遍，也不会让读循环上的 `Watch` / `Unwatch` 等锁。代价：对大于 10 MB 的文件，大小与 mtime 都不变的改写发现不了（编辑器本来就打不开这种文件，只有固定预览会受影响）。
+67. **去重**：(1) 编辑器本地与远端共用 `finished_reload(silent)` 与 `finished_reopen`（本地的静默重载、重新载入、换编码也改为调用它们），`EditorModel::reopen` 与 `reopen_from_bytes` 共用 `reopen_path` / `replace_buffer`；(2) 本地预览加载也走 `HostFs::Local::load_preview`，`HostGit::Local::changed_files` 是本地 `gilvt diff` 列表的唯一实现（本地行为不变，由既有的 preview_view 测试与 AC 用例覆盖）；(3) `gilvt-remote` 里的 `write_atomic` 是 `gilvt-editor` 那一份的有意拷贝（远端组件要小，不依赖 `gilvt-editor`），文档注释里写明，`watch.rs` 与 `files.rs` 共用 `mtime_ns`。
+68. daemon 对 `gilvt.sock` 的 `View` / `Diff` 实际是先广播 `Open`、再回复 `Response::Ok`（§8.2 写的是先回复）：实施时的实际顺序，CLI 只在收到回复后才退出，所以没有可见差别。
+69. `gilvt.sock` 的请求行超过读取上限时，daemon 回 `too_large` 错误（CLI 翻译成「文件太大，远端暂不支持」）；`Hook` 请求仍然静默，不回复。
+70. 所有「加载中」文字统一用 `loading_text()`（「正在读取…」，英文 `Loading…`）：Quick Look 占位、编辑器、Markdown 图片都是。

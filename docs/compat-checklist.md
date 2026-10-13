@@ -552,7 +552,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 
 ## AC. SSH 远程（R1、R2a）
 
-在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。R2a 起远端 shell 里运行的 claude / codex 进入侧栏；测试远端上的 `claude` / `codex` 是 Linux 版 fake agent（`remote.sh up` 安装）。
+在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。R2a 起远端 shell 里运行的 claude / codex 进入侧栏；测试远端上的 `claude` / `codex` 是 Linux 版 fake agent（`remote.sh up` 安装）。R2a 第二份计划起，远端 pane 里的 `gilvt view` / `gilvt diff` / ⌘点击 / 内置编辑器作用于远端文件（AC8、AC30–AC36）。
 
 | # | 操作 | 期望 | 用例 |
 |---|------|------|------|
@@ -563,7 +563,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC5 | 连接一个认证失败的主机 | ssh 自己的报错，`$?` 为 255；pane 回到本地（`remote` 为 `null`） | [AC5](../tests/gui/cases/AC/AC5.md) |
 | AC6 | 远端 `cd /tmp` | `remote.cwd` 为 `/tmp`，pane 的 `cwd` 为 `null`（不是本地目录）；标签标题含远端主机名 `devbox`（来自远端 shell 设置的窗口标题） | [AC6](../tests/gui/cases/AC/AC6.md) |
 | AC7 | 远端执行 `false` | 命令块记录退出码 1 | [AC7](../tests/gui/cases/AC/AC7.md) |
-| AC8 | 远端输入行里 ⌘ 点击 `/etc/hosts` | 红色横幅「这项功能暂不支持远端」；没有打开预览（本地也有 `/etc/hosts`） | [AC8](../tests/gui/cases/AC/AC8.md) |
+| AC8 | 远端与 Mac 上都有 `/tmp/gilvt-ac8-decoy.txt`（内容不同），在远端输入行里 ⌘ 点击这个路径 | Quick Look 打开的是远端文件：`host` 为远端、`size` 等于远端文件的大小（27 字节），不是 Mac 上的诱饵（6 字节）；没有错误横幅 | [AC8](../tests/gui/cases/AC/AC8.md) |
 | AC9 | 远端 pane 里按 `⌘P` | 红色横幅「这项功能暂不支持远端」，没有打开文件查找 | [AC9](../tests/gui/cases/AC/AC9.md) |
 | AC10 | `ssh devbox-test echo hi`、`command ssh devbox-test true`、`GILVT_SSH=0 ssh -t devbox-test true` | 都原样执行（输出 `hi`），pane 始终不标为远端，没有任何 gilvt 提示 | [AC10](../tests/gui/cases/AC/AC10.md) |
 | AC11 | 远端 `exit` | pane 回到本地：`remote` 为 `null`、`host` 为 `local`、`cwd` 是本地目录；30 秒后 `hosts[0].bridge` 为 `none` | [AC11](../tests/gui/cases/AC/AC11.md) |
@@ -585,6 +585,13 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC27 | 远端 shell 里运行 `ssh -V` 和 `echo $GILVT_SSH` | 打印 OpenSSH 的版本、`GILVT_SSH` 为 `0`；没有任何 `gilvt:` 提示，也没有新的 link | [AC27](../tests/gui/cases/AC/AC27.md) |
 | AC28 | 远端 tmux 里运行 `claude @scenario:default` | 侧栏没有 tmux 里那次的远端会话行（R2b 之前的已知限制）；对照：退出 tmux 后同一远端上普通运行的 claude 有一行 | [AC28](../tests/gui/cases/AC/AC28.md) |
 | AC29 | 真实 claude 在真实远端上运行一轮（含一次审批） | 侧栏、通知、审批跳转、检查器都可用 | [AC29](../tests/gui/cases/AC/AC29.md) 真实 claude（需要真实远端与登录态） |
+| AC30 | 远端 `gilvt view --pin a.md`，然后在远端往文件里追加一行 | 右侧出现固定预览，`host` 为远端、`size` 为 12；追加后 `size` 自动变为 17（不用按 R） | [AC30](../tests/gui/cases/AC/AC30.md) |
+| AC31 | 远端 `echo hello-ac31 \| gilvt view -` | Quick Look 显示这段文字（`size` 为 11，`path` 与 `host` 为 `null`） | [AC31](../tests/gui/cases/AC/AC31.md) |
+| AC32 | 远端仓库里改一个文件、加一个新文件后 `gilvt diff`，按 → | Quick Look 依次显示 `/home/dev/ac32/a.txt`（与 HEAD 相比）和 `n.txt`，`host` 为远端 | [AC32](../tests/gui/cases/AC/AC32.md) |
+| AC33 | 在远端输入行里 ⌘ 点击一个远端不存在的路径 | 红色横幅「devbox-test 上没有这个文件」，没有 Quick Look | [AC33](../tests/gui/cases/AC/AC33.md) |
+| AC34 | 远端 `gilvt view f.txt` 后按 `E`，在编辑器里行首输入 `x`，`⌘S` | 编辑器的 `host` 为远端、路径是远端路径；保存后 `dirty` 为 false，远端文件内容变为 `xhello` | [AC34](../tests/gui/cases/AC/AC34.md) |
+| AC35 | 远端文件在编辑器里有未保存修改时被远端改动；隐藏提示条后 `⌘S`，再点「仍然覆盖」 | 改动后约 0.5 秒出现「已修改」条；`⌘S` 不写入并再次出现这个条；「仍然覆盖」后远端内容是编辑器里的版本 | [AC35](../tests/gui/cases/AC/AC35.md) |
+| AC36 | 远端编辑器有未保存修改时 bridge 断开（远端组件不可执行，bridge 起不来），`⌘S` | 红色保存失败条「devbox-test 未连接，未保存」，`dirty` 仍为 true，远端文件没变 | [AC36](../tests/gui/cases/AC/AC36.md) |
 
 ## 已知限制（M1）
 
