@@ -179,6 +179,9 @@ pub struct PreviewView {
     base_ix: usize,
     pub(crate) loaded: Option<Loaded>,
     pub(crate) error: Option<String>,
+    /// A remote read is in flight (DebugState `loading`).
+    pub(crate) loading: bool,
+    remote_watch: Option<u64>,
     pub(crate) mode_override: Option<Mode>,
     pub(crate) expanded: HashSet<usize>,
     /// First visible row (fractional for smooth trackpad scrolling).
@@ -298,6 +301,8 @@ impl PreviewView {
             base_ix: 0,
             loaded: None,
             error: None,
+            loading: false,
+            remote_watch: None,
             mode_override: None,
             expanded: HashSet::new(),
             scroll_top: 0.0,
@@ -327,10 +332,43 @@ impl PreviewView {
             _load: None,
             _highlight: None,
             _watch: None,
-            _release: cx.on_release(|view, cx| view.diagrams.release(cx)),
+            _release: cx.on_release(|view, cx| {
+                view.diagrams.release(cx);
+                if let Some(id) = view.remote_watch.take() {
+                    crate::remote::watch::unwatch(id, cx);
+                }
+            }),
         };
         view.load(cx);
         view
+    }
+
+    /// An empty Quick Look that says 「正在读取…」 while a remote request runs (the Stat, `gilvt diff`'s list).
+    pub fn pending(window: &mut Window, cx: &mut Context<Self>) -> PreviewView {
+        let mut view = PreviewView::new(OpenRequest::host_files(Vec::new()), false, window, cx);
+        view.loading = true;
+        view
+    }
+
+    /// Shows `req` instead of what this view shows now (the pending view's answer).
+    pub fn replace_request(&mut self, req: OpenRequest, cx: &mut Context<Self>) {
+        self.bases = diff_bases(req.rev, req.turn);
+        self.base_ix = 0;
+        self.index = req.index.min(req.sources.len().saturating_sub(1));
+        self.sources = req.sources;
+        self.reset_view_state();
+        self.error = None;
+        self.pending_line = req.line;
+        self.annotation = req.line.zip(req.annotation);
+        self.loading = false;
+        self.load(cx);
+        cx.notify();
+    }
+
+    pub fn fail(&mut self, message: String, cx: &mut Context<Self>) {
+        self.loading = false;
+        self.error = Some(message);
+        cx.notify();
     }
 
     pub fn set_pinned(&mut self, pinned: bool, cx: &mut Context<Self>) {
@@ -437,41 +475,53 @@ impl PreviewView {
         self.stale = false;
         let Some(source) = self.source().cloned() else { return };
         let base = self.bases[self.base_ix].clone();
-        let task = cx.background_executor().spawn(async move {
-            let preview = match source {
-                Source::File(p) => match p.local_path() {
-                    Some(local) => Preview::load(local, &base).map_err(|e| format!("{}: {e}", local.display()))?,
-                    None => return Err(crate::remote::not_yet_remote().to_string()),
-                },
-                Source::Inline { content, as_type } => Preview::from_content(content, as_type),
-                Source::Live(input) => crate::live_preview::build_preview(&input, &crate::live_preview::cache_dir())?,
-            };
-            let md = MdDoc::build(&preview);
-            Ok::<_, String>((preview, md))
-        });
+        let remote = matches!(&source, Source::File(hp) if hp.remote_host().is_some());
+        let load: Task<Result<Preview, String>> = match source {
+            Source::File(hp) => crate::hostfs::HostFs::of(&hp, cx).load_preview(hp.path.clone(), base, cx),
+            Source::Inline { content, as_type } => cx.background_executor().spawn(async move { Ok(Preview::from_content(content, as_type)) }),
+            Source::Live(input) => cx.background_executor().spawn(async move { crate::live_preview::build_preview(&input, &crate::live_preview::cache_dir()) }),
+        };
+        // A remote read has a wait worth showing (R2a: loading state); a local one is as quick as before.
+        self.loading = remote;
         self._load = Some(cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |view, cx| {
-                match result {
-                    Ok((preview, md)) => {
-                        view.clear_selection();
-                        view.loaded = Some(Loaded { preview, spans: Vec::new() });
-                        view.error = None;
-                        if matches!(view.source(), Some(Source::Live(_))) {
-                            view.live_refreshes += 1;
-                            if !view.live_keep_banner {
-                                view.banner = None;
-                            }
-                        }
-                        view.set_markdown(md, cx);
-                        view.highlight(cx);
-                    }
-                    Err(e) if matches!(view.source(), Some(Source::Live(_))) => view.banner = Some(e),
-                    Err(e) => view.error = Some(e),
-                }
-                cx.notify();
-            });
+            let result = match load.await {
+                // The Markdown is built off the main thread; a remote file never probes the Mac's disk
+                // (`build_remote`, Task 9; until then none: the file shows as source).
+                Ok(preview) => Ok(cx
+                    .background_executor()
+                    .spawn(async move {
+                        let md = if remote { MdDoc::build_remote(&preview) } else { MdDoc::build(&preview) };
+                        (preview, md)
+                    })
+                    .await),
+                Err(e) => Err(e),
+            };
+            let _ = this.update(cx, |view, cx| view.apply_load(result, cx));
         }));
+        cx.notify();
+    }
+
+    /// Shows a finished load (from any source).
+    fn apply_load(&mut self, result: Result<(Preview, Option<MdDoc>), String>, cx: &mut Context<Self>) {
+        self.loading = false;
+        match result {
+            Ok((preview, md)) => {
+                self.clear_selection();
+                self.loaded = Some(Loaded { preview, spans: Vec::new() });
+                self.error = None;
+                if matches!(self.source(), Some(Source::Live(_))) {
+                    self.live_refreshes += 1;
+                    if !self.live_keep_banner {
+                        self.banner = None;
+                    }
+                }
+                self.set_markdown(md, cx);
+                self.highlight(cx);
+            }
+            Err(e) if matches!(self.source(), Some(Source::Live(_))) => self.banner = Some(e),
+            Err(e) => self.error = Some(e),
+        }
+        cx.notify();
     }
 
     /// Highlights what is loaded in the current appearance (the slow part) and applies the
@@ -504,6 +554,23 @@ impl PreviewView {
         use notify::Watcher;
         self._watcher = None;
         self._watch = None;
+        if let Some(id) = self.remote_watch.take() {
+            crate::remote::watch::unwatch(id, cx);
+        }
+        if let Some(hp) = self.host_path().filter(|p| p.remote_host().is_some()).cloned() {
+            // R2a §8.3: the daemon looks at the file every 500 ms; a pinned view reloads, Quick Look goes stale.
+            let view = cx.entity().downgrade();
+            let id = crate::remote::watch::watch(
+                hp.remote_host().unwrap_or_default(),
+                hp.path.clone(),
+                move |_, cx| {
+                    let _ = view.update(cx, |v, cx| v.file_changed(cx));
+                },
+                cx,
+            );
+            self.remote_watch = Some(id);
+            return;
+        }
         let Some(target) = self.file_path().and_then(canonical_target) else { return };
         let Some(dir) = target.parent().map(Path::to_path_buf) else { return };
         let (tx, rx) = async_channel::unbounded::<()>();
@@ -875,7 +942,9 @@ impl Render for PreviewView {
             self.appearance = appearance;
             self.highlight(cx);
         }
-        let body = if self.sources.is_empty() {
+        let body = if self.sources.is_empty() && self.error.is_none() && self.loading {
+            self.message(crate::remote::fs::loading_text().into(), window, cx)
+        } else if self.sources.is_empty() && self.error.is_none() {
             self.message(crate::i18n::text("没有改动", "No changes").into(), window, cx)
         } else if let Some(e) = &self.error {
             self.message(e.clone(), window, cx)

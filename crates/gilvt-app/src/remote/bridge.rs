@@ -285,7 +285,12 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
                     }
                 }
                 RemoteEvent::LinkUp(_) => {}
-                RemoteEvent::Open { .. } => {}
+                RemoteEvent::Open { link, request } => {
+                    // Only for a pane still on that link (a late event of an ended login opens nothing).
+                    if let Some(pane) = cx.global::<RemoteHosts>().pane_of_link(host, &link) {
+                        super::open::open(host, pane, *request, cx);
+                    }
+                }
             }
         }
         Some(DaemonMsg::Response { id, resp }) => {

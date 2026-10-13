@@ -1,6 +1,6 @@
 //! `gilvt-remote`: the piece of gilvt that runs on an ssh host (spec §2.1). Subcommands:
 //! `login`, `bridge`, `daemon`. Called as `gilvt` (the `<build>/bin/gilvt` link) it answers `gilvt hook …`
-//! (R2a; `view` / `diff` come with R2a's second plan).
+//! and `gilvt view` / `gilvt diff` (R2a §8.2).
 
 mod bridge;
 mod client;

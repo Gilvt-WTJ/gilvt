@@ -45,7 +45,6 @@ pub fn too_large_text() -> &'static str {
     crate::i18n::text("文件太大，远端暂不支持", "File too large for remote access")
 }
 
-#[allow(dead_code)] // preview / editor placeholder (Tasks 8, 12)
 pub fn loading_text() -> &'static str {
     crate::i18n::text("正在读取…", "Loading…")
 }

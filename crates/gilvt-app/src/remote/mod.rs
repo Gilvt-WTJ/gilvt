@@ -4,6 +4,7 @@
 pub mod bridge;
 pub mod fs;
 pub mod history;
+pub mod open;
 pub mod pane;
 pub mod prefs;
 pub mod requests;

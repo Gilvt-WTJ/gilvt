@@ -170,7 +170,6 @@ fn send_unwatch(host: &str, path: PathBuf, cx: &mut App) {
     );
 }
 
-#[allow(dead_code)] // Markdown / editor tasks.
 pub fn watch(host: &str, path: PathBuf, on_change: impl FnMut(Option<Fingerprint>, &mut App) + 'static, cx: &mut App) -> u64 {
     if !cx.has_global::<RemoteWatches>() {
         return 0;
@@ -183,7 +182,6 @@ pub fn watch(host: &str, path: PathBuf, on_change: impl FnMut(Option<Fingerprint
     id
 }
 
-#[allow(dead_code)] // Markdown / editor tasks.
 pub fn unwatch(id: u64, cx: &mut App) {
     if !cx.has_global::<RemoteWatches>() {
         return;

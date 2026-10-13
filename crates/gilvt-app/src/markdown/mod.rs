@@ -69,6 +69,11 @@ fn own_inlines(block: &Block) -> Vec<&[Inline]> {
 }
 
 impl MdDoc {
+    /// A remote file's rendered document. Until the remote probes exist (Task 9), none: the file shows as source.
+    pub fn build_remote(_preview: &Preview) -> Option<MdDoc> {
+        None
+    }
+
     /// `None` unless the preview is a Markdown text. Blocking: probes images and link targets.
     pub fn build(preview: &Preview) -> Option<MdDoc> {
         if !is_markdown(&preview.doc) {

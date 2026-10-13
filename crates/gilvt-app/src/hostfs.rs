@@ -3,7 +3,6 @@
 //! changed-file list (`PreviewView::spawn_load` and the local `Diff` request go through it, Task 8; plan ruling 27);
 //! `Remote` asks the host's daemon through its bridge. Both return a gpui
 //! `Task`, so callers never block the main thread and never look at the Mac's disk for a remote path.
-#![allow(dead_code)] // Task 8 adds the callers.
 
 use std::path::PathBuf;
 

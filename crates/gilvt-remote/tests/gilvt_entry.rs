@@ -68,3 +68,35 @@ fn other_commands_are_refused_and_unknown_hook_usage_is_silent() {
     let out = Command::new(&gilvt).args(["hook", "nonsense"]).env("HOME", home.path()).stdin(Stdio::null()).output().unwrap();
     assert!(out.status.success() && out.stdout.is_empty() && out.stderr.is_empty());
 }
+
+#[test]
+fn view_without_a_link_says_so_and_exits_1() {
+    let home = tempfile::tempdir().unwrap();
+    let gilvt = install(home.path());
+    std::fs::write(home.path().join("a.txt"), "x").unwrap();
+    let out = Command::new(&gilvt).args(["view", "a.txt"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_LANGUAGE", "zh-CN").env_remove("GILVT_SOCKET").env_remove("GILVT_LINK").output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("这个 shell 没有连着 gilvt"), "{out:?}");
+}
+
+#[test]
+fn view_checks_the_remote_file_and_sends_the_link() {
+    let home = tempfile::tempdir().unwrap();
+    let gilvt = install(home.path());
+    std::fs::write(home.path().join("a.txt"), "x").unwrap();
+    let sock = home.path().join("g.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let missing = Command::new(&gilvt).args(["view", "nope.txt"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_SOCKET", &sock).env("GILVT_LINK", "i-3").output().unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("nope.txt: no such file"));
+    let child = Command::new(&gilvt).args(["view", "a.txt:2"]).current_dir(home.path()).env("HOME", home.path()).env("GILVT_SOCKET", &sock).env("GILVT_LINK", "i-3").stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut conn = accept_within(&listener, Duration::from_secs(10));
+    let mut line = String::new();
+    BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
+    let req: gilvt_ipc::Request = serde_json::from_str(&line).unwrap();
+    let want_path = home.path().canonicalize().unwrap().join("a.txt");
+    assert!(matches!(req, gilvt_ipc::Request::View { ref path, line: Some(2), link: Some(ref l), .. } if l == "i-3" && path.as_deref().map(|p| p.canonicalize().unwrap()) == Some(want_path.clone())), "{req:?}");
+    conn.write_all(b"{\"type\":\"ok\"}\n").unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success() && out.stdout.is_empty(), "{out:?}");
+}
