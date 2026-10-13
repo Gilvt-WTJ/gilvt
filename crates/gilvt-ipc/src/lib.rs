@@ -390,6 +390,8 @@ pub fn remove_stale_sockets(dir: &Path) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn view_and_diff_without_link_keep_the_local_format() {
         let v = Request::View { pane: Some(1), path: Some("/a".into()), content: None, as_type: None, line: None, col: None, pin: false, link: None };
@@ -399,7 +401,6 @@ mod tests {
         let remote = Request::Diff { pane: None, cwd: "/r".into(), rev: None, link: Some("i-2".into()) };
         assert_eq!(serde_json::from_str::<Request>(&serde_json::to_string(&remote).unwrap()).unwrap(), remote);
     }
-    use super::*;
 
     #[test]
     fn request_json_shape() {
