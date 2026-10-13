@@ -32,18 +32,33 @@ pub(crate) fn decide_remote_click(probe: &PathProbe, stats: Result<Vec<StatEntry
 }
 
 /// Numbers the ⌘-clicks of a window: only the answer to the latest one acts (an earlier one answered late would open
-/// a second file or put up a stale error).
-#[derive(Default)]
-pub(crate) struct ClickGen(u64);
+/// a second file or put up a stale error). Holds the latest click's Quick Look placeholder until it is answered.
+pub(crate) struct ClickGen<P = gpui::Entity<crate::preview_view::PreviewView>> {
+    latest: u64,
+    pending: Option<P>,
+}
 
-impl ClickGen {
-    pub(crate) fn next(&mut self) -> u64 {
-        self.0 += 1;
-        self.0
+impl<P> Default for ClickGen<P> {
+    fn default() -> Self {
+        ClickGen { latest: 0, pending: None }
+    }
+}
+
+impl<P> ClickGen<P> {
+    /// A new click with its placeholder (None for ⇧⌘-click). Returns its number and the placeholder of an earlier
+    /// click still unanswered: that answer will be dropped, so its placeholder must close.
+    pub(crate) fn start(&mut self, pending: Option<P>) -> (u64, Option<P>) {
+        self.latest += 1;
+        (self.latest, std::mem::replace(&mut self.pending, pending))
     }
 
-    pub(crate) fn is_current(&self, click: u64) -> bool {
-        click == self.0
+    /// `click` was answered: whether it is still the latest (only then does its answer act).
+    pub(crate) fn finish(&mut self, click: u64) -> bool {
+        let current = click == self.latest;
+        if current {
+            self.pending = None;
+        }
+        current
     }
 }
 
@@ -55,16 +70,19 @@ impl Workspace {
             self.refuse_remote(origin, cx);
             return;
         }
-        let click = self.remote_clicks.next();
         let fs = RemoteFs::new(&r.host, cx);
         // ⇧⌘-click opens the editor, which shows its own 「正在读取…」: no Quick Look placeholder for it.
         let pending = (!in_editor).then(|| self.open_preview_pending(Some(origin), window, cx));
+        let (click, stale) = self.remote_clicks.start(pending.clone());
+        if let Some(stale) = stale {
+            self.close_quicklook_if(&stale, window, cx);
+        }
         let stat = fs.stat(probe.paths(), cx);
         cx.spawn_in(window, async move |ws, cx| {
             let outcome = decide_remote_click(&probe, stat.await, &fs.display);
             let _ = ws.update_in(cx, |ws, window, cx| {
                 // A newer click owns Quick Look and the banner now (its own placeholder replaced this one's).
-                if !ws.remote_clicks.is_current(click) {
+                if !ws.remote_clicks.finish(click) {
                     return;
                 }
                 match (outcome, pending) {
@@ -127,10 +145,13 @@ mod tests {
     #[test]
     fn only_the_latest_click_acts() {
         let mut clicks = ClickGen::default();
-        let first = clicks.next();
-        let second = clicks.next();
-        assert!(!clicks.is_current(first), "a slow first answer is dropped: no banner, no editor");
-        assert!(clicks.is_current(second));
+        let (first, _) = clicks.start(Some("A"));
+        let (second, replaced) = clicks.start(None); // a ⇧⌘-click: no placeholder of its own
+        assert_eq!(replaced, Some("A"), "the unanswered placeholder is handed back to be closed");
+        assert!(!clicks.finish(first), "a slow first answer is dropped: no banner, no editor");
+        assert!(clicks.finish(second));
+        let (_, replaced) = clicks.start(Some("C"));
+        assert_eq!(replaced, None, "an answered click's view is not closed by the next one");
     }
 
     #[test]

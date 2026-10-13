@@ -697,12 +697,33 @@ impl EditorView {
         if let Some(q) = queued {
             self.save_with(q.overwrite, q.closing, cx);
         }
+        let read = match self.remote.as_mut() {
+            Some(d) if d.busy.is_none() => d.queued_read.take(),
+            _ => None,
+        };
+        if let Some(op) = read {
+            self.start_remote_read(op, cx);
+        }
+    }
+
+    /// Asks the Workspace to close the pane. Nothing that waited may still go to the host from a closing pane.
+    fn close_pane(&mut self, cx: &mut Context<Self>) {
+        if let Some(d) = self.remote.as_mut() {
+            d.queued = None;
+            d.queued_read = None;
+        }
+        cx.emit(EditorEvent::CloseRequested);
     }
 
     /// 重新载入 / the silent reload / 对比 / reopening with other options, from the host.
     fn start_remote_read(&mut self, op: super::remote_edit::RemoteOp, cx: &mut Context<Self>) {
         let Some(doc) = self.remote.as_mut() else { return };
-        if doc.busy.is_some() || doc.loading {
+        if doc.loading {
+            return;
+        }
+        if doc.busy.is_some() {
+            // One request at a time: this one goes when the running one has answered (the latest ask wins).
+            doc.queued_read = Some(op);
             return;
         }
         doc.busy = Some(op);
@@ -731,13 +752,14 @@ impl EditorView {
                 self.show_compare(disk, cx);
             }
             (RemoteOp::Reloading { as_edit }, Ok(f)) => {
-                let r = if as_edit { self.model.reload_as_edit_from_bytes(&f.bytes) } else { self.model.reload_from_bytes(&f.bytes, f.writable) };
+                let r = if as_edit { self.model.reload_as_edit_from_bytes(&f.bytes, f.writable) } else { self.model.reload_from_bytes(&f.bytes, f.writable) };
                 match r {
                     Ok(()) => {
                         if let Some(doc) = self.remote.as_mut() {
                             doc.fingerprint = Some(f.fingerprint);
                             doc.writable = f.writable;
                             doc.conflict = None;
+                            super::remote_edit::forget_own_saves(doc);
                         }
                         self.finished_reload(!as_edit, cx);
                     }
@@ -752,6 +774,7 @@ impl EditorView {
                         doc.fingerprint = Some(f.fingerprint);
                         doc.writable = f.writable;
                         doc.conflict = None;
+                        super::remote_edit::forget_own_saves(doc);
                     }
                     self.finished_reopen(cx);
                 }
@@ -886,7 +909,7 @@ impl EditorView {
             cx.notify();
         }
         if close {
-            cx.emit(EditorEvent::CloseRequested);
+            self.close_pane(cx);
         }
         outcome
     }
@@ -943,7 +966,7 @@ impl EditorView {
         let (bar, outcome, close) = finish_save(closing, &result, &doc.display);
         match result {
             SaveResult::Saved(fp) => {
-                doc.fingerprint = Some(fp);
+                super::remote_edit::note_own_save(doc, fp);
                 doc.conflict = None;
             }
             SaveResult::Modified(current) => doc.conflict = Some(current),
@@ -963,7 +986,7 @@ impl EditorView {
         }
         if close {
             if !self.is_dirty() {
-                cx.emit(EditorEvent::CloseRequested);
+                self.close_pane(cx);
             } else if let Some(q) = self.remote.as_mut().and_then(|d| d.queued.as_mut()) {
                 // Text typed while saving would be lost by closing now: the pane stays (its ● says why), and the save
                 // that waits closes it once it has written that text too.
@@ -977,7 +1000,7 @@ impl EditorView {
     pub fn request_close(&mut self, cx: &mut Context<Self>) {
         match close_bar(self.is_dirty()) {
             Some(bar) => self.set_bar(bar, cx),
-            None => cx.emit(EditorEvent::CloseRequested),
+            None => self.close_pane(cx),
         }
     }
 
@@ -1013,7 +1036,7 @@ impl EditorView {
                 let recheck = external::recheck_after_hide(&self.bar);
                 self.set_bar(Bar::None, cx);
                 if close {
-                    cx.emit(EditorEvent::CloseRequested);
+                    self.close_pane(cx);
                 } else if recheck {
                     // The confirmation had suppressed every decision: look at the disk again now.
                     self.on_external_change(cx);
@@ -2236,6 +2259,77 @@ mod remote_save_tests {
             assert!(v.compare.as_ref().is_some_and(|c| !c.disk_missing));
         });
         assert_eq!(std::fs::read_to_string(&decoy).unwrap(), "mac\n");
+    }
+
+    fn saving_revision(v: &EditorView) -> u64 {
+        let Some(RemoteOp::Saving { revision, .. }) = v.remote.as_ref().unwrap().busy else { panic!("a save is on its way") };
+        revision
+    }
+
+    #[gpui::test]
+    fn a_late_echo_of_our_own_save_is_not_a_change(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            assert_eq!(v.save(cx), SaveOutcome::Pending);
+            let first = saving_revision(v);
+            v.finish_remote_save(false, first, SaveResult::Saved(fp(2)), cx);
+            v.model.insert("B").unwrap();
+            assert_eq!(v.save(cx), SaveOutcome::Pending);
+            let second = saving_revision(v);
+            v.on_remote_change(Some(fp(2)), cx); // the watch saw save 1 while save 2 is on its way
+            v.finish_remote_save(false, second, SaveResult::Saved(fp(3)), cx);
+            assert_eq!(v.bar, Bar::None);
+            assert!(v.remote.as_ref().unwrap().busy.is_none(), "no silent reload of a clean buffer either");
+            v.on_remote_change(Some(fp(2)), cx); // even later
+            assert_eq!(v.bar, Bar::None);
+            assert!(v.remote.as_ref().unwrap().busy.is_none());
+            v.model.insert("C").unwrap();
+            v.on_remote_change(Some(fp(8)), cx);
+            assert_eq!(v.bar, Bar::Modified { closing: false }, "someone else's write still counts");
+        });
+    }
+
+    #[gpui::test]
+    fn a_reload_asked_while_saving_runs_after_it(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            assert_eq!(v.save(cx), SaveOutcome::Pending);
+            let rev = saving_revision(v);
+            v.run_plan(Plan::Reload, cx);
+            assert_eq!(v.remote.as_ref().unwrap().busy, Some(RemoteOp::Saving { closing: false, revision: rev }), "never two requests at once");
+            v.finish_remote_save(false, rev, SaveResult::Saved(fp(2)), cx);
+            assert_eq!(v.remote.as_ref().unwrap().busy, Some(RemoteOp::Reloading { as_edit: true }), "not dropped");
+        });
+    }
+
+    #[gpui::test]
+    fn reload_takes_the_hosts_writable_flag(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.run_plan(Plan::Reload, cx);
+            let op = RemoteOp::Reloading { as_edit: true };
+            v.finish_remote_read(op, Ok(FileRead { bytes: b"two\n".to_vec(), fingerprint: fp(5), writable: false }), cx);
+            assert_eq!(v.model.buf.text(), "two\n");
+            assert!(v.model.is_read_only(), "the host says the file is no longer writable");
+            assert!(!v.remote.as_ref().unwrap().writable);
+        });
+    }
+
+    #[gpui::test]
+    fn closing_drops_a_queued_save(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            v.run_plan(Plan::Save { overwrite: false, closing: true }, cx);
+            let rev = saving_revision(v);
+            assert_eq!(v.save(cx), SaveOutcome::Pending, "queued behind the closing save");
+            v.finish_remote_save(true, rev, SaveResult::Saved(fp(2)), cx);
+            assert!(!v.is_dirty());
+            let doc = v.remote.as_ref().unwrap();
+            assert!(doc.busy.is_none() && doc.queued.is_none(), "the pane closes: no second WriteFile");
+        });
     }
 
     #[gpui::test]

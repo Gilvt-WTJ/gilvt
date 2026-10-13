@@ -342,6 +342,12 @@ impl Buffer {
         self.meta_dirty = false;
     }
 
+    /// Whether the file may be written, as its owner last learned (a detached buffer's host answers with each read).
+    /// A read-only the user chose, or a lossy decode, stays.
+    pub fn set_writable(&mut self, writable: bool) {
+        self.read_only = self.forced_read_only || !writable;
+    }
+
     /// `reload` from bytes: history cleared, clean, caret kept; same encoding options.
     pub fn replace_from_bytes(&mut self, bytes: &[u8], writable: bool) -> Result<(), EditorError> {
         let path = self.path.clone().ok_or(EditorError::NoPath)?;
@@ -920,6 +926,18 @@ mod tests {
         assert!(b.reload().is_err() && b.reload_as_edit().is_err());
         assert_eq!(std::fs::read(&decoy).unwrap(), b"local\n", "the decoy is untouched");
         assert_eq!(b.text(), "xremote\n", "and the buffer too");
+    }
+
+    #[test]
+    fn a_detached_buffer_takes_the_hosts_writable_flag() {
+        let mut b = Buffer::detached(std::path::Path::new("/r/a.txt"), b"x\n", OpenOptions::default(), true).unwrap();
+        b.set_writable(false);
+        assert!(b.read_only());
+        b.set_writable(true);
+        assert!(!b.read_only());
+        let mut forced = Buffer::detached(std::path::Path::new("/r/a.txt"), b"x\n", OpenOptions { encoding: None, read_only: true }, true).unwrap();
+        forced.set_writable(true);
+        assert!(forced.read_only(), "a chosen read-only stays");
     }
 
     #[test]

@@ -195,9 +195,10 @@ impl EditorModel {
         Ok(())
     }
 
-    /// [`Self::reload_as_edit`] from bytes read elsewhere.
-    pub fn reload_as_edit_from_bytes(&mut self, bytes: &[u8]) -> Result<(), EditorError> {
+    /// [`Self::reload_as_edit`] from bytes read elsewhere; `writable` is what the host says of the file now.
+    pub fn reload_as_edit_from_bytes(&mut self, bytes: &[u8], writable: bool) -> Result<(), EditorError> {
         let c = self.buf.reload_as_edit_from_bytes(bytes)?;
+        self.buf.set_writable(writable);
         self.sync(c);
         Ok(())
     }

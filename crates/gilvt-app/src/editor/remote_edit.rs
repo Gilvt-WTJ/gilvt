@@ -30,11 +30,34 @@ pub struct RemoteDoc {
     pub watch: Option<u64>,
     /// A save asked for while `busy`: sent once the running request has answered (see [`save_gate`]).
     pub queued: Option<QueuedSave>,
+    /// 重新载入 / 对比 / a reopen asked for while `busy`: started once the running request (and a queued save) is done.
+    pub queued_read: Option<RemoteOp>,
+    /// What our own saves wrote since the host's version was last taken (newest last, at most `OWN_SAVES`): the
+    /// daemon's watch fingerprints the file when it polls, so an earlier save of ours can come back late.
+    pub own_saves: std::collections::VecDeque<Fingerprint>,
+}
+
+/// How many of our own saves a late `Watch` echo is recognised for.
+pub const OWN_SAVES: usize = 4;
+
+/// A save of ours answered `Saved(fp)`: that is now what the host has.
+pub fn note_own_save(doc: &mut RemoteDoc, fp: Fingerprint) {
+    if doc.own_saves.len() == OWN_SAVES {
+        doc.own_saves.pop_front();
+    }
+    doc.own_saves.push_back(fp.clone());
+    doc.fingerprint = Some(fp);
+}
+
+/// The host's version was taken (reload / reopen): an echo of an older save of ours is a real change from now on.
+pub fn forget_own_saves(doc: &mut RemoteDoc) {
+    doc.own_saves.clear();
 }
 
 impl RemoteDoc {
     pub fn loading(path: HostPath, display: String) -> RemoteDoc {
-        RemoteDoc { path, display, fingerprint: None, writable: false, loading: true, busy: None, conflict: None, deferred: None, watch: None, queued: None }
+        RemoteDoc { path, display, fingerprint: None, writable: false, loading: true, busy: None, conflict: None, deferred: None, watch: None, queued: None,
+                    queued_read: None, own_saves: Default::default() }
     }
 }
 
@@ -67,6 +90,7 @@ pub fn remote_change(doc: &RemoteDoc, now: Option<&Fingerprint>) -> RemoteChange
     match (doc.fingerprint.as_ref(), now) {
         (_, None) => RemoteChange::Deleted,
         (Some(old), Some(new)) if old == new => RemoteChange::Ignore,
+        (_, Some(new)) if doc.own_saves.contains(new) => RemoteChange::Ignore,
         (Some(old), Some(new)) if old.same_content(new) => RemoteChange::Touched(new.clone()),
         _ => RemoteChange::Changed,
     }
@@ -182,6 +206,20 @@ mod tests {
         let mut loading = doc_at(fp(5, "aa"));
         loading.loading = true;
         assert_eq!(remote_change(&loading, None), RemoteChange::Defer);
+    }
+
+    #[test]
+    fn our_earlier_saves_echo_late_and_are_ignored() {
+        let mut d = doc_at(fp(5, "aa"));
+        for (i, sha) in ["b1", "b2", "b3", "b4", "b5"].iter().enumerate() {
+            note_own_save(&mut d, fp(10 + i as u64, sha));
+        }
+        assert_eq!(d.fingerprint, Some(fp(14, "b5")));
+        assert_eq!(remote_change(&d, Some(&fp(12, "b3"))), RemoteChange::Ignore, "an echo of an earlier save of ours");
+        assert_eq!(remote_change(&d, Some(&fp(10, "b1"))), RemoteChange::Changed, "only the last few are remembered");
+        assert_eq!(remote_change(&d, Some(&fp(20, "zz"))), RemoteChange::Changed);
+        forget_own_saves(&mut d);
+        assert_eq!(remote_change(&d, Some(&fp(12, "b3"))), RemoteChange::Changed, "after taking the host's version");
     }
 
     #[test]
