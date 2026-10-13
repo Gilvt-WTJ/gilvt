@@ -137,3 +137,16 @@ macOS 未装命令行工具时，`/usr/bin/git` 是占位程序，调用会在**
 - `strip` 与签名的先后：签名必须在 cargo 的 strip 之后（cargo 在链接阶段 strip，签名在脚本里做，顺序天然正确）；`codesign --verify` 兜底。
 - 本机 localhost 测试与维护者自己的账户共享同一台机器：测试只使用 `gilvttest` 账户的主目录，Mac 侧沙盒的 ControlPath 在 `/tmp/gilvt-<uid>/`，与维护者正在使用的 gilvt 不冲突。
 - `path_helper` 行为随系统版本变化：AD3 覆盖。
+
+## 8. 实施时的决定（读代码后对上文的修正）
+
+1. **§4.1 不需要 feature 隔离。**远端组件的 hook 配置是 `lease: false`（`gilvt-remote/src/entry.rs` `hook_config`），`LeaseStore::update_hook` 是唯一会调用进程扫描（`runtime_for_hook`）的入口；`hook_meta`、`HistoryIndex` 不扫描进程。只加一条测试锁住 `lease == false`。
+2. **§4.2 socket 长度在探测时检查，不在 daemon 里检查。**探测多输出一行 `$HOME`，`plan::decide` 在安装之前就判断 `$HOME/.gilvt-server/run/daemon.sock` 是否超过上限（Darwin 103、Linux 107 字节，不含结尾 NUL），超长直接普通登录并说明原因，远端什么都不装。缓存通道（不探测）不检查：能走缓存说明以前连上过。
+3. **§4.3 不改代码。**`gilvt-integration.zsh` 已在每个提示符前把 `$GILVT_BIN_DIR` 放回 PATH 最前（为本地 `path_helper` 写的），远端同样适用；AD3 验证 wrapper 生效。
+4. **§4.4 判断放在 `gilvt_client::git::repo_root`。**其余 git 函数都以它返回的 root 为参数，所以 `repo_root` 在 git 不可用时返回 `None` 即可全部挡住；`gilvt diff` 在这种情况下报「这台主机上没有可用的 git」。本地 app 用的是 `gilvt_viewer::git`，不受影响。
+5. **§4.5 已有测试。**`daemon.rs` 的测试已发送不带 link 的 hook（`"NoLink"`）并断言它被丢弃，不再新增。
+6. **§3.4 `release.yml` 不改。**它已经 `rustup target add aarch64-apple-darwin`（为 app 本身），darwin 版远端组件在 runner 上原生编译即可。
+7. **§5.3 DebugState 字段是 `hosts[].os`**（加在已有的 `hosts[]` 里），不是 `remote.os`；值为记下的 `uname -s`，0.3.0 及更早记下、之后没再探测过的主机为 `null`。
+8. **§5.2 测试远端是单独的脚本 `tests/gui/remote-mac.sh`**（与 `remote.sh` 同样的子命令），用例头 `requires: remote-mac`，`sandbox.sh up --remote-mac`。主机别名 `mac-test`，host id `gilvttest@127.0.0.1:22`。
+9. **§5.3 多一条 AD10**：`gilvt diff` 在 macOS 远端仓库里列出改动（远端 Mac 装有命令行工具时）。
+10. **GILVT_PROBE_OVERRIDE 在 `RemoteRecord` 之后才应用**，所以 `remote.json` 和 `hosts[].os` 记的始终是真实探测结果。
