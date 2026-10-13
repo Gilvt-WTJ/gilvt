@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>功能 · gilvt</title>
-<meta name="description" content="gilvt 的全部功能：完整的 macOS 终端，所有 Claude Code 与 Codex 会话的实时状态，每轮的时间线与 diff，Quick Look 与内置编辑器，会话管理，监控官，725 套主题。">
+<meta name="description" content="gilvt 的全部功能：完整的 macOS 终端，所有 Claude Code 与 Codex 会话的实时状态，每轮的时间线与 diff，Quick Look 与内置编辑器，会话管理，监控官，SSH 远程开发，725 套主题。">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="canonical" href="https://gilvt.com/zh-CN/features/">
 <link rel="alternate" hreflang="en" href="https://gilvt.com/features/">
@@ -49,6 +49,7 @@
       <a href="#review">Review 与编辑</a>
       <a href="#sessions">跨时间的会话管理</a>
       <a href="#monitor">监控官</a>
+      <a href="#remote">SSH 远程</a>
       <a href="#themes">主题与设置</a>
       <a href="#trust">不打扰你</a>
     </nav>
@@ -138,6 +139,19 @@
           <li>设计上只读，通过 MCP（<code>gilvt mcp</code>）也一样：只能看，不能输入。</li>
         </ul>
         <figure><img src="/images/features/monitor.jpg" width="1600" height="964" loading="lazy" alt="监控官标签页的会话卡片墙，对话里的回答列出了唯一需要你的会话。"></figure>
+      </section>
+
+      <section class="feat" id="remote">
+        <span class="kicker">SSH 远程（预览）</span>
+        <h2>远程机器上的 Agent，也在同一个左栏里</h2>
+        <p>在 gilvt 的 pane 里 <code>ssh devbox</code>，这个 pane 就知道自己在远端：pane 和标签显示主机名，远端 shell 加载 gilvt 的 shell 集成。只有交互式登录受影响；<code>ssh host command</code>、<code>scp</code>、<code>git push</code> 原样运行。</p>
+        <ul class="points">
+          <li>在远端 shell 里运行的 <code>claude</code> 和 <code>codex</code> 和本地的一样出现在左栏：状态、标签页状态点、通知、<kbd>⌘⇧J</kbd> 跳到审批、检查器的时间线，Session Center 里也能看到这台主机的历史会话并在那里恢复。</li>
+          <li><code>gilvt view</code>、<code>gilvt diff</code> 和 <kbd>⌘</kbd> 点击路径预览远端主机上的文件；固定的预览会跟着远端的修改刷新。</li>
+          <li>内置编辑器直接打开和保存远端文件，头部标出主机（<code>devbox:~/repo/src</code>）；文件在远端被改过时，出现重新载入 / 对比 / 覆盖条。</li>
+          <li>第一次连接某台主机时，先问你要不要在 <code>~/.gilvt-server</code> 装一个小组件（约 4 MB）；不装，<code>ssh</code> 照常登录。<code>command ssh host</code> 让 gilvt 完全不介入。</li>
+          <li>暂不支持：Linux x86_64 / aarch64 以外的主机；远端 tmux 里的 Agent；远端 pane 里的 <kbd>⌘P</kbd>、从访达拖入和 git 状态。<a href="/zh-CN/docs/#ssh">详见产品手册</a></li>
+        </ul>
       </section>
 
       <section class="feat" id="themes">

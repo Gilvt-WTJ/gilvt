@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Features · gilvt</title>
-<meta name="description" content="Everything gilvt does: a complete macOS terminal, live state for every Claude Code and Codex session, per-turn timelines and diffs, Quick Look and a built-in editor, session management, the Monitor and 725 themes.">
+<meta name="description" content="Everything gilvt does: a complete macOS terminal, live state for every Claude Code and Codex session, per-turn timelines and diffs, Quick Look and a built-in editor, session management, the Monitor, SSH remote development and 725 themes.">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="canonical" href="https://gilvt.com/features/">
 <link rel="alternate" hreflang="en" href="https://gilvt.com/features/">
@@ -49,6 +49,7 @@
       <a href="#review">Review and edit</a>
       <a href="#sessions">Sessions over time</a>
       <a href="#monitor">The Monitor</a>
+      <a href="#remote">SSH remote</a>
       <a href="#themes">Themes and settings</a>
       <a href="#trust">Out of your way</a>
     </nav>
@@ -138,6 +139,19 @@
           <li>Read-only by design, also over MCP (<code>gilvt mcp</code>): it can look, never type.</li>
         </ul>
         <figure><img src="/images/features/monitor.jpg" width="1600" height="964" loading="lazy" alt="The Monitor tab with session cards and a chat answer listing the one session that needs you."></figure>
+      </section>
+
+      <section class="feat" id="remote">
+        <span class="kicker">SSH remote (preview)</span>
+        <h2>Agents on a remote machine, in the same sidebar</h2>
+        <p>Run <code>ssh devbox</code> in a gilvt pane and the pane knows it is remote: the pane and tab show the host, and the remote shell gets gilvt's shell integration. Only interactive logins are affected; <code>ssh host command</code>, <code>scp</code> and <code>git push</code> run unchanged.</p>
+        <ul class="points">
+          <li><code>claude</code> and <code>codex</code> run in the remote shell appear in the sidebar like local ones: status, tab dots, notifications, <kbd>⌘⇧J</kbd> to the approval, the inspector's timeline, and the Session Center with the host's history and resuming there.</li>
+          <li><code>gilvt view</code>, <code>gilvt diff</code> and <kbd>⌘</kbd>-click on a path preview the host's files; a pinned preview follows changes on the host.</li>
+          <li>The built-in editor opens and saves remote files, names the host in its header (<code>devbox:~/repo/src</code>), and brings up the reload / compare / overwrite bar when the file changed on the host.</li>
+          <li>The first connection to a host asks before installing a small helper (about 4 MB) in <code>~/.gilvt-server</code>; say no and <code>ssh</code> logs in as usual. <code>command ssh host</code> skips gilvt entirely.</li>
+          <li>Not yet: hosts other than Linux x86_64 / aarch64; agents inside remote tmux; <kbd>⌘P</kbd>, dragging files in from Finder and git status in remote panes. <a href="/docs/#ssh">Details in the user guide</a></li>
+        </ul>
       </section>
 
       <section class="feat" id="themes">

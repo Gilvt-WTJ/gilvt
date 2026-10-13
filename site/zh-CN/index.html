@@ -29,7 +29,7 @@
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "macOS 11 or later",
   "softwareVersion": "{{VERSION}}",
-  "description": "用于并行运行和监控 Claude Code、Codex 会话的原生 macOS 终端。",
+  "description": "用于并行运行和监控 Claude Code、Codex 会话的原生 macOS 终端，本机或通过 SSH 连接的远程机器都可以。",
   "url": "https://gilvt.com/zh-CN/",
   "downloadUrl": "https://gilvt.com/download",
   "image": "https://gilvt.com/images/social-preview.png",
@@ -124,6 +124,7 @@
         <div class="card"><h3>找回并恢复会话 <kbd>⇧⌘R</kbd></h3><p>搜索几天前的会话接着做，离线 Review 跑完的会话，在新的 git worktree 里开出新 Agent。</p></div>
         <div class="card"><h3>监控官 <kbd>⇧⌘O</kbd></h3><p>所有 Agent 和终端排成卡片墙；在任意标签的命令条里问"什么需要我处理"，由你本机的 CLI 回答。</p></div>
         <div class="card"><h3>Quick Look 与编辑器</h3><p>代码高亮与 diff、排版后的 Markdown 和 Mermaid、<kbd>⌘P</kbd> 模糊找文件，以及带实时预览的内置编辑器。</p></div>
+        <div class="card"><h3>通过 SSH 在远程机器上工作</h3><p>在 pane 里 <code>ssh devbox</code>，远端的 <code>claude</code> 和 <code>codex</code> 照样出现在左栏：状态、通知、审批跳转和时间线都在。<code>gilvt view</code>、<code>gilvt diff</code> 和 <kbd>⌘</kbd> 点击预览远端主机上的文件，内置编辑器直接保存回去。第一次连接时先问你，才在 <code>~/.gilvt-server</code> 装一个小组件。</p></div>
         <div class="card"><h3>725 套主题</h3><p>内置主题库，也支持你自己的主题，深浅色各选一套，窗口外框跟着主题变。</p></div>
       </div>
     </div>
