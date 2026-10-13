@@ -15,11 +15,23 @@ use crate::sidebar::UiPrefs;
 impl Workspace {
     /// `⌘⇧V` / the header button: open the preview of editor pane `editor`, or close it when it is open.
     pub(super) fn toggle_live_preview(&mut self, editor: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_remote_live_preview(editor, cx) {
+            return;
+        }
         if let Some(preview) = self.live_pairs.preview_of(editor) {
             self.close_pane(preview, window, cx);
         } else {
             self.open_live_preview(editor, window, cx);
         }
+    }
+
+    /// Both providers read the file by its path on this Mac (R2a plan deviation 17): a remote editor has no live preview.
+    fn refuse_remote_live_preview(&mut self, editor: PaneId, cx: &mut Context<Self>) -> bool {
+        if matches!(self.panes.get(&editor), Some(PaneView::Editor(v)) if v.read(cx).remote.is_some()) {
+            self.show_error(crate::remote::not_yet_remote().to_string(), cx);
+            return true;
+        }
+        false
     }
 
     fn open_live_preview(&mut self, editor: PaneId, window: &mut Window, cx: &mut Context<Self>) {
@@ -61,6 +73,9 @@ impl Workspace {
 
     /// The header button with the preview open and more than one provider: the next one, remembered per file type.
     pub(super) fn cycle_live_preview(&mut self, editor: PaneId, cx: &mut Context<Self>) {
+        if self.refuse_remote_live_preview(editor, cx) {
+            return;
+        }
         let Some(PaneView::Editor(ev)) = self.panes.get(&editor).cloned() else { return };
         let (name, current) = {
             let v = ev.read(cx);

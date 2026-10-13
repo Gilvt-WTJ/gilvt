@@ -169,6 +169,8 @@ pub struct Workspace {
     error: Option<String>,
     /// A file the built-in editor refused to open (red banner below the tab bar).
     editor_refusal: Option<editor::EditorRefusal>,
+    /// The latest ⌘-click in an ssh pane: an earlier click answered late does nothing.
+    remote_clicks: remote_files::ClickGen,
     focus_handle: FocusHandle,
     sidebar: SidebarState,
     /// The pane flashing after `focus_pane`, and which flash it is.
@@ -257,6 +259,7 @@ impl Workspace {
             drag: None,
             error,
             editor_refusal: None,
+            remote_clicks: Default::default(),
             focus_handle: cx.focus_handle(),
             sidebar: SidebarState::new(prefs.sidebar_hidden, prefs.grouping),
             flash: None,

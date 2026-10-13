@@ -11,7 +11,9 @@ use gpui::{
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, Subscription, Task,
     UTF16Selection, Window,
 };
+use gilvt_agent::host::HostPath;
 use gilvt_editor::{Buffer, EditorError, ExternalState, OpenOptions, Position, Selection};
+use gilvt_ipc::remote::Fingerprint;
 
 use super::chrome;
 use super::compare::{self, Compare, CompareAction, CompareKey};
@@ -21,6 +23,7 @@ use super::model::{EditorModel, HMove};
 use super::popup::{self, MenuAction, MenuItem, MenuKind, OpenMenu, PopupKey};
 use crate::actions::{Copy, EditorCut, EditorRedo, EditorSave, EditorSelectAll, EditorUndo, OpenExternalEditor, Paste, EDITOR_CONTEXT};
 use crate::pane_tree::PaneId;
+use crate::remote::fs::{FileRead, FsFailure};
 use crate::theme::{hsla, AppSettings};
 
 pub enum EditorEvent {
@@ -99,6 +102,17 @@ pub enum SaveOutcome {
     Modified,
     /// The red save-error bar is up (or the buffer is read-only and nothing happened).
     Failed,
+    /// A remote save is on its way (R2a plan deviation 16): its bar or close follows when the host answers.
+    Pending,
+}
+
+/// Why a remote file could not be opened in the editor.
+#[derive(Debug)]
+pub(crate) enum RemoteOpenError {
+    /// The bytes cannot be edited (binary, an encoding that does not round-trip): the usual refusal reason.
+    Editor(EditorError),
+    /// The host's answer (「devbox 上没有这个文件」, 「文件太大，远端暂不支持」, 「devbox 未连接」).
+    Fs(String),
 }
 
 /// A non-text key the editor handles itself. Plain characters (and space) go through the input handler.
@@ -445,6 +459,12 @@ pub struct EditorView {
     /// Where the left click that closed the menu (by clicking outside it) went down: that click must not also
     /// move the caret. Taken by the next mouse-down on the pane.
     menu_closed_at: Option<Point<Pixels>>,
+    /// A file of an ssh host (R2a §8.3); None for a file of this Mac.
+    pub(crate) remote: Option<super::remote_edit::RemoteDoc>,
+    /// The running remote request (`remote.busy`).
+    _remote_op: Option<Task<()>>,
+    /// Ends the remote watch when the pane goes away.
+    _release: Option<Subscription>,
 }
 
 impl EventEmitter<EditorEvent> for EditorView {}
@@ -485,7 +505,57 @@ impl EditorView {
             menu_unplaced: false,
             status_encoding: None,
             menu_closed_at: None,
+            remote: None,
+            _remote_op: None,
+            _release: None,
         }
+    }
+
+    /// An editor pane for a remote file, empty and read-only while its `ReadFile` runs.
+    pub fn new_remote_loading(path: HostPath, display: String, cx: &mut Context<Self>) -> EditorView {
+        let buf = Buffer::detached(&path.path, b"", OpenOptions { encoding: None, read_only: true }, false).expect("empty text decodes");
+        let mut view = EditorView::new(EditorModel::new(buf, &path.file_name(), 80, 24), cx);
+        view.remote = Some(super::remote_edit::RemoteDoc::loading(path, display));
+        view._release = Some(cx.on_release(|v, cx| {
+            if let Some(id) = v.remote.as_mut().and_then(|d| d.watch.take()) {
+                crate::remote::watch::unwatch(id, cx);
+            }
+        }));
+        view
+    }
+
+    /// The first read answered: build the buffer, or say why not (the Workspace then closes the pane and shows the
+    /// refusal banner).
+    pub(crate) fn finish_remote_open(&mut self, result: Result<FileRead, FsFailure>, line: Option<u32>, cx: &mut Context<Self>) -> Result<(), RemoteOpenError> {
+        let Some(doc) = self.remote.as_mut() else { return Ok(()) };
+        let f = result.map_err(|e| RemoteOpenError::Fs(e.message(&doc.display)))?;
+        let buf = Buffer::detached(&doc.path.path, &f.bytes, OpenOptions::default(), f.writable).map_err(RemoteOpenError::Editor)?;
+        doc.loading = false;
+        doc.fingerprint = Some(f.fingerprint);
+        doc.writable = f.writable;
+        let (host, path) = (doc.path.remote_host().unwrap_or_default().to_string(), doc.path.path.clone());
+        let name = doc.path.file_name();
+        self.model = EditorModel::new(buf, &name, self.model.viewport_cols().max(1), self.model.view_rows().max(1));
+        self.last_dirty = false;
+        self.last_revision = self.model.buf.revision();
+        let view = cx.entity().downgrade();
+        let id = crate::remote::watch::watch(
+            &host,
+            path,
+            move |fp, cx| {
+                let _ = view.update(cx, |v, cx| v.on_remote_change(fp, cx));
+            },
+            cx,
+        );
+        if let Some(doc) = self.remote.as_mut() {
+            doc.watch = Some(id);
+        }
+        if let Some(line) = line {
+            self.goto_line(line as usize, cx);
+        }
+        cx.emit(EditorEvent::Changed);
+        cx.notify();
+        Ok(())
     }
 
     /// Starts the file watcher and the focus check. Call once after `cx.new` (needs a Window).
@@ -527,6 +597,10 @@ impl EditorView {
     /// `check_external` → [`external::decide`] → act (E2b-1 §4). Our own saves read `Unchanged` here because E1
     /// refreshes the disk fingerprint inside `save`.
     pub(crate) fn on_external_change(&mut self, cx: &mut Context<Self>) {
+        // A remote file is never checked on focus (R2a plan deviation 19): `Watch` reports its changes.
+        if self.remote.is_some() {
+            return;
+        }
         let state = self.model.buf.check_external();
         self.acked = next_acked(self.acked, AckEvent::Checked(state));
         match external::decide(state, self.model.buf.dirty(), &self.bar, self.acked) {
@@ -548,17 +622,144 @@ impl EditorView {
                 }
                 // Any other failed reload is swallowed: the data stays safe, a later save is blocked by `ModifiedOnDisk`.
                 if self.model.reload().is_ok() {
-                    self.close_menu_on_model_change();
-                    self.selecting = false;
-                    self.bar = bar_after_reload(&self.bar);
-                    self.acked = next_acked(self.acked, AckEvent::Resynced);
-                    self.flash(external::flash_updated(), cx);
-                    self.after_edit(cx);
+                    self.finished_reload(true, cx);
                 }
             }
             ExternalAction::ShowModified => self.set_bar(Bar::Modified { closing: false }, cx),
             ExternalAction::ShowDeleted => self.set_bar(Bar::Deleted, cx),
         }
+    }
+
+    /// After a successful reload of the buffer from disk or from the host. `silent`: the reload of a clean buffer on
+    /// an external change (keeps a bar that `bar_after_reload` keeps); else 重新载入 (clears the bar).
+    fn finished_reload(&mut self, silent: bool, cx: &mut Context<Self>) {
+        self.close_menu_on_model_change();
+        if silent {
+            self.selecting = false;
+            self.bar = bar_after_reload(&self.bar);
+        } else {
+            self.bar = Bar::None;
+        }
+        self.acked = next_acked(self.acked, AckEvent::Resynced);
+        self.flash(external::flash_updated(), cx);
+        self.after_edit(cx);
+    }
+
+    /// After a successful reopen with other options (换编码 / 换读取方式).
+    fn finished_reopen(&mut self, cx: &mut Context<Self>) {
+        self.close_menu_on_model_change();
+        self.marked = None;
+        self.selecting = false;
+        self.bar = Bar::None;
+        self.acked = next_acked(self.acked, AckEvent::Resynced);
+        self.after_edit(cx);
+    }
+
+    /// `FileChanged` for this remote file (R2a §8.3): the same decisions as a local change, without touching a disk.
+    pub(crate) fn on_remote_change(&mut self, now: Option<Fingerprint>, cx: &mut Context<Self>) {
+        use super::remote_edit::{remote_change, RemoteChange, RemoteOp};
+        let Some(doc) = self.remote.as_mut() else { return };
+        let state = match remote_change(doc, now.as_ref()) {
+            RemoteChange::Ignore => return,
+            RemoteChange::Defer => {
+                doc.deferred = Some(now);
+                return;
+            }
+            RemoteChange::Touched(fp) => {
+                doc.fingerprint = Some(fp);
+                return;
+            }
+            RemoteChange::Changed => ExternalState::Modified,
+            RemoteChange::Deleted => ExternalState::Deleted,
+        };
+        self.acked = next_acked(self.acked, AckEvent::Checked(state));
+        match external::decide(state, self.model.buf.dirty(), &self.bar, self.acked) {
+            ExternalAction::Nothing => {}
+            ExternalAction::SilentReload => {
+                if may_reload_now(self.marked.is_some()) {
+                    self.start_remote_read(RemoteOp::Reloading { as_edit: false }, cx);
+                }
+            }
+            ExternalAction::ShowModified => self.set_bar(Bar::Modified { closing: false }, cx),
+            ExternalAction::ShowDeleted => self.set_bar(Bar::Deleted, cx),
+        }
+    }
+
+    /// The running request answered: what `Watch` reported meanwhile is decided now, then a save that waited goes.
+    fn after_remote_op(&mut self, cx: &mut Context<Self>) {
+        if let Some(now) = self.remote.as_mut().and_then(|d| d.deferred.take()) {
+            self.on_remote_change(now, cx);
+        }
+        let queued = match self.remote.as_mut() {
+            Some(d) if d.busy.is_none() => d.queued.take(),
+            _ => None,
+        };
+        if let Some(q) = queued {
+            self.save_with(q.overwrite, q.closing, cx);
+        }
+    }
+
+    /// 重新载入 / the silent reload / 对比 / reopening with other options, from the host.
+    fn start_remote_read(&mut self, op: super::remote_edit::RemoteOp, cx: &mut Context<Self>) {
+        let Some(doc) = self.remote.as_mut() else { return };
+        if doc.busy.is_some() || doc.loading {
+            return;
+        }
+        doc.busy = Some(op);
+        let (host, path) = (doc.path.remote_host().unwrap_or_default().to_string(), doc.path.path.clone());
+        let read = crate::remote::fs::RemoteFs::new(&host, cx).read_file(path, gilvt_ipc::remote::MAX_REMOTE_EDIT_BYTES, cx);
+        self._remote_op = Some(cx.spawn(async move |this, cx| {
+            let result = read.await;
+            let _ = this.update(cx, |v, cx| v.finish_remote_read(op, result, cx));
+        }));
+        cx.notify();
+    }
+
+    fn finish_remote_read(&mut self, op: super::remote_edit::RemoteOp, result: Result<FileRead, FsFailure>, cx: &mut Context<Self>) {
+        use super::remote_edit::RemoteOp;
+        let Some(doc) = self.remote.as_mut() else { return };
+        doc.busy = None;
+        let display = doc.display.clone();
+        match (op, result) {
+            (RemoteOp::Comparing, Err(FsFailure::NotFound)) => self.show_compare(compare::DiskText::Missing, cx),
+            // The silent reload swallows a failure, as the local one does (a deleted file comes back as `Watch`'s
+            // Deleted); the others answer a click, so they say why.
+            (RemoteOp::Reloading { as_edit: false }, Err(_)) => {}
+            (_, Err(e)) => self.set_bar(Bar::SaveError { message: e.message(&display), jump: None }, cx),
+            (RemoteOp::Comparing, Ok(f)) => {
+                let disk = compare::decode_disk(&f.bytes, self.model.buf.explicit_encoding());
+                self.show_compare(disk, cx);
+            }
+            (RemoteOp::Reloading { as_edit }, Ok(f)) => {
+                let r = if as_edit { self.model.reload_as_edit_from_bytes(&f.bytes) } else { self.model.reload_from_bytes(&f.bytes, f.writable) };
+                match r {
+                    Ok(()) => {
+                        if let Some(doc) = self.remote.as_mut() {
+                            doc.fingerprint = Some(f.fingerprint);
+                            doc.writable = f.writable;
+                            doc.conflict = None;
+                        }
+                        self.finished_reload(!as_edit, cx);
+                    }
+                    // The silent reload swallows a failure, as the local one does; 重新载入 shows it.
+                    Err(e) if as_edit => self.set_bar(bar_for_save_error(&e), cx),
+                    Err(_) => {}
+                }
+            }
+            (RemoteOp::Reopening(opts), Ok(f)) => match self.model.reopen_from_bytes(&f.bytes, opts, f.writable) {
+                Ok(()) => {
+                    if let Some(doc) = self.remote.as_mut() {
+                        doc.fingerprint = Some(f.fingerprint);
+                        doc.writable = f.writable;
+                        doc.conflict = None;
+                    }
+                    self.finished_reopen(cx);
+                }
+                Err(e) => self.set_bar(bar_for_save_error(&e), cx),
+            },
+            (RemoteOp::Saving { .. }, Ok(_)) => {}
+        }
+        self.after_remote_op(cx);
     }
 
     /// Shows `text` at the left of the status bar for `FLASH_MS`; a new flash replaces the old one.
@@ -579,8 +780,17 @@ impl EditorView {
         live_flash(self.status_flash.as_ref(), Instant::now())
     }
 
+    /// The file on this Mac; None for an unsaved buffer and for a remote file (whose path must not be used here).
     pub fn path(&self) -> Option<&Path> {
-        self.model.buf.path()
+        if self.remote.is_some() { None } else { self.model.buf.path() }
+    }
+
+    /// The file this editor shows, on this Mac or on an ssh host.
+    pub fn host_path(&self) -> Option<HostPath> {
+        match &self.remote {
+            Some(d) => Some(d.path.clone()),
+            None => self.model.buf.path().map(HostPath::local),
+        }
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -589,7 +799,10 @@ impl EditorView {
 
     /// The file name (shown on the tab and in the header).
     pub fn title(&self) -> String {
-        self.path()
+        // A remote buffer's path is the remote file's: only shown here.
+        self.model
+            .buf
+            .path()
             .and_then(Path::file_name)
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| crate::i18n::text("未命名", "Untitled").into())
@@ -659,6 +872,9 @@ impl EditorView {
         if self.model.buf.read_only() {
             return SaveOutcome::Failed;
         }
+        if self.remote.is_some() {
+            return self.save_remote(overwrite, closing, cx);
+        }
         let r = if overwrite { self.model.save_overwrite() } else { self.model.save() };
         let (bar, outcome, close) = save_step(closing, r.as_ref().map(|_| ()));
         self.bar = bar;
@@ -673,6 +889,88 @@ impl EditorView {
             cx.emit(EditorEvent::CloseRequested);
         }
         outcome
+    }
+
+    /// A remote save: `WriteFile` with the fingerprint read as `expect`; the bar (or the close) follows its answer.
+    /// While another request runs the save waits for it: never two `WriteFile`s for the file at once.
+    fn save_remote(&mut self, overwrite: bool, closing: bool, cx: &mut Context<Self>) -> SaveOutcome {
+        use super::remote_edit::{finish_save, save_expect, save_gate, too_large_to_save, RemoteOp, SaveGate, SaveResult};
+        let Some(doc) = self.remote.as_mut() else { return SaveOutcome::Failed };
+        match save_gate(doc, overwrite, closing) {
+            SaveGate::Send => {}
+            SaveGate::Queued => return SaveOutcome::Pending,
+            SaveGate::Refused => return SaveOutcome::Failed,
+        }
+        let bytes = match self.model.buf.encode_for_save() {
+            Ok(b) => b,
+            Err(e) => {
+                let (bar, outcome, _) = save_step(closing, Err(&e));
+                self.bar = bar;
+                cx.notify();
+                return outcome;
+            }
+        };
+        let revision = self.model.buf.revision();
+        let Some(doc) = self.remote.as_mut() else { return SaveOutcome::Failed };
+        // base64 makes the frame a third larger: a buffer over the remote limit would never fit in one. Refuse it here
+        // (nothing is sent, the buffer stays unsaved); the bridge's writer is the second line of defence (Task 6).
+        if too_large_to_save(bytes.len()) {
+            let (bar, outcome, _) = finish_save(closing, &SaveResult::Failed(FsFailure::TooLarge { size: bytes.len() as u64 }), &doc.display);
+            self.bar = bar;
+            cx.notify();
+            return outcome;
+        }
+        let expect = save_expect(doc, overwrite);
+        doc.busy = Some(RemoteOp::Saving { closing, revision });
+        let (host, path) = (doc.path.remote_host().unwrap_or_default().to_string(), doc.path.path.clone());
+        let write = crate::remote::fs::RemoteFs::new(&host, cx).write_file(path, bytes, expect, cx);
+        self._remote_op = Some(cx.spawn(async move |this, cx| {
+            let result = match write.await {
+                Ok(crate::remote::fs::Written::Saved(fp)) => SaveResult::Saved(fp),
+                Ok(crate::remote::fs::Written::Modified(fp)) => SaveResult::Modified(fp),
+                Err(e) => SaveResult::Failed(e),
+            };
+            let _ = this.update(cx, |v, cx| v.finish_remote_save(closing, revision, result, cx));
+        }));
+        cx.notify();
+        SaveOutcome::Pending
+    }
+
+    fn finish_remote_save(&mut self, closing: bool, revision: u64, result: super::remote_edit::SaveResult, cx: &mut Context<Self>) {
+        use super::remote_edit::{finish_save, queued_after, saved_marks_clean, SaveResult};
+        let Some(doc) = self.remote.as_mut() else { return };
+        doc.busy = None;
+        let (bar, outcome, close) = finish_save(closing, &result, &doc.display);
+        match result {
+            SaveResult::Saved(fp) => {
+                doc.fingerprint = Some(fp);
+                doc.conflict = None;
+            }
+            SaveResult::Modified(current) => doc.conflict = Some(current),
+            SaveResult::Failed(_) => {}
+        }
+        doc.queued = queued_after(doc.queued.take(), outcome == SaveOutcome::Saved);
+        if outcome == SaveOutcome::Saved && saved_marks_clean(revision, self.model.buf.revision()) {
+            self.model.buf.mark_saved();
+        }
+        self.bar = bar;
+        if outcome == SaveOutcome::Saved {
+            self.acked = next_acked(self.acked, AckEvent::Resynced);
+            self.after_edit(cx);
+            cx.emit(EditorEvent::Saved);
+        } else {
+            cx.notify();
+        }
+        if close {
+            if !self.is_dirty() {
+                cx.emit(EditorEvent::CloseRequested);
+            } else if let Some(q) = self.remote.as_mut().and_then(|d| d.queued.as_mut()) {
+                // Text typed while saving would be lost by closing now: the pane stays (its ● says why), and the save
+                // that waits closes it once it has written that text too.
+                q.closing = true;
+            }
+        }
+        self.after_remote_op(cx);
     }
 
     /// ✕ / ⌘W: asks first when there are unsaved changes, else asks the Workspace to close the pane.
@@ -704,7 +1002,12 @@ impl EditorView {
 
     /// Carries out a [`Plan`]: from a bar button / key, or `Plan::Reopen` from [`Self::begin_reopen`].
     fn run_plan(&mut self, plan: Plan, cx: &mut Context<Self>) {
+        use super::remote_edit::RemoteOp;
         match plan {
+            // `Plan::Save` already goes to the host through `save_with`.
+            Plan::Reload if self.remote.is_some() => self.start_remote_read(RemoteOp::Reloading { as_edit: true }, cx),
+            Plan::Compare if self.remote.is_some() => self.start_remote_read(RemoteOp::Comparing, cx),
+            Plan::Reopen(opts) if self.remote.is_some() => self.start_remote_read(RemoteOp::Reopening(opts), cx),
             Plan::Hide { close } => {
                 self.acked = next_acked(self.acked, AckEvent::Dismissed(&self.bar));
                 let recheck = external::recheck_after_hide(&self.bar);
@@ -729,26 +1032,13 @@ impl EditorView {
                 }
             }
             Plan::Reload => match self.model.reload_as_edit() {
-                Ok(()) => {
-                    self.close_menu_on_model_change();
-                    self.bar = Bar::None;
-                    self.acked = next_acked(self.acked, AckEvent::Resynced);
-                    self.flash(external::flash_updated(), cx);
-                    self.after_edit(cx);
-                }
+                Ok(()) => self.finished_reload(false, cx),
                 Err(e) => self.set_bar(bar_for_save_error(&e), cx),
             },
             Plan::Compare => self.open_compare(cx),
             Plan::CloseRequest => self.request_close(cx),
             Plan::Reopen(opts) => match self.model.reopen(opts) {
-                Ok(()) => {
-                    self.close_menu_on_model_change();
-                    self.marked = None;
-                    self.selecting = false;
-                    self.bar = Bar::None;
-                    self.acked = next_acked(self.acked, AckEvent::Resynced);
-                    self.after_edit(cx);
-                }
+                Ok(()) => self.finished_reopen(cx),
                 Err(e) => self.set_bar(bar_for_save_error(&e), cx),
             },
         }
@@ -772,7 +1062,10 @@ impl EditorView {
         let buf = &self.model.buf;
         match kind {
             MenuKind::Encoding => {
-                let writable = self.path().is_some_and(popup::path_is_writable);
+                let writable = match &self.remote {
+                    Some(d) => d.writable,
+                    None => self.path().is_some_and(popup::path_is_writable),
+                };
                 popup::encoding_menu(buf.encoding(), buf.explicit_encoding().is_some(), buf.forced_read_only(), buf.lossy(), writable)
             }
             MenuKind::LineEnding => popup::line_ending_menu(buf.line_ending()),
@@ -874,19 +1167,23 @@ impl EditorView {
     /// being gone, which the overlay shows) puts up the error bar instead.
     fn open_compare(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self.path().map(Path::to_path_buf) else { return };
-        let width = self.layout.map_or(compare::SPLIT_MIN_COLS, |l| pane_cols(&l));
-        let buf = &self.model.buf;
-        match Compare::open(&path, buf.explicit_encoding(), &buf.text(), buf.line_ending(), buf.encoding().name(), width) {
-            Ok(c) => {
-                self.marked = None;
-                self.selecting = false;
-                self.scroll_accum = 0.0;
-                self.compare = Some(c);
-                cx.notify();
-            }
+        match compare::read_disk_for_compare(&path, self.model.buf.explicit_encoding()) {
+            Ok(disk) => self.show_compare(disk, cx),
             // The Modified banner comes back on the next watcher event or focus check.
             Err(e) => self.set_bar(Bar::SaveError { message: compare::open_error_message(&e), jump: None }, cx),
         }
+    }
+
+    /// Opens the overlay comparing `disk` (read here or from the host) with the buffer.
+    fn show_compare(&mut self, disk: compare::DiskText, cx: &mut Context<Self>) {
+        let width = self.layout.map_or(compare::SPLIT_MIN_COLS, |l| pane_cols(&l));
+        let buf = &self.model.buf;
+        let c = Compare::from_disk(disk, &buf.text(), buf.line_ending(), buf.encoding().name(), width);
+        self.marked = None;
+        self.selecting = false;
+        self.scroll_accum = 0.0;
+        self.compare = Some(c);
+        cx.notify();
     }
 
     /// A compare-overlay button (or Esc): close the overlay, then run the banner's own action, if any.
@@ -1028,7 +1325,12 @@ impl EditorView {
     }
 
     /// ⌘⌥O: the file in the external editor at the caret's line (what is on disk; unsaved edits stay here).
-    fn on_open_external(&mut self, _: &OpenExternalEditor, _: &mut Window, _: &mut Context<Self>) {
+    fn on_open_external(&mut self, _: &OpenExternalEditor, _: &mut Window, cx: &mut Context<Self>) {
+        // The external editor opens files of this Mac (R2a plan deviation 17).
+        if self.remote.is_some() {
+            self.flash(crate::remote::not_yet_remote(), cx);
+            return;
+        }
         if let Some(path) = self.path() {
             let line = self.model.caret_position().line as u32 + 1;
             crate::preview_view::open_in_editor(path, Some(line));
@@ -1243,6 +1545,21 @@ impl Render for EditorView {
             self.menu_unplaced = false;
         }
         let header = chrome::header(self, &p, cx);
+        if self.remote.as_ref().is_some_and(|d| d.loading) {
+            // 「正在读取…」 until the host answers: no text area, bar or status bar yet.
+            return div()
+                .id("editor")
+                .key_context(EDITOR_CONTEXT)
+                .track_focus(&self.focus_handle)
+                .size_full()
+                .flex()
+                .flex_col()
+                .overflow_hidden()
+                .bg(hsla(p.background))
+                .text_color(hsla(p.foreground))
+                .child(header)
+                .child(chrome::loading(&p));
+        }
         let bar = (!narrow).then(|| chrome::bar(self, &p, cx)).flatten();
         let status = (!narrow).then(|| chrome::status(self, &p, cx));
         let cover = narrow.then(|| chrome::too_narrow(&p));
@@ -1800,5 +2117,139 @@ mod tests {
         assert_eq!(m.view_rows(), 24);
         assert!(load_model(&dir).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod remote_save_tests {
+    use super::*;
+    use crate::editor::remote_edit::{RemoteOp, SaveResult};
+    use crate::remote::fs::FileRead;
+    use gpui::{Entity, TestAppContext};
+
+    fn fp(n: u64) -> Fingerprint {
+        Fingerprint { mtime_ns: n, size: 4, sha256: format!("{n:064x}") }
+    }
+
+    fn loaded(cx: &mut TestAppContext) -> Entity<EditorView> {
+        cx.update(|cx| {
+            crate::theme::init_for_tests(cx);
+            cx.set_global(crate::remote::watch::RemoteWatches::default());
+        });
+        let view = cx.new(|cx| EditorView::new_remote_loading(HostPath::remote("dev@h:22", "/home/dev/a.txt"), "devbox".into(), cx));
+        view.update(cx, |v, cx| v.finish_remote_open(Ok(FileRead { bytes: b"one\n".to_vec(), fingerprint: fp(1), writable: true }), None, cx).unwrap());
+        view
+    }
+
+    #[gpui::test]
+    fn text_typed_while_saving_stays_unsaved(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            let saving = v.model.buf.revision(); // the bytes on their way to the host
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: false, revision: saving });
+            v.model.insert("B").unwrap(); // typed before the answer
+            v.finish_remote_save(false, saving, SaveResult::Saved(fp(2)), cx);
+            assert!(v.is_dirty(), "the host has \"A\", not \"AB\": the buffer is not clean");
+            assert_eq!(v.remote.as_ref().unwrap().fingerprint, Some(fp(2)), "but what is on the host is now known");
+            assert!(v.remote.as_ref().unwrap().busy.is_none());
+            // an unchanged buffer does become clean
+            let now = v.model.buf.revision();
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: false, revision: now });
+            v.finish_remote_save(false, now, SaveResult::Saved(fp(3)), cx);
+            assert!(!v.is_dirty());
+        });
+    }
+
+    #[gpui::test]
+    fn a_failed_or_refused_save_leaves_the_buffer_dirty_with_its_bar(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            let rev = v.model.buf.revision();
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: true, revision: rev });
+            v.finish_remote_save(true, rev, SaveResult::Failed(FsFailure::NotConnected), cx);
+            assert!(v.is_dirty());
+            assert!(matches!(&v.bar, Bar::SaveError { message, .. } if message == "devbox 未连接，未保存"), "{:?}", v.bar);
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: false, revision: rev });
+            v.finish_remote_save(false, rev, SaveResult::Modified(fp(9)), cx);
+            assert!(v.is_dirty() && matches!(v.bar, Bar::Modified { closing: false }));
+            assert_eq!(v.remote.as_ref().unwrap().conflict, Some(fp(9)), "仍然覆盖 will expect what is there now");
+        });
+    }
+
+    #[gpui::test]
+    fn a_save_while_one_is_in_flight_is_sent_after_it(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            assert_eq!(v.save(cx), SaveOutcome::Pending);
+            let Some(RemoteOp::Saving { revision: first, .. }) = v.remote.as_ref().unwrap().busy else { panic!("the first save is on its way") };
+            v.model.insert("B").unwrap();
+            assert_eq!(v.save(cx), SaveOutcome::Pending, "the second save waits");
+            assert_eq!(v.remote.as_ref().unwrap().busy, Some(RemoteOp::Saving { closing: false, revision: first }), "still only the first WriteFile");
+            v.finish_remote_save(false, first, SaveResult::Saved(fp(2)), cx);
+            let Some(RemoteOp::Saving { revision: second, .. }) = v.remote.as_ref().unwrap().busy else { panic!("the queued save goes once the first answered") };
+            assert_eq!(second, v.model.buf.revision(), "with the text typed since");
+            assert!(v.remote.as_ref().unwrap().queued.is_none());
+            v.finish_remote_save(false, second, SaveResult::Saved(fp(3)), cx);
+            assert!(!v.is_dirty() && v.remote.as_ref().unwrap().busy.is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn a_queued_save_is_dropped_when_the_first_one_did_not_get_through(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.model.insert("A").unwrap();
+            assert_eq!(v.save(cx), SaveOutcome::Pending);
+            let Some(RemoteOp::Saving { revision, .. }) = v.remote.as_ref().unwrap().busy else { panic!() };
+            assert_eq!(v.save(cx), SaveOutcome::Pending);
+            v.finish_remote_save(false, revision, SaveResult::Modified(fp(9)), cx);
+            assert!(v.remote.as_ref().unwrap().busy.is_none() && v.remote.as_ref().unwrap().queued.is_none(), "the bar asks first");
+            assert!(matches!(v.bar, Bar::Modified { closing: false }));
+        });
+    }
+
+    #[gpui::test]
+    fn a_remote_buffer_never_reaches_this_macs_disk(cx: &mut TestAppContext) {
+        // A file of this Mac at the very path the remote file has: nothing may read or write it.
+        let dir = tempfile::tempdir().unwrap();
+        let decoy = dir.path().join("a.txt");
+        std::fs::write(&decoy, "mac\n").unwrap();
+        cx.update(|cx| {
+            crate::theme::init_for_tests(cx);
+            cx.set_global(crate::remote::watch::RemoteWatches::default());
+        });
+        let view = cx.new(|cx| EditorView::new_remote_loading(HostPath::remote("dev@h:22", &decoy), "devbox".into(), cx));
+        view.update(cx, |v, cx| {
+            v.finish_remote_open(Ok(FileRead { bytes: b"one\n".to_vec(), fingerprint: fp(1), writable: true }), None, cx).unwrap();
+            assert_eq!(v.path(), None, "no Mac path for a remote file");
+            assert_eq!(v.host_path(), Some(HostPath::remote("dev@h:22", &decoy)));
+            assert_eq!(v.title(), "a.txt");
+            v.on_external_change(cx); // the focus check
+            assert_eq!(v.bar, Bar::None);
+            v.run_plan(Plan::Compare, cx);
+            assert!(v.compare.is_none(), "对比 asks the host, never `read_disk_for_compare`");
+            assert_eq!(v.remote.as_ref().unwrap().busy, Some(RemoteOp::Comparing));
+            v.finish_remote_read(RemoteOp::Comparing, Ok(FileRead { bytes: b"two\n".to_vec(), fingerprint: fp(2), writable: true }), cx);
+            assert!(v.compare.as_ref().is_some_and(|c| !c.disk_missing));
+        });
+        assert_eq!(std::fs::read_to_string(&decoy).unwrap(), "mac\n");
+    }
+
+    #[gpui::test]
+    fn a_change_on_the_host_raises_the_bar_or_reloads(cx: &mut TestAppContext) {
+        let view = loaded(cx);
+        view.update(cx, |v, cx| {
+            v.on_remote_change(Some(fp(1)), cx);
+            assert_eq!(v.bar, Bar::None, "our own fingerprint");
+            v.model.insert("A").unwrap();
+            v.on_remote_change(Some(fp(4)), cx);
+            assert_eq!(v.bar, Bar::Modified { closing: false }, "unsaved edits: ask");
+            v.remote.as_mut().unwrap().busy = Some(RemoteOp::Saving { closing: false, revision: 0 });
+            v.on_remote_change(None, cx);
+            assert_eq!(v.remote.as_ref().unwrap().deferred, Some(None), "decided after the save");
+        });
     }
 }

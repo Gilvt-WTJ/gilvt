@@ -31,6 +31,22 @@ pub(crate) fn decide_remote_click(probe: &PathProbe, stats: Result<Vec<StatEntry
     }
 }
 
+/// Numbers the ⌘-clicks of a window: only the answer to the latest one acts (an earlier one answered late would open
+/// a second file or put up a stale error).
+#[derive(Default)]
+pub(crate) struct ClickGen(u64);
+
+impl ClickGen {
+    pub(crate) fn next(&mut self) -> u64 {
+        self.0 += 1;
+        self.0
+    }
+
+    pub(crate) fn is_current(&self, click: u64) -> bool {
+        click == self.0
+    }
+}
+
 impl Workspace {
     pub(crate) fn open_remote_path(&mut self, origin: PaneId, probe: PathProbe, in_editor: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(r) = self.pane_remote(origin, cx) else { return };
@@ -39,24 +55,35 @@ impl Workspace {
             self.refuse_remote(origin, cx);
             return;
         }
+        let click = self.remote_clicks.next();
         let fs = RemoteFs::new(&r.host, cx);
-        let pending = self.open_preview_pending(Some(origin), window, cx);
+        // ⇧⌘-click opens the editor, which shows its own 「正在读取…」: no Quick Look placeholder for it.
+        let pending = (!in_editor).then(|| self.open_preview_pending(Some(origin), window, cx));
         let stat = fs.stat(probe.paths(), cx);
         cx.spawn_in(window, async move |ws, cx| {
             let outcome = decide_remote_click(&probe, stat.await, &fs.display);
-            let _ = ws.update_in(cx, |ws, window, cx| match outcome {
-                ClickOutcome::Open(hit) if in_editor => {
-                    ws.close_quicklook_if(&pending, window, cx);
-                    ws.open_editor_at(HostPath::remote(fs.host.clone(), hit.path), hit.line, Some(origin), false, window, cx);
+            let _ = ws.update_in(cx, |ws, window, cx| {
+                // A newer click owns Quick Look and the banner now (its own placeholder replaced this one's).
+                if !ws.remote_clicks.is_current(click) {
+                    return;
                 }
-                ClickOutcome::Open(hit) => pending.update(cx, |v, cx| v.replace_request(OpenRequest::at(HostPath::remote(fs.host.clone(), hit.path), hit.line, hit.annotation), cx)),
-                ClickOutcome::Missing => {
-                    ws.close_quicklook_if(&pending, window, cx);
-                    ws.show_error(no_such_file(&fs.display), cx);
-                }
-                ClickOutcome::Failed(message) => {
-                    ws.close_quicklook_if(&pending, window, cx);
-                    ws.show_error(message, cx);
+                match (outcome, pending) {
+                    (ClickOutcome::Open(hit), Some(pending)) => {
+                        pending.update(cx, |v, cx| v.replace_request(OpenRequest::at(HostPath::remote(fs.host.clone(), hit.path), hit.line, hit.annotation), cx))
+                    }
+                    (ClickOutcome::Open(hit), None) => ws.open_editor_at(HostPath::remote(fs.host.clone(), hit.path), hit.line, Some(origin), false, window, cx),
+                    (ClickOutcome::Missing, pending) => {
+                        if let Some(p) = pending {
+                            ws.close_quicklook_if(&p, window, cx);
+                        }
+                        ws.show_error(no_such_file(&fs.display), cx);
+                    }
+                    (ClickOutcome::Failed(message), pending) => {
+                        if let Some(p) = pending {
+                            ws.close_quicklook_if(&p, window, cx);
+                        }
+                        ws.show_error(message, cx);
+                    }
                 }
             });
         })
@@ -95,6 +122,15 @@ mod tests {
         let stats: Vec<StatEntry> = probe.paths().iter().map(|p| entry(p == std::path::Path::new("/home/dev/x.rs"))).collect();
         let ClickOutcome::Open(hit) = decide_remote_click(&probe, Ok(stats), "devbox") else { panic!() };
         assert_eq!((hit.path, hit.line), (std::path::PathBuf::from("/home/dev/x.rs"), Some(3)));
+    }
+
+    #[test]
+    fn only_the_latest_click_acts() {
+        let mut clicks = ClickGen::default();
+        let first = clicks.next();
+        let second = clicks.next();
+        assert!(!clicks.is_current(first), "a slow first answer is dropped: no banner, no editor");
+        assert!(clicks.is_current(second));
     }
 
     #[test]

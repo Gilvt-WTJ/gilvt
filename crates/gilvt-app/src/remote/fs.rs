@@ -11,9 +11,7 @@ use super::bridge::{request_async, RequestError};
 
 pub const STAT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const PREVIEW_TIMEOUT: Duration = Duration::from_secs(30);
-#[allow(dead_code)] // the editor's read (Task 12)
 pub const READ_TIMEOUT: Duration = Duration::from_secs(60);
-#[allow(dead_code)] // the editor's save (Task 12)
 pub const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 pub const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const WATCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -35,7 +33,6 @@ pub fn not_connected(display: &str) -> String {
     if crate::i18n::english() { format!("{display} is not connected") } else { format!("{display} 未连接") }
 }
 
-#[allow(dead_code)] // the editor's save (Task 12)
 pub fn not_saved(display: &str) -> String {
     if crate::i18n::english() { format!("{display} is not connected; not saved") } else { format!("{display} 未连接，未保存") }
 }
@@ -78,7 +75,6 @@ impl FsFailure {
     }
 }
 
-#[allow(dead_code)] // the editor's read (Task 12)
 pub struct FileRead {
     pub bytes: Vec<u8>,
     pub fingerprint: Fingerprint,
@@ -92,7 +88,6 @@ pub struct PreviewRead {
     pub base_skipped: bool,
 }
 
-#[allow(dead_code)] // the editor's save (Task 12)
 pub enum Written {
     Saved(Fingerprint),
     Modified(Fingerprint),
@@ -119,7 +114,6 @@ impl RemoteFs {
         RemoteFs { host: host.to_string(), display: super::display_of(host, cx) }
     }
 
-#[allow(dead_code)] // the editor's read (Task 12)
     pub fn read_file(&self, path: PathBuf, max: u64, cx: &mut App) -> Task<Result<FileRead, FsFailure>> {
         let answer = request_async(&self.host, RemoteRequest::ReadFile { path, max }, READ_TIMEOUT, cx);
         cx.spawn(async move |cx| match answer.await {
@@ -162,7 +156,6 @@ impl RemoteFs {
 
     /// The daemon does not order requests for the same path: a caller must never have more than one `write_file` in
     /// flight for a file (the editor's save, Task 12, queues the next save until this one has answered).
-#[allow(dead_code)] // the editor's save (Task 12)
     pub fn write_file(&self, path: PathBuf, bytes: Vec<u8>, expect: Option<Fingerprint>, cx: &mut App) -> Task<Result<Written, FsFailure>> {
         let host = self.host.clone();
         cx.spawn(async move |cx| {

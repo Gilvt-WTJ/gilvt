@@ -490,6 +490,12 @@ pub(crate) fn too_narrow(p: &Palette) -> impl IntoElement {
         .child(crate::i18n::text(TOO_NARROW, "Window too narrow"))
 }
 
+/// A remote file whose first read has not answered: one centred 「正在读取…」 below the header (R2a §8.3).
+pub(crate) fn loading(p: &Palette) -> impl IntoElement {
+    let (muted, _) = tones(p);
+    div().flex_1().flex().items_center().justify_center().text_size(px(CHROME_TEXT)).text_color(muted).child(crate::remote::fs::loading_text())
+}
+
 /// The header's preview button: the shortcut while closed, the provider shown while open.
 pub(crate) fn preview_label(live: Option<crate::live_preview::Provider>) -> String {
     match live {

@@ -14,7 +14,9 @@ breaking changes; they are called out under **Changed**.
   inspector's timeline, and the sessions palette (`⇧⌘R`) with the remote host's history and resuming there.
   Agents inside remote tmux are not detected yet.
 - SSH: in a gilvt ssh pane, `gilvt view`, `gilvt diff` and ⌘-click on a path preview the remote host's files in
-  gilvt (a pinned preview follows changes on the host); a path that does not exist there says so.
+  gilvt (a pinned preview follows changes on the host), and the built-in editor opens and saves them: a file changed
+  on the host since it was opened brings up the usual reload / compare / overwrite bar, and saving while the
+  connection is down keeps your changes unsaved and says so. A path that does not exist on the host says so.
 
 ### Changed
 

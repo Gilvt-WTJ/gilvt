@@ -1069,7 +1069,8 @@ pub(crate) enum PathClick {
 
 pub(crate) fn path_click(snapshot: &Snapshot, row: usize, col: usize, cwd: Option<&Path>, remote_home: Option<Option<&Path>>, exists: impl Fn(&Path) -> bool) -> PathClick {
     match remote_home {
-        Some(home) => gilvt_term::paths::path_probe(snapshot, row, col, cwd, home).map_or(PathClick::Nothing, PathClick::Remote),
+        // No candidate (no cwd reported yet for a relative name, `~/` before the host told its home): nothing to ask.
+        Some(home) => gilvt_term::paths::path_probe(snapshot, row, col, cwd, home).filter(|p| !p.paths().is_empty()).map_or(PathClick::Nothing, PathClick::Remote),
         None => gilvt_term::paths::path_at(snapshot, row, col, cwd, exists).map_or(PathClick::Nothing, PathClick::Local),
     }
 }
@@ -1103,5 +1104,15 @@ mod path_click_tests {
         let click = path_click(&snapshot, 0, 1, Some(dir.path()), None, |p| p.is_file());
         assert!(matches!(click, PathClick::Local(ref h) if h.path == dir.path().join("here.txt")), "{click:?}");
         assert!(matches!(path_click(&snapshot, 0, 12, Some(dir.path()), None, |p| p.is_file()), PathClick::Nothing), "a missing local file is not a link");
+    }
+
+    #[test]
+    fn a_remote_token_with_nothing_to_ask_is_not_a_link() {
+        // No cwd reported yet (a relative name), or `~/` before the host told its home: no candidate, so no Quick
+        // Look placeholder and no Stat.
+        let snapshot = gilvt_term::snapshot::snapshot_of("a.txt ~/b.txt", 80, 2);
+        assert!(matches!(path_click(&snapshot, 0, 1, None, Some(None), |_| unreachable!()), PathClick::Nothing));
+        assert!(matches!(path_click(&snapshot, 0, 8, Some(std::path::Path::new("/home/dev")), Some(None), |_| unreachable!()), PathClick::Nothing));
+        assert!(matches!(path_click(&snapshot, 0, 8, None, Some(Some(std::path::Path::new("/home/dev"))), |_| unreachable!()), PathClick::Remote(_)));
     }
 }
