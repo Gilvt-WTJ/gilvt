@@ -13,7 +13,7 @@ use crate::workspace::Workspace;
 
 /// A `view` request as a preview to open: (pane it came from, request, pinned?).
 pub fn view_request(req: Request) -> Option<(Option<u64>, OpenRequest, bool)> {
-    let Request::View { pane, path, content, as_type, line, col: _, pin } = req else { return None };
+    let Request::View { pane, path, content, as_type, line, col: _, pin, link: _ } = req else { return None };
     let source = match (path, content) {
         (Some(path), _) => Source::File(path),
         (None, Some(content)) => Source::Inline { content, as_type },
@@ -67,7 +67,7 @@ pub fn start(hooks: async_channel::Sender<crate::agents::HookIn>, cx: &mut App) 
         let _server = server;
         while let Ok(req) = rx.recv().await {
             match req {
-                Request::Diff { pane, cwd, rev } => {
+                Request::Diff { pane, cwd, rev, .. } => {
                     let base = rev.clone().unwrap_or_else(|| "HEAD".into());
                     let files = cx
                         .background_executor()
@@ -166,17 +166,17 @@ mod tests {
 
     #[test]
     fn view_requests_become_previews() {
-        let req = Request::View { pane: Some(2), path: Some("/r/a.rs".into()), content: None, as_type: None, line: Some(9), col: Some(1), pin: true };
+        let req = Request::View { pane: Some(2), path: Some("/r/a.rs".into()), content: None, as_type: None, line: Some(9), col: Some(1), pin: true, link: None };
         let (pane, open, pin) = view_request(req).unwrap();
         assert_eq!((pane, pin), (Some(2), true));
         assert_eq!(open.sources, vec![Source::File("/r/a.rs".into())]);
         assert_eq!(open.line, Some(9));
 
-        let req = Request::View { pane: None, path: None, content: Some("x".into()), as_type: Some("md".into()), line: None, col: None, pin: false };
+        let req = Request::View { pane: None, path: None, content: Some("x".into()), as_type: Some("md".into()), line: None, col: None, pin: false, link: None };
         let (_, open, _) = view_request(req).unwrap();
         assert_eq!(open.sources, vec![Source::Inline { content: "x".into(), as_type: Some("md".into()) }]);
 
-        let empty = Request::View { pane: None, path: None, content: None, as_type: None, line: None, col: None, pin: false };
+        let empty = Request::View { pane: None, path: None, content: None, as_type: None, line: None, col: None, pin: false, link: None };
         assert!(view_request(empty).is_none());
     }
 

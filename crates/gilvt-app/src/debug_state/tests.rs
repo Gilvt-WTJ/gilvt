@@ -496,7 +496,7 @@ fn expired_queries_are_skipped_and_tails_clamped() {
     use std::time::Duration;
     let (live, live_rx) = Query::new(Request::DebugState { tail_lines: 5000 }, Duration::from_secs(4));
     let (old, old_rx) = Query::new(Request::DebugState { tail_lines: 3 }, Duration::from_millis(1));
-    let (other, other_rx) = Query::new(Request::Diff { pane: None, cwd: "/r".into(), rev: None }, Duration::from_secs(4));
+    let (other, other_rx) = Query::new(Request::Diff { pane: None, cwd: "/r".into(), rev: None, link: None }, Duration::from_secs(4));
     let now = Instant::now() + Duration::from_millis(10);
     let kept = live_queries(vec![old, live, other], now);
     assert_eq!(kept.iter().map(|(_, t)| *t).collect::<Vec<_>>(), [MAX_TAIL], "only the live one, clamped");

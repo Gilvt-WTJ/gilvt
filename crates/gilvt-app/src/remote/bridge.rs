@@ -251,6 +251,7 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
                     }
                 }
                 RemoteEvent::LinkUp(_) => {}
+                RemoteEvent::Open { .. } => {}
             }
         }
         Some(DaemonMsg::Response { id, resp }) => {
@@ -270,6 +271,7 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
                 crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Append { offset, bytes }, cx);
             }
         }
+        Some(DaemonMsg::FileChanged { .. }) => {}
         Some(DaemonMsg::TranscriptReset { agent, session_id, size }) => {
             crate::agents::Agents::remote_transcript(host, &agent, &session_id, crate::agents::RemoteChunk::Reset { size }, cx);
         }

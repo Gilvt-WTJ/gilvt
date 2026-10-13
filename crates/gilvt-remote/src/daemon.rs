@@ -234,7 +234,7 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
                 // Welcome, the replay and the registration happen under one lock: no hook is lost or doubled. The
                 // replay holds shared events (no payload is copied here), and only those of links still registered.
                 let replay = s.hooks.replay(s.epoch, epoch, cursor, |l| s.links.contains(l));
-                let welcome = DaemonMsg::Welcome { build_id: cfg.build_id.clone(), hostname: cfg.hostname.clone(), uname: cfg.uname.clone(), links: s.links.all(), seq: s.seq, epoch: s.epoch, gap: replay.gap };
+                let welcome = DaemonMsg::Welcome { build_id: cfg.build_id.clone(), hostname: cfg.hostname.clone(), uname: cfg.uname.clone(), links: s.links.all(), seq: s.seq, epoch: s.epoch, gap: replay.gap, home: Some(cfg.layout.home()) };
                 tx.send(Out::Msg(welcome)).ok();
                 for (seq, event) in replay.events {
                     tx.send(Out::Event(seq, event)).ok();
@@ -321,6 +321,9 @@ fn serve(mut conn: UnixStream, state: &Arc<Mutex<State>>, cfg: &Config, history:
                                     let _ = tx.send(Out::Msg(DaemonMsg::Response { id: rid, resp }));
                                 });
                                 None
+                            }
+                            RemoteRequest::ReadFile { .. } | RemoteRequest::ReadForPreview { .. } | RemoteRequest::Stat { .. } | RemoteRequest::WriteFile { .. } | RemoteRequest::GitChanges { .. } | RemoteRequest::Watch { .. } | RemoteRequest::Unwatch { .. } => {
+                                Some(RemoteResponse::Error { message: "not supported by this daemon yet".into() })
                             }
                         };
                         if let Some(resp) = resp {

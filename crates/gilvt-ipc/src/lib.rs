@@ -37,9 +37,19 @@ pub enum Request {
         line: Option<u32>,
         col: Option<u32>,
         pin: bool,
+        /// The ssh link (`GILVT_LINK`) of a `gilvt` run on a remote host (R2a §8.2); never set on the Mac.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        link: Option<String>,
     },
     /// Preview every changed file in the repository containing `cwd`, against `rev` (default HEAD).
-    Diff { pane: Option<u64>, cwd: PathBuf, rev: Option<String> },
+    Diff {
+        pane: Option<u64>,
+        cwd: PathBuf,
+        rev: Option<String>,
+        /// As on `View`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        link: Option<String>,
+    },
     /// An agent hook payload (`gilvt hook <agent> <event>`). Fire-and-forget: the app never replies.
     Hook {
         pane: Option<u64>,
@@ -187,6 +197,11 @@ fn write_line<T: Serialize>(stream: &mut UnixStream, msg: &T) -> io::Result<()> 
 /// remote daemon's `run/gilvt.sock` (spec R2a §4.1).
 pub fn read_request(stream: &UnixStream) -> io::Result<Request> {
     read_line(stream)
+}
+
+/// Writes one response line (for servers other than the app's: the remote daemon's `run/gilvt.sock`).
+pub fn write_response(stream: &mut UnixStream, response: &Response) -> io::Result<()> {
+    write_line(stream, response)
 }
 
 fn read_line<T: for<'de> Deserialize<'de>>(stream: &UnixStream) -> io::Result<T> {
@@ -375,11 +390,20 @@ pub fn remove_stale_sockets(dir: &Path) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn view_and_diff_without_link_keep_the_local_format() {
+        let v = Request::View { pane: Some(1), path: Some("/a".into()), content: None, as_type: None, line: None, col: None, pin: false, link: None };
+        assert!(!serde_json::to_string(&v).unwrap().contains("link"));
+        let old: Request = serde_json::from_str(r#"{"type":"diff","pane":null,"cwd":"/r","rev":null}"#).unwrap();
+        assert_eq!(old, Request::Diff { pane: None, cwd: "/r".into(), rev: None, link: None });
+        let remote = Request::Diff { pane: None, cwd: "/r".into(), rev: None, link: Some("i-2".into()) };
+        assert_eq!(serde_json::from_str::<Request>(&serde_json::to_string(&remote).unwrap()).unwrap(), remote);
+    }
     use super::*;
 
     #[test]
     fn request_json_shape() {
-        let req = Request::Diff { pane: Some(3), cwd: "/r".into(), rev: None };
+        let req = Request::Diff { pane: Some(3), cwd: "/r".into(), rev: None, link: None };
         let json = serde_json::to_string(&req).unwrap();
         assert_eq!(json, r#"{"type":"diff","pane":3,"cwd":"/r","rev":null}"#);
         assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), req);
@@ -400,6 +424,7 @@ mod tests {
             line: Some(42),
             col: None,
             pin: false,
+            link: None,
         };
         assert_eq!(send(&path, &req).unwrap(), Response::Ok);
         assert_eq!(rx.try_recv().unwrap(), req);
@@ -427,7 +452,7 @@ mod tests {
         let (tx, rx) = async_channel::unbounded();
         let _server = Server::start(&path, tx).unwrap();
         let _stalled = UnixStream::connect(&path).unwrap(); // connects, never sends
-        let req = Request::Diff { pane: None, cwd: "/r".into(), rev: None };
+        let req = Request::Diff { pane: None, cwd: "/r".into(), rev: None, link: None };
         let started = std::time::Instant::now();
         assert_eq!(send(&path, &req).unwrap(), Response::Ok);
         assert!(started.elapsed() < Duration::from_secs(2), "answered while another client stalls");
@@ -492,7 +517,7 @@ mod tests {
             other => panic!("unexpected {other:?}"),
         }
         // View / Diff still get their answer after hooks.
-        let diff = Request::Diff { pane: None, cwd: "/r".into(), rev: None };
+        let diff = Request::Diff { pane: None, cwd: "/r".into(), rev: None, link: None };
         assert_eq!(send(&path, &diff).unwrap(), Response::Ok);
     }
 
@@ -550,7 +575,7 @@ mod tests {
         app.join().unwrap();
         assert!(rx.try_recv().is_err(), "queries do not go to the request channel");
         // Other requests keep their immediate `Ok`.
-        let diff = Request::Diff { pane: None, cwd: "/r".into(), rev: None };
+        let diff = Request::Diff { pane: None, cwd: "/r".into(), rev: None, link: None };
         assert_eq!(send(&path, &diff).unwrap(), Response::Ok);
         assert_eq!(rx.try_recv().unwrap(), diff);
     }
@@ -628,7 +653,7 @@ mod tests {
         let resp = send(&path, &Request::DebugState { tail_lines: 1 }).unwrap();
         assert_eq!(resp, Response::Error { message: DEBUG_STATE_DISABLED.into() });
         assert!(rx.try_recv().is_err());
-        let diff = Request::Diff { pane: None, cwd: "/r".into(), rev: None };
+        let diff = Request::Diff { pane: None, cwd: "/r".into(), rev: None, link: None };
         assert_eq!(send(&path, &diff).unwrap(), Response::Ok, "other requests still work");
     }
 

@@ -73,7 +73,7 @@ fn run(cmd: Command) -> Result<(), String> {
         }
         Command::View { target: Target::Stdin, pin, as_type } => {
             let content = read_stdin()?;
-            let req = Request::View { pane: pane(), path: None, content: Some(content.clone()), as_type: as_type.clone(), line: None, col: None, pin };
+            let req = Request::View { pane: pane(), path: None, content: Some(content.clone()), as_type: as_type.clone(), line: None, col: None, pin, link: None };
             if !send_to_app(&req)? {
                 print_preview(&Preview::from_content(content, as_type));
             }
@@ -85,7 +85,7 @@ fn run(cmd: Command) -> Result<(), String> {
             if !path.is_file() {
                 return Err(format!("{file}: no such file"));
             }
-            let req = Request::View { pane: pane(), path: Some(path.clone()), content: None, as_type, line, col, pin };
+            let req = Request::View { pane: pane(), path: Some(path.clone()), content: None, as_type, line, col, pin, link: None };
             if !send_to_app(&req)? {
                 let preview = Preview::load(&path, &DiffBase::None).map_err(|e| format!("{file}: {e}"))?;
                 print_preview(&preview);
@@ -101,7 +101,7 @@ fn run(cmd: Command) -> Result<(), String> {
             if !gilvt_viewer::git::is_commit(&root, &rev_name) {
                 return Err(format!("unknown revision: {rev_name}"));
             }
-            let req = Request::Diff { pane: pane(), cwd: cwd.clone(), rev };
+            let req = Request::Diff { pane: pane(), cwd: cwd.clone(), rev, link: None };
             if send_to_app(&req)? {
                 return Ok(());
             }
