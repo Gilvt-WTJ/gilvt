@@ -18,11 +18,19 @@ pub enum Target {
 
 const EXTERNAL_SCHEMES: [&str; 3] = ["http://", "https://", "mailto:"];
 
-/// Resolves `dest` against the Markdown file's directory; `/`-rooted paths that do not exist
-/// on disk are tried against the repository root (GitHub's convention).
-pub fn resolve(dest: &str, base_dir: Option<&Path>, repo_root: Option<&Path>) -> Target {
+/// What `dest` names, before anything is looked up: the files to try in order (against the document's directory, then
+/// a `/`-rooted path under the repository root, GitHub's convention). Pure: a remote document probes them with `Stat`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Parsed {
+    External(String),
+    Anchor(String),
+    Missing(String),
+    Paths { candidates: Vec<PathBuf>, written: String, anchor: Option<String>, line: Option<u32> },
+}
+
+pub fn parse(dest: &str, base_dir: Option<&Path>, repo_root: Option<&Path>) -> Parsed {
     if EXTERNAL_SCHEMES.iter().any(|s| dest.len() > s.len() && dest.get(..s.len()).is_some_and(|p| p.eq_ignore_ascii_case(s))) {
-        return Target::External(dest.to_string());
+        return Parsed::External(dest.to_string());
     }
     let (path, fragment) = match dest.split_once('#') {
         Some((p, f)) => (p, Some(percent_decode(f)).filter(|f| !f.is_empty())),
@@ -30,8 +38,8 @@ pub fn resolve(dest: &str, base_dir: Option<&Path>, repo_root: Option<&Path>) ->
     };
     if path.is_empty() {
         return match fragment {
-            Some(f) => Target::Anchor(f),
-            None => Target::Missing(dest.to_string()),
+            Some(f) => Parsed::Anchor(f),
+            None => Parsed::Missing(dest.to_string()),
         };
     }
     let decoded = percent_decode(path);
@@ -40,10 +48,26 @@ pub fn resolve(dest: &str, base_dir: Option<&Path>, repo_root: Option<&Path>) ->
         if local.is_absolute() { Some(local.to_path_buf()) } else { base_dir.map(|d| d.join(local)) },
         repo_root.filter(|_| local.is_absolute()).map(|r| r.join(local.strip_prefix("/").unwrap_or(local))),
     ];
-    let Some(found) = candidates.into_iter().flatten().find(|p| p.exists()) else { return Target::Missing(path.to_string()) };
     let line = fragment.as_deref().and_then(line_fragment);
     let anchor = fragment.filter(|_| line.is_none());
-    Target::File { path: found, anchor, line }
+    Parsed::Paths { candidates: candidates.into_iter().flatten().collect(), written: path.to_string(), anchor, line }
+}
+
+pub fn resolve_with(dest: &str, base_dir: Option<&Path>, repo_root: Option<&Path>, exists: impl Fn(&Path) -> bool) -> Target {
+    match parse(dest, base_dir, repo_root) {
+        Parsed::External(u) => Target::External(u),
+        Parsed::Anchor(a) => Target::Anchor(a),
+        Parsed::Missing(m) => Target::Missing(m),
+        Parsed::Paths { candidates, written, anchor, line } => match candidates.into_iter().find(|p| exists(p)) {
+            Some(path) => Target::File { path, anchor, line },
+            None => Target::Missing(written),
+        },
+    }
+}
+
+/// Resolves `dest` against this Mac's disk (a local document).
+pub fn resolve(dest: &str, base_dir: Option<&Path>, repo_root: Option<&Path>) -> Target {
+    resolve_with(dest, base_dir, repo_root, Path::exists)
 }
 
 /// `L40` or `L40-L52` → 40.
@@ -147,5 +171,24 @@ mod tests {
         assert_eq!(find_heading(&blocks, "next-steps"), Some(2));
         assert_eq!(find_heading(&blocks, "Next-Steps"), Some(2));
         assert_eq!(find_heading(&blocks, "missing"), None);
+    }
+
+    #[test]
+    fn parse_lists_candidates_without_looking_at_the_disk() {
+        let docs = Path::new("/home/dev/r/docs");
+        let root = Path::new("/home/dev/r");
+        assert_eq!(
+            parse("../main.go#L40", Some(docs), Some(root)),
+            Parsed::Paths { candidates: vec![docs.join("../main.go")], written: "../main.go".into(), anchor: None, line: Some(40) }
+        );
+        assert_eq!(
+            parse("/guide.md#setup", Some(docs), Some(root)),
+            Parsed::Paths { candidates: vec!["/guide.md".into(), root.join("guide.md")], written: "/guide.md".into(), anchor: Some("setup".into()), line: None }
+        );
+        assert_eq!(parse("https://x.dev", Some(docs), None), Parsed::External("https://x.dev".into()));
+        assert_eq!(parse("#top", None, None), Parsed::Anchor("top".into()));
+        assert_eq!(parse("a.md", None, None), Parsed::Paths { candidates: vec![], written: "a.md".into(), anchor: None, line: None });
+        assert_eq!(resolve_with("/guide.md", Some(docs), Some(root), |p| p == root.join("guide.md")), Target::File { path: root.join("guide.md"), anchor: None, line: None });
+        assert_eq!(resolve_with("x.md", Some(docs), None, |_| false), Target::Missing("x.md".into()));
     }
 }

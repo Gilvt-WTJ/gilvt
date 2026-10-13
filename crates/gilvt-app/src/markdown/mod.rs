@@ -6,6 +6,7 @@ mod images;
 mod layout;
 mod links;
 pub mod mermaid;
+pub(crate) mod remote;
 mod render;
 mod rows;
 pub(crate) mod select;
@@ -36,6 +37,10 @@ pub struct MdDoc {
     pub images: HashMap<String, Image>,
     /// Link destinations that are existing local files (drawn with ↗).
     pub file_links: HashSet<String>,
+    /// A remote document's links and images to `Stat` (empty for a local one).
+    pub probes: remote::RemoteProbes,
+    /// Rows showing each image `src` (re-measured when a remote image arrives).
+    pub image_rows: HashMap<String, Vec<usize>>,
 }
 
 /// Highlight spans per code block, keyed by the block's first source line.
@@ -68,14 +73,27 @@ fn own_inlines(block: &Block) -> Vec<&[Inline]> {
     }
 }
 
-impl MdDoc {
-    /// A remote file's rendered document. Until the remote probes exist (Task 9), none: the file shows as source.
-    pub fn build_remote(_preview: &Preview) -> Option<MdDoc> {
-        None
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Probe {
+    /// Images and link targets are looked up on this Mac (blocking).
+    Local,
+    /// A file of an ssh host: nothing on this Mac is looked at; links count as existing and images as pending until
+    /// `probe_remote_markdown` asks the host (R2a section 8.3).
+    Remote,
+}
 
+impl MdDoc {
     /// `None` unless the preview is a Markdown text. Blocking: probes images and link targets.
     pub fn build(preview: &Preview) -> Option<MdDoc> {
+        MdDoc::build_with(preview, Probe::Local)
+    }
+
+    /// A remote file's rendered document: nothing on this Mac is looked at.
+    pub fn build_remote(preview: &Preview) -> Option<MdDoc> {
+        MdDoc::build_with(preview, Probe::Remote)
+    }
+
+    fn build_with(preview: &Preview, probe: Probe) -> Option<MdDoc> {
         if !is_markdown(&preview.doc) {
             return None;
         }
@@ -88,19 +106,53 @@ impl MdDoc {
         let repo_root = preview.repo_root.as_deref();
         let mut images = HashMap::new();
         let mut file_links = HashSet::new();
+        let mut probes = remote::RemoteProbes::default();
         walk(&blocks, &mut |b| {
             if let BlockKind::Image { src, .. } = &b.kind {
-                images.entry(src.clone()).or_insert_with(|| images::resolve(src, base_dir));
+                if !images.contains_key(src) {
+                    let image = match probe {
+                        Probe::Local => images::resolve(src, base_dir),
+                        Probe::Remote => match images::locate(src, base_dir) {
+                            Ok(path) => {
+                                probes.images.push((src.clone(), path));
+                                Image::Pending
+                            }
+                            Err(image) => image,
+                        },
+                    };
+                    images.insert(src.clone(), image);
+                }
             }
             for inl in own_inlines(b).into_iter().flatten() {
-                if let Some(dest) = inl.style.link.as_ref().filter(|d| !file_links.contains(*d)) {
-                    if matches!(links::resolve(dest, base_dir, repo_root), links::Target::File { .. }) {
-                        file_links.insert(dest.clone());
+                let Some(dest) = inl.style.link.as_ref().filter(|d| !file_links.contains(*d)) else { continue };
+                match probe {
+                    Probe::Local => {
+                        if matches!(links::resolve(dest, base_dir, repo_root), links::Target::File { .. }) {
+                            file_links.insert(dest.clone());
+                        }
+                    }
+                    Probe::Remote => {
+                        if let links::Parsed::Paths { candidates, .. } = links::parse(dest, base_dir, repo_root) {
+                            if !candidates.is_empty() {
+                                file_links.insert(dest.clone());
+                                probes.links.push((dest.clone(), candidates));
+                            }
+                        }
                     }
                 }
             }
         });
-        Some(MdDoc { rail: rows::rail_marks(&rows, line_count), blocks, changes, rows, line_count, images, file_links })
+        let mut image_rows: HashMap<String, Vec<usize>> = HashMap::new();
+        for (ix, info) in rows.iter().enumerate() {
+            if let rows::Row::Block(b) = info.row {
+                walk(std::slice::from_ref(&blocks[b]), &mut |blk| {
+                    if let BlockKind::Image { src, .. } = &blk.kind {
+                        image_rows.entry(src.clone()).or_default().push(ix);
+                    }
+                });
+            }
+        }
+        Some(MdDoc { rail: rows::rail_marks(&rows, line_count), blocks, changes, rows, line_count, images, file_links, probes, image_rows })
     }
 
     /// `(first line, language, text)` of every code block that names a language.
@@ -173,5 +225,25 @@ mod tests {
         let text = "```mermaid\npie\n```\n\npara\n\n> ```mermaid\n> graph TD\n> ```\n";
         let doc = MdDoc::build(&Preview::from_content(text.into(), Some("md".into()))).unwrap();
         assert_eq!(doc.mermaid_blocks(), [(0, "pie"), (2, "graph TD")]);
+    }
+
+    #[test]
+    fn a_remote_document_looks_at_nothing_on_this_mac() {
+        // Files with these names exist on the Mac; the remote document must neither find nor miss them here.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("here.md"), "").unwrap();
+        std::fs::write(dir.path().join("pic.png"), "not even a png").unwrap();
+        let text = "[here](here.md) [gone](gone.md) [web](https://x.dev)\n\n![p](pic.png)\n\n![w](https://e/a.png)\n";
+        let preview = Preview::from_remote(&dir.path().join("a.md"), text.as_bytes().to_vec(), None, &DiffBase::Head, None, false);
+        let doc = MdDoc::build_remote(&preview).unwrap();
+        assert_eq!(doc.file_links, HashSet::from(["here.md".to_string(), "gone.md".to_string()]), "both drawn as files until the Stat answers");
+        assert_eq!(doc.images["pic.png"], Image::Pending, "not read from the Mac");
+        assert_eq!(doc.images["https://e/a.png"], Image::Remote("https://e/a.png".into()));
+        assert_eq!(doc.probes.links.iter().map(|(d, _)| d.as_str()).collect::<Vec<_>>(), ["here.md", "gone.md"]);
+        assert_eq!(doc.probes.images, vec![("pic.png".to_string(), dir.path().join("pic.png"))]);
+        assert_eq!(doc.image_rows["pic.png"].len(), 1, "the one row that shows it");
+        std::fs::write(dir.path().join("a.md"), text).unwrap();
+        let local = MdDoc::build(&Preview::load(&dir.path().join("a.md"), &DiffBase::Head).unwrap()).unwrap();
+        assert!(local.probes.links.is_empty() && local.probes.images.is_empty(), "a local document probes nothing remote");
     }
 }

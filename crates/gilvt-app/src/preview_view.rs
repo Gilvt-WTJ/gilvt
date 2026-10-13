@@ -124,6 +124,11 @@ pub(crate) fn source_toggle_applies(source: Option<&Source>) -> bool {
     !matches!(source, Some(Source::Live(_)))
 }
 
+/// The wait shown before the first load lands: a remote file says what the other side is doing (Q16).
+pub(crate) fn loading_message(remote: bool) -> &'static str {
+    if remote { crate::remote::fs::loading_text() } else { crate::i18n::text("加载中…", "Loading…") }
+}
+
 /// Following a Markdown link to a file swaps the source for a `File`; a live preview never navigates.
 pub(crate) fn link_navigation_applies(source: Option<&Source>) -> bool {
     !matches!(source, Some(Source::Live(_)))
@@ -222,6 +227,8 @@ pub struct PreviewView {
     live_keep_banner: bool,
     _watcher: Option<notify::RecommendedWatcher>,
     _load: Option<Task<()>>,
+    /// A remote Markdown document's link / image probes (`markdown/remote.rs`).
+    pub(crate) _probe: Option<Task<()>>,
     _highlight: Option<Task<()>>,
     _watch: Option<Task<()>>,
     _release: Subscription,
@@ -330,6 +337,7 @@ impl PreviewView {
             live_keep_banner: false,
             _watcher: None,
             _load: None,
+            _probe: None,
             _highlight: None,
             _watch: None,
             _release: cx.on_release(|view, cx| {
@@ -515,7 +523,9 @@ impl PreviewView {
                         self.banner = None;
                     }
                 }
+                self._probe = None;
                 self.set_markdown(md, cx);
+                self.probe_remote_markdown(cx);
                 self.highlight(cx);
             }
             Err(e) if matches!(self.source(), Some(Source::Live(_))) => self.banner = Some(e),
@@ -952,7 +962,7 @@ impl Render for PreviewView {
             self.render_markdown(window, cx)
         } else {
             match self.loaded.as_ref().map(|l| &l.preview.doc.content) {
-                None => self.message(crate::i18n::text("加载中…", "Loading…").into(), window, cx),
+                None => self.message(loading_message(self.host_path().is_some_and(|p| p.remote_host().is_some())).into(), window, cx),
                 Some(Content::Binary) => self.message(binary_message(self.loaded.as_ref().unwrap().preview.doc.size), window, cx),
                 Some(Content::TooLarge(size)) => self.message(too_large_message(*size), window, cx),
                 Some(Content::Text(_)) => div().flex_1().overflow_hidden().relative().child(PreviewElement::new(cx.entity())).children(crate::debug_state::rects::recorder(crate::debug_state::rects::RectId::PreviewCode(self.pane))).into_any_element(),
@@ -1047,7 +1057,14 @@ fn too_large_message(size: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::loading_message;
     use gilvt_agent::host::HostPath;
+
+    #[test]
+    fn a_remote_view_waiting_for_its_first_read_uses_the_remote_loading_text() {
+        assert_eq!(loading_message(true), crate::remote::fs::loading_text());
+        assert_eq!(loading_message(false), crate::i18n::text("加载中…", "Loading…"));
+    }
 
     #[test]
     fn the_changed_since_note_names_the_scope() {

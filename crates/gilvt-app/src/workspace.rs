@@ -330,8 +330,7 @@ impl Workspace {
         self.show_quicklook(view, origin, window, cx);
     }
 
-    /// A Quick Look that waits for a remote answer: shown at once, filled by `replace_request` or `fail`, or closed
-    /// with `close_quicklook_if`.
+    /// A Quick Look that waits for a remote answer: shown at once, filled by `replace_request` or `fail`.
     pub fn open_preview_pending(&mut self, origin: Option<PaneId>, window: &mut Window, cx: &mut Context<Self>) -> Entity<PreviewView> {
         self.ended_confirm = None;
         self.finder = None;
@@ -340,13 +339,6 @@ impl Workspace {
         let view = cx.new(|cx| PreviewView::pending(window, cx));
         self.show_quicklook(view.clone(), origin, window, cx);
         view
-    }
-
-    #[allow(dead_code)] // the Markdown stat batches close a pending view that found nothing (Task 9)
-    pub fn close_quicklook_if(&mut self, view: &Entity<PreviewView>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.quicklook.as_ref().is_some_and(|(v, _)| v == view) {
-            self.close_quicklook(window, cx);
-        }
     }
 
     fn show_quicklook(&mut self, view: Entity<PreviewView>, origin: Option<PaneId>, window: &mut Window, cx: &mut Context<Self>) {

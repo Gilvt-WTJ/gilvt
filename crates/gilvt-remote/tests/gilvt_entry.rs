@@ -100,3 +100,14 @@ fn view_checks_the_remote_file_and_sends_the_link() {
     let out = child.wait_with_output().unwrap();
     assert!(out.status.success() && out.stdout.is_empty(), "{out:?}");
 }
+
+#[test]
+fn view_help_prints_usage_even_outside_a_linked_shell() {
+    let home = tempfile::tempdir().unwrap();
+    let gilvt = install(home.path());
+    for args in [&["view", "--help"][..], &["diff", "-h"][..]] {
+        let out = Command::new(&gilvt).args(args).env_remove("GILVT_SOCKET").env_remove("GILVT_LINK").output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(String::from_utf8_lossy(&out.stdout).contains("usage:"), "{args:?}");
+    }
+}

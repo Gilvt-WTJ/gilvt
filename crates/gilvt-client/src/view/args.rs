@@ -23,6 +23,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             let (mut pin, mut as_type, mut target) = (false, None, None);
             while let Some(a) = it.next() {
                 match a.as_str() {
+                    "-h" | "--help" => return Ok(Command::Help),
                     "--pin" => pin = true,
                     "--as" => as_type = Some(it.next().ok_or("--as needs a type, e.g. --as md")?.clone()),
                     "-" => target = Some(Target::Stdin),
@@ -40,6 +41,9 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         }
         Some("diff") => {
             let rev = it.next().cloned();
+            if matches!(rev.as_deref(), Some("-h" | "--help")) {
+                return Ok(Command::Help);
+            }
             if it.next().is_some() {
                 return Err("gilvt diff takes at most one revision".into());
             }
@@ -88,6 +92,13 @@ mod tests {
         assert_eq!(parse(&s(&["diff"])).unwrap(), Command::Diff { rev: None });
         assert_eq!(parse(&s(&["diff", "main"])).unwrap(), Command::Diff { rev: Some("main".into()) });
         assert_eq!(parse(&s(&[])).unwrap(), Command::Help);
+    }
+
+    #[test]
+    fn help_after_a_subcommand_is_help() {
+        assert_eq!(parse(&s(&["view", "--help"])).unwrap(), Command::Help);
+        assert_eq!(parse(&s(&["view", "a.rs", "-h"])).unwrap(), Command::Help);
+        assert_eq!(parse(&s(&["diff", "--help"])).unwrap(), Command::Help);
     }
 
     #[test]

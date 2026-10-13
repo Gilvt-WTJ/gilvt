@@ -9,7 +9,6 @@ use gpui::{App, Task};
 
 use super::bridge::{request_async, RequestError};
 
-#[allow(dead_code)] // remote stat batches (Task 9)
 pub const STAT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const PREVIEW_TIMEOUT: Duration = Duration::from_secs(30);
 #[allow(dead_code)] // the editor's read (Task 12)
@@ -146,7 +145,6 @@ impl RemoteFs {
     }
 
     /// Entries in the order of `paths`. Batches are all sent before the first answer is awaited: one round trip.
-#[allow(dead_code)] // remote stat batches (Task 9)
     pub fn stat(&self, paths: Vec<PathBuf>, cx: &mut App) -> Task<Result<Vec<StatEntry>, FsFailure>> {
         let answers: Vec<_> = stat_batches(&paths).into_iter().map(|batch| request_async(&self.host, RemoteRequest::Stat { paths: batch }, STAT_TIMEOUT, cx)).collect();
         cx.spawn(async move |_| {

@@ -33,6 +33,8 @@ pub fn open(host: &str, pane: u64, request: Request, cx: &mut App) {
         OpenPlan::Preview { req, pin } => route(Some(pane), req, pin, cx),
         OpenPlan::Diff { cwd, rev } => {
             let Some(view) = route_pending(Some(pane), cx) else { return };
+            // Weak: closing the pending Quick Look must not keep the view alive or feed it a late answer.
+            let view = view.downgrade();
             let git = crate::hostfs::HostGit::Remote(super::fs::RemoteFs::new(host, cx));
             let list = git.changed_files(cwd, rev.clone(), cx);
             let host = host.to_string();

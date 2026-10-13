@@ -36,6 +36,8 @@ const SOURCE_CONTEXT_ROWS: usize = 3;
 /// The loaded document of a Markdown preview and its view state.
 pub struct MdState {
     pub doc: Rc<MdDoc>,
+    /// What the host said about a remote document's links and images.
+    pub overrides: Rc<super::remote::MdOverrides>,
     spans: Rc<CodeSpans>,
     list: ListState,
     /// Deleted runs shown expanded.
@@ -55,6 +57,7 @@ impl MdState {
         MdState {
             list: ListState::new(doc.rows.len(), ListAlignment::Top, px(OVERDRAW)),
             doc: Rc::new(doc),
+            overrides: Rc::default(),
             spans: Rc::default(),
             expanded: HashSet::new(),
             flash: None,
@@ -288,6 +291,31 @@ impl PreviewView {
     }
 
     fn follow_link(&mut self, dest: &str, cx: &mut Context<Self>) {
+        if let Some(hp) = self.host_path().filter(|p| p.remote_host().is_some()).cloned() {
+            use super::remote::{remote_nav, RemoteNav};
+            let host = hp.remote_host().unwrap_or_default().to_string();
+            let repo_root = self.loaded.as_ref().and_then(|l| l.preview.repo_root.clone());
+            let overrides = self.md.as_ref().map(|md| md.overrides.clone()).unwrap_or_default();
+            match remote_nav(&host, &hp.path, dest, repo_root.as_deref(), &overrides) {
+                RemoteNav::External(url) => open_link(&url),
+                RemoteNav::Anchor(anchor) => match self.md.as_ref().and_then(|md| links::find_heading(&md.doc.blocks, &anchor).map(|b| (md, b))) {
+                    Some((md, b)) => md.scroll_to_row(rows::row_of_block(&md.doc.rows, b)),
+                    None => self.show_banner(not_found(&format!("#{anchor}")), cx),
+                },
+                RemoteNav::Missing(what) => self.show_banner(not_found(&what), cx),
+                RemoteNav::NoSuchFile => self.show_banner(crate::remote::fs::no_such_file(&crate::remote::display_of(&host, cx)), cx),
+                RemoteNav::Open { target, anchor, line } => {
+                    self.history.push(Entry { sources: self.sources.clone(), index: self.index, line: self.current_line() });
+                    self.sources = vec![Source::File(target)];
+                    self.index = 0;
+                    self.reset_view_state();
+                    self.pending_line = line;
+                    self.pending_anchor = anchor;
+                    self.load(cx);
+                }
+            }
+            return;
+        }
         let base_dir = self.file_path().and_then(Path::parent).map(Path::to_path_buf);
         let repo_root = self.loaded.as_ref().and_then(|l| l.preview.repo_root.clone());
         match links::resolve(dest, base_dir.as_deref(), repo_root.as_deref()) {
@@ -373,6 +401,7 @@ impl PreviewView {
         let rail = md.doc.changes.is_some().then(|| rail(md, &style.colors, view.clone()));
         let renderer = Rc::new(RowRenderer {
             doc: md.doc.clone(),
+            overrides: md.overrides.clone(),
             spans: md.spans.clone(),
             style,
             view,

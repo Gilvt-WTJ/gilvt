@@ -52,6 +52,11 @@ fn view(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // Help is answered before looking for the link: usage works in any shell.
+    if matches!(cmd, gilvt_client::view::args::Command::Help) {
+        print!("{REMOTE_USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let fail = |msg: &str| {
         eprintln!("gilvt: {msg}");
         ExitCode::from(1)
