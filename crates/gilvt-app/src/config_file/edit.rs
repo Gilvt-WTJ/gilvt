@@ -17,38 +17,37 @@ pub enum TomlValue {
     List(Vec<String>),
 }
 
-/// A `[monitor]` key and its new value.
+/// A `[monitor]` (or `[agent]`) key and its new value.
 pub type Edit = (&'static str, TomlValue);
 
-/// Everything one write puts into the file: `[monitor]` keys and the theme (`theme = "…"` or
+/// Everything one write puts into the file: `[monitor]` keys, `[agent]` keys and the theme (`theme = "…"` or
 /// `theme = { light = "…", dark = "…" }`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Changes {
     pub monitor: Vec<Edit>,
     pub theme: Option<Selection>,
     pub language: Option<Language>,
+    pub agent: Vec<Edit>,
 }
 
 impl Changes {
     pub fn monitor(edits: &[Edit]) -> Changes {
         Changes {
             monitor: edits.to_vec(),
-            theme: None,
-            language: None,
+            ..Changes::default()
         }
     }
 
     #[cfg(test)]
     pub fn theme(sel: Selection) -> Changes {
         Changes {
-            monitor: Vec::new(),
             theme: Some(sel),
-            language: None,
+            ..Changes::default()
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.monitor.is_empty() && self.theme.is_none() && self.language.is_none()
+        self.monitor.is_empty() && self.theme.is_none() && self.language.is_none() && self.agent.is_empty()
     }
 
     /// `self` followed by `newer`: a later value of a key replaces the earlier one.
@@ -57,6 +56,7 @@ impl Changes {
             monitor: merge_edits(&self.monitor, &newer.monitor),
             theme: newer.theme.clone().or_else(|| self.theme.clone()),
             language: newer.language.or(self.language),
+            agent: merge_edits(&self.agent, &newer.agent),
         }
     }
 }
@@ -77,8 +77,8 @@ pub fn merge_edits(old: &[Edit], new: &[Edit]) -> Vec<Edit> {
 pub enum WriteError {
     /// The file on disk does not parse (the user is editing it): nothing is written.
     Syntax(String),
-    /// `monitor` exists but is not a table.
-    NotATable,
+    /// `monitor` (or `agent`) exists but is not a table; the key is named.
+    NotATable(&'static str),
     /// The file kept changing while gilvt wrote it.
     Busy,
     /// The file is read-only: gilvt does not replace it.
@@ -112,11 +112,10 @@ impl WriteError {
                 format!("config.toml has a syntax error; not written: {e}")
             }
             WriteError::Syntax(e) => format!("config.toml 有语法错误，没有写入：{e}"),
-            WriteError::NotATable => crate::i18n::text(
-                "config.toml 里的 monitor 不是表，没有写入",
-                "monitor in config.toml is not a table; not written",
-            )
-            .into(),
+            WriteError::NotATable(key) if crate::i18n::current() == Language::English => {
+                format!("{key} in config.toml is not a table; not written")
+            }
+            WriteError::NotATable(key) => format!("config.toml 里的 {key} 不是表，没有写入"),
             WriteError::Busy => crate::i18n::text(
                 "config.toml 一直在被别的程序修改，没有写入",
                 "config.toml kept changing in another program; not written",
@@ -147,7 +146,10 @@ pub fn set_monitor_keys(text: &str, edits: &[Edit]) -> Result<String, WriteError
 pub fn apply_changes(text: &str, changes: &Changes) -> Result<String, WriteError> {
     let mut doc: DocumentMut = text.parse().map_err(|e: toml_edit::TomlError| WriteError::Syntax(e.to_string()))?;
     if !changes.monitor.is_empty() {
-        set_monitor_in(&mut doc, text, &changes.monitor)?;
+        set_table_in(&mut doc, text, "monitor", &changes.monitor)?;
+    }
+    if !changes.agent.is_empty() {
+        set_table_in(&mut doc, text, "agent", &changes.agent)?;
     }
     if let Some(sel) = &changes.theme {
         set_theme_in(&mut doc, sel);
@@ -188,15 +190,16 @@ fn set_top_level_string(doc: &mut DocumentMut, key: &str, text: &str) {
     doc[key] = Item::Value(value);
 }
 
-fn set_monitor_in(doc: &mut DocumentMut, text: &str, edits: &[Edit]) -> Result<(), WriteError> {
-    if !doc.contains_key("monitor") {
+/// `edits` into the table `name` (`monitor`, `agent`), added at the end when missing.
+fn set_table_in(doc: &mut DocumentMut, text: &str, name: &'static str, edits: &[Edit]) -> Result<(), WriteError> {
+    if !doc.contains_key(name) {
         let mut table = Table::new();
         if !text.trim().is_empty() {
             table.decor_mut().set_prefix("\n");
         }
-        doc.insert("monitor", Item::Table(table));
+        doc.insert(name, Item::Table(table));
     }
-    let table = doc.get_mut("monitor").and_then(Item::as_table_like_mut).ok_or(WriteError::NotATable)?;
+    let table = doc.get_mut(name).and_then(Item::as_table_like_mut).ok_or(WriteError::NotATable(name))?;
     for (key, value) in edits {
         let mut new = value.to_value();
         match table.get_mut(key) {
@@ -387,7 +390,7 @@ mod tests {
     #[test]
     fn broken_or_odd_files_are_refused() {
         assert!(matches!(set_monitor_keys("[monitor\n", &[("enabled", Bool(true))]), Err(WriteError::Syntax(_))));
-        assert_eq!(set_monitor_keys("monitor = 3\n", &[("enabled", Bool(true))]), Err(WriteError::NotATable));
+        assert_eq!(set_monitor_keys("monitor = 3\n", &[("enabled", Bool(true))]), Err(WriteError::NotATable("monitor")));
     }
 
     #[test]
@@ -579,9 +582,21 @@ mod tests {
             monitor: vec![("model", s("sonnet"))],
             theme: Some(Selection::Fixed("Nord".into())),
             language: None,
+            agent: Vec::new(),
         };
         let out = apply_changes(SAMPLE, &changes).unwrap();
         assert_eq!(out, SAMPLE.replace("model = \"opus\"", "model = \"sonnet\"").replace("font_size = 13 # 字号\n", "font_size = 13 # 字号\ntheme = \"Nord\"\n"));
+    }
+
+    #[test]
+    fn agent_keys_go_into_the_agent_table() {
+        let changes = Changes { agent: vec![("codex_commands", TomlValue::List(vec!["codex".into(), "cw".into()])), ("claude_launch", TomlValue::Str("ttadk claude".into()))], ..Changes::default() };
+        let out = apply_changes("language = \"zh-CN\"\n\n[agent]\nclaude_commands = [\"claude\"]\n", &changes).unwrap();
+        assert!(out.contains("codex_commands = [\"codex\", \"cw\"]"), "{out}");
+        assert!(out.contains("claude_launch = \"ttadk claude\""), "{out}");
+        assert!(out.contains("claude_commands = [\"claude\"]"), "untouched keys stay");
+        let fresh = apply_changes("", &changes).unwrap();
+        assert!(fresh.contains("[agent]"), "{fresh}");
     }
 
     #[test]
@@ -590,18 +605,21 @@ mod tests {
             monitor: vec![("enabled", Bool(true))],
             theme: Some(Selection::Fixed("Nord".into())),
             language: Some(Language::Chinese),
+            agent: vec![("codex_commands", TomlValue::List(vec!["codex".into()]))],
         };
         let b = Changes {
             monitor: vec![("enabled", Bool(false))],
             theme: None,
             language: Some(Language::English),
+            agent: vec![("codex_commands", TomlValue::List(vec!["cw".into()]))],
         };
         assert_eq!(
             a.then(&b),
             Changes {
                 monitor: vec![("enabled", Bool(false))],
                 theme: Some(Selection::Fixed("Nord".into())),
-                language: Some(Language::English)
+                language: Some(Language::English),
+                agent: vec![("codex_commands", TomlValue::List(vec!["cw".into()]))],
             }
         );
         assert_eq!(a.then(&Changes::theme(pair())).theme, Some(pair()));

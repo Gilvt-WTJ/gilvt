@@ -413,6 +413,44 @@ pub fn set_language(language: crate::i18n::Language, cx: &mut App) -> Result<(),
     Ok(())
 }
 
+/// Replaces `[agent]`'s `claude_commands` / `codex_commands` (the inspector's 「加入」, the Agent page): applies at
+/// once (the shims are rebuilt; new panes recognize the names) and writes the key.
+pub fn set_agent_commands(kind: gilvt_agent::AgentKind, names: Vec<String>, cx: &mut App) -> Result<(), String> {
+    if readonly(cx) {
+        return Err(crate::i18n::text(
+            "config.toml 有语法错误，修好之前不能修改",
+            "config.toml has a syntax error and cannot be changed until it is fixed",
+        )
+        .into());
+    }
+    if let Some(bad) = names.iter().find(|n| !gilvt_client::shim::name_ok(n)) {
+        return Err(if crate::i18n::english() {
+            format!("\"{bad}\" is not a valid command name")
+        } else {
+            format!("「{bad}」不是有效的命令名")
+        });
+    }
+    let mut settings = cx.global::<AppSettings>().0.clone();
+    let key = match kind {
+        gilvt_agent::AgentKind::Claude => {
+            settings.agent.claude_commands = names.clone();
+            "claude_commands"
+        }
+        gilvt_agent::AgentKind::Codex => {
+            settings.agent.codex_commands = names.clone();
+            "codex_commands"
+        }
+    };
+    apply_settings(settings, cx);
+    let change = Changes {
+        agent: vec![(key, edit::TomlValue::List(names))],
+        ..Changes::default()
+    };
+    let pending = cx.global::<ConfigFile>().unsaved.then(&change);
+    write(pending, cx);
+    Ok(())
+}
+
 fn refresh_all(cx: &mut App) {
     for handle in cx.windows() {
         let _ = handle.update(cx, |_, window, _| window.refresh());
@@ -787,6 +825,23 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("theme = \"Nord\"") && text.contains("enabled = true"), "{text}");
         assert_eq!(cx.update(|cx| cx.global::<ConfigFile>().write_error.clone()), None);
+    }
+
+    #[gpui::test]
+    fn agent_commands_apply_at_once_and_go_into_the_agent_table(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, COMMENTED).unwrap();
+        app_with(cx, &path);
+        let names = vec!["codex".to_string(), "cw".to_string()];
+        cx.update(|cx| set_agent_commands(gilvt_agent::AgentKind::Codex, names.clone(), cx)).unwrap();
+        assert_eq!(cx.update(|cx| cx.global::<AppSettings>().0.agent.codex_commands.clone()), names);
+        cx.run_until_parked();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[agent]\nclaude_launch = \"claude\"\ncodex_commands = [\"codex\", \"cw\"]\n"), "{text}");
+        let bad = cx.update(|cx| set_agent_commands(gilvt_agent::AgentKind::Claude, vec!["claude".into(), "-x".into()], cx)).unwrap_err();
+        assert!(bad.contains("-x"), "{bad}");
+        assert_eq!(cx.update(|cx| cx.global::<AppSettings>().0.agent.claude_commands.clone()), vec!["claude"], "unchanged");
     }
 
     fn set_monitor_in(cx: &mut TestAppContext, edits: Vec<Edit>) {
