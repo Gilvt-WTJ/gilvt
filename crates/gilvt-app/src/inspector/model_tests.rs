@@ -222,3 +222,29 @@ fn plan_rows() {
     assert_eq!(p.rows.iter().map(|r| r.glyph).collect::<Vec<_>>(), ["☑", "◐", "☐"]);
     assert_eq!(p.rows[1], PlanRow { glyph: "◐", text: "补充测试".into(), state: PlanState::Active });
 }
+
+#[test]
+fn only_a_live_lite_card_carries_its_panes_hint() {
+    use crate::agents::hints::{hint, Cause};
+    let h = hint(&Cause::Unlisted { word: "cc".into(), kind: AgentKind::Codex }, AgentKind::Codex, None);
+    let by_pane = std::collections::HashMap::from([(1, h.clone())]);
+    let mut s = session(AgentKind::Codex, "a", Some(1), Instant::now());
+    assert_eq!(card_hint(&s, &by_pane), None, "not lite: hooks work");
+    s.lite = true;
+    assert_eq!(card_hint(&s, &by_pane), Some(h));
+    s.pane = Some(2);
+    assert_eq!(card_hint(&s, &by_pane), None, "another pane's hint");
+    s.pane = Some(1);
+    s.status = Status::Ended;
+    assert_eq!(card_hint(&s, &by_pane), None, "ended");
+}
+
+#[test]
+fn hint_buttons_follow_the_cause() {
+    use crate::agents::hints::{hint, Cause};
+    let labels = |h| hint_buttons(&h).into_iter().map(|(l, _)| l).collect::<Vec<_>>();
+    let shims = std::path::Path::new("/L/shims");
+    assert_eq!(labels(hint(&Cause::Bypassed { parent: "ttadk".into() }, AgentKind::Claude, Some(shims))), ["复制配置", "Agent 设置…", "不再提示"]);
+    assert_eq!(labels(hint(&Cause::Bypassed { parent: "ttadk".into() }, AgentKind::Claude, None)), ["Agent 设置…", "不再提示"], "no shims: nothing to copy");
+    assert_eq!(labels(hint(&Cause::Unlisted { word: "cc".into(), kind: AgentKind::Codex }, AgentKind::Codex, None)), ["加入", "Agent 设置…", "不再提示"]);
+}

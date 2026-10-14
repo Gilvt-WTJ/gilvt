@@ -55,7 +55,7 @@ pub use debug::WindowInfo;
 pub use pane_drag::DraggedPane;
 pub use history::live_sessions;
 pub use monitor::monitor_jump;
-pub use nav::{absolute_cursor_line, focus_pane_anywhere, notify_all, notify_sessions, resume_pending_anywhere, terminal_dirs, terminal_pids, visible_panes, workspaces};
+pub use nav::{absolute_cursor_line, running_command, focus_pane_anywhere, inspect_pane_anywhere, notify_all, notify_sessions, resume_pending_anywhere, terminal_dirs, terminal_pids, visible_panes, workspaces};
 
 /// What a pane shows.
 #[derive(Clone)]

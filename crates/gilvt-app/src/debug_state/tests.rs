@@ -87,6 +87,8 @@ fn window() -> WindowState {
                 cursor: Some(TermCursor { row: 1, col: 2, rect: [10.0, 50.0, 7.5, 16.0] }),
                 commands: vec![],
                 running_command: None,
+                foreground_via: serde_json::json!({"descendant": "ttadk"}),
+                agent_hint: None,
                 host: Some("local".into()),
                 remote: None,
                 loading: false,
@@ -128,7 +130,15 @@ fn window() -> WindowState {
         inspector: Inspector {
             visible: true,
             tab: "process",
-            card: Some(Card { status: "awaiting_answer", turn: Some(1) }),
+            card: Some(Card {
+                status: "awaiting_answer",
+                turn: Some(1),
+                hint: Some(AgentHint {
+                    cause: "bypassed",
+                    text: "ttadk 启动的 claude 没有经过 gilvt".into(),
+                    buttons: vec![HintButton { label: "复制配置", rect: Some([1000.0, 140.0, 50.0, 14.0]) }, HintButton { label: "不再提示", rect: None }],
+                }),
+            }),
             banner: Some("claude · gilvt-lab 在问你".into()),
             timeline_rows: 1,
             banner_rect: Some([1000.0, 80.0, 330.0, 50.0]),
@@ -270,7 +280,7 @@ fn window_json_shape() {
                 "foreground": "agent:claude", "session": "claude:fcfe2a39", "border": "amber", "cwd": "/tmp/gilvt-lab",
                 "screen_tail": ["❯ 1. Cats", "  2. Dogs"], "marked_text": null, "code": null, "selection": null, "header": null,
                 "cursor": {"row": 1, "col": 2, "rect": [10.0, 50.0, 7.5, 16.0]},
-                "commands": [], "running_command": null, "host": "local", "remote": null, "loading": false, "size": null
+                "commands": [], "running_command": null, "foreground_via": {"descendant": "ttadk"}, "agent_hint": null, "host": "local", "remote": null, "loading": false, "size": null
             }],
             "rect": [248.0, 30.0, 140.0, 26.0]
         }],
@@ -290,7 +300,10 @@ fn window_json_shape() {
             "host_errors": []
         },
         "inspector": {
-            "visible": true, "tab": "process", "card": {"status": "awaiting_answer", "turn": 1},
+            "visible": true, "tab": "process", "card": {"status": "awaiting_answer", "turn": 1, "hint": {
+                "cause": "bypassed", "text": "ttadk 启动的 claude 没有经过 gilvt",
+                "buttons": [{"label": "复制配置", "rect": [1000.0, 140.0, 50.0, 14.0]}, {"label": "不再提示", "rect": null}]
+            }},
             "banner": "claude · gilvt-lab 在问你", "timeline_rows": 1,
             "banner_rect": [1000.0, 80.0, 330.0, 50.0], "width": 340.0, "filter": "全部",
             "chips": [{"label": "全部", "active": true, "rect": null}],

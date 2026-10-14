@@ -36,16 +36,8 @@ fn parse_procargs(buf: &[u8]) -> Option<String> {
     (!args.is_empty()).then(|| args.join(" "))
 }
 
-/// The program name of `pid` and the agent the foreground poll would take it for (`gilvt debug state`).
-pub fn describe(pid: u32, claude: &[String], codex: &[String]) -> Option<(String, Option<AgentKind>)> {
-    let name = process_name(pid)?;
-    let argv = matches!(name.as_str(), "node" | "bun").then(|| process_args(pid)).flatten();
-    let kind = classify(&name, argv.as_deref(), claude, codex);
-    Some((name, kind))
-}
-
-/// Like [`describe`], plus how an agent was found (None when the foreground is not an agent).
-#[allow(dead_code)] // used by DebugState (next task)
+/// The program name of `pid`, the agent the foreground poll would take it for (as the leader or below a wrapper),
+/// and how it was found (None when the foreground is not an agent). For `gilvt debug state`.
 pub fn describe_via(pid: u32, claude: &[String], codex: &[String]) -> Option<(String, Option<AgentKind>, Option<Via>)> {
     let name = process_name(pid)?;
     match foreground_of(pid, claude, codex) {

@@ -212,6 +212,14 @@ pub fn absolute_cursor_line(pane: PaneId, cx: &App) -> Option<u64> {
     })?
 }
 
+/// The command line of the command running at `pane`'s prompt (OSC 133 C with its cmdline), if the shell sent it.
+pub fn running_command(pane: PaneId, cx: &App) -> Option<String> {
+    workspaces(cx).into_iter().find_map(|w| match w.read(cx).ok()?.panes.get(&pane)? {
+        PaneView::Terminal(t) => Some(t.read(cx).commands().running().and_then(|b| b.command.clone())),
+        PaneView::Preview(_) | PaneView::Editor(_) | PaneView::Monitor(_) => Some(None),
+    })?
+}
+
 /// Repaints the windows whose inspector is shown and follows one of these sessions (their timeline or
 /// permission mode changed).
 pub fn notify_sessions(keys: &[SessionKey], cx: &mut App) {
@@ -253,6 +261,20 @@ pub fn focus_pane_anywhere(pane: PaneId, cx: &mut App) {
     let _ = w.update(cx, |ws, window, cx| {
         window.activate_window();
         ws.focus_pane(pane, window, cx);
+    });
+}
+
+/// The sidebar's 「精简模式」 tag: focuses `pane` like a row click and shows the inspector if it is hidden (its
+/// status card says why the session runs in lite mode). Call it outside window updates.
+pub fn inspect_pane_anywhere(pane: PaneId, cx: &mut App) {
+    let Some(w) = workspaces(cx).into_iter().find(|w| w.read(cx).is_ok_and(|ws| ws.has_pane(pane))) else { return };
+    cx.activate(true);
+    let _ = w.update(cx, |ws, window, cx| {
+        window.activate_window();
+        ws.focus_pane(pane, window, cx);
+        if ws.inspector.hidden {
+            ws.choose_inspector_tab(crate::inspector::InspectorTab::Process, window, cx);
+        }
     });
 }
 

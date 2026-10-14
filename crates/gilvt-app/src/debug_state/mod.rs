@@ -779,6 +779,11 @@ pub struct Pane {
     pub commands: Vec<CommandRow>,
     /// Terminals: the command running now ("" when the shell did not send its text); null otherwise.
     pub running_command: Option<String>,
+    /// Terminals with an agent in the foreground: how it was found — "leader", or `{"descendant": "<parent>"}` (a
+    /// wrapper such as ttadk started it); null otherwise.
+    pub foreground_via: serde_json::Value,
+    /// Why the pane's lite session runs without hooks, and its fix buttons (agent-shims §4.2); null without one.
+    pub agent_hint: Option<AgentHint>,
     /// Terminals, previews and editors: "local" or the ssh host id (`user@hostname:port`); null for the monitor.
     pub host: Option<String>,
     /// Terminals in an ssh link; null otherwise.
@@ -1475,6 +1480,25 @@ pub struct Card {
     pub status: &'static str,
     /// 第 N 轮; null before the first turn.
     pub turn: Option<u32>,
+    /// The card's agent hint (as `panes[].agent_hint`, rects in the inspector); null without one.
+    pub hint: Option<AgentHint>,
+}
+
+/// `panes[].agent_hint` / `inspector.card.hint`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentHint {
+    /// "bypassed" | "unlisted".
+    pub cause: &'static str,
+    pub text: String,
+    /// In drawing order: 复制配置 (when there is something to copy), 加入 (unlisted), Agent 设置…, 不再提示.
+    pub buttons: Vec<HintButton>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HintButton {
+    pub label: &'static str,
+    /// Null unless the inspector shows this hint now.
+    pub rect: Option<Rect4>,
 }
 
 /// The ⌘, settings window (top level; absent while it is closed).

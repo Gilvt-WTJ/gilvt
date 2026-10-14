@@ -591,13 +591,20 @@ fn render_row(n: usize, r: &Row, pending: bool, field: Option<Entity<RenameField
         .when(r.lite, |d| {
             d.child(
                 div()
+                    .id(("lite-tag", n))
                     .flex_none()
                     .px(px(5.))
                     .rounded(px(4.))
                     .bg(k.pill)
                     .text_color(k.pill_text)
                     .text_size(px(10.))
-                    .child(crate::i18n::text("精简模式", "Lite mode")),
+                    .child(crate::i18n::text("精简模式", "Lite mode"))
+                    .when_some(pane, |d, pane| {
+                        d.cursor_pointer().on_click(cx.listener(move |_, _, _, cx| {
+                            cx.stop_propagation();
+                            App::defer(cx, move |cx| crate::workspace::inspect_pane_anywhere(pane, cx))
+                        }))
+                    }),
             )
         });
     let main = div()

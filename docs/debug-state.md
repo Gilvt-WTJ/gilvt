@@ -118,6 +118,8 @@ pane（`panes[]`）：
 | `cursor` | 对象或 `null` | 终端 pane：上一帧终端光标所在的格子 `{ "row", "col", "rect" }`，`row` / `col` 是可见区里的行列（从 0 起），`rect` 是这一格；TUI（Claude Code）隐藏光标时仍是它的位置。预览 / 编辑器 pane、第一帧之前为 `null` |
 | `commands` | 数组 | 终端 pane：shell 集成（OSC 133）记下的最近 10 条命令块，**最新在前**：`[{ "id", "command", "exit", "running", "has_output", "error_line" }]`。`id` 在 pane 内递增；`command` 是输入的命令原文（shell 没发来时为 `null`，超长截断并以 `…` 结尾）；`exit` 是退出码（还在运行、或没看到结束时为 `null`）；`running` 表示还在运行；`has_output` 表示抓到了输出尾部（备用屏或读不到时为 `false`）；`error_line` 是命令失败时输出的最后一个非空行（S2 起来自 PTY 精确捕获），否则为 `null`。只在内存里，不含输出文字。其他 pane 为 `[]` |
 | `running_command` | 字符串或 `null` | 终端 pane：正在运行的命令（shell 没发原文时为 `""`）；没有在运行的命令、其他 pane 为 `null` |
+| `foreground_via` | 字符串、对象或 `null` | 终端 pane 前台是 agent 时，它是怎么找到的：`"leader"`（前台进程组组长就是 agent），或 `{ "descendant": "<父进程名>" }`（包装器启动的，如 `{ "descendant": "ttadk" }`；node / bun 脚本取脚本文件名）。不是 agent、其他 pane 为 `null` |
+| `agent_hint` | 对象或 `null` | 这个 pane 的精简会话为什么没有 hooks（agent-shims §4.2）：`{ cause, text, buttons: [{ label, rect }] }`。`cause` 为 `"bypassed"`（包装器绕过了垫片）或 `"unlisted"`（输入的命令不在识别列表里）；`text` 是提示原文；`buttons` 按显示顺序：「复制配置」（有可复制内容时）→「加入」（`unlisted`）→「Agent 设置…」→「不再提示」，`rect` 只在检查器正显示这个 pane 的提示时有值，否则为 `null`。会话结束、点「不再提示」或「加入」成功后变回 `null`；设置了 `GILVT_NO_AGENT_WRAPPERS` 时总是 `null` |
 | `host` | 字符串或 `null` | 终端：所在的主机；预览、编辑器：所显示文件的主机（`local` 或 `user@hostname:port`；stdin 预览为 `null`）；监控官为 `null` |
 | `remote` | 对象或 `null` | 终端 pane 处在 ssh 里时：`{ link, host, display, hostname, enhanced, cwd }`。`display` 是用户输入的主机名；`hostname` 是远端 `uname -n`；`enhanced`：经由 gilvt-remote 登录（装了远端组件）；`cwd`：远端 shell 上报的目录（OSC 7），未知为 `null`。此时上面的 `cwd` 为 `null` |
 | `loading` | 布尔 | 预览、编辑器在等远端主机的回应（R2a §8）；终端为 false |
@@ -389,7 +391,7 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 |---|---|---|
 | `visible` | 布尔 | 是否显示（`⌘I`）；隐藏时下面的字段为 `null` / `0` / `[]`（`width`、`filter` 除外） |
 | `tab` | 字符串 | 当前标签：`process` / `artifacts` / `config` |
-| `card` | 对象或 `null` | 状态卡片 `{ "status", "turn" }`：`status` 同 `rows[].status`；`turn` 是第几轮，还没有轮次时为 `null`。当前 pane 没有会话时整个为 `null` |
+| `card` | 对象或 `null` | 状态卡片 `{ "status", "turn", "hint" }`：`status` 同 `rows[].status`；`turn` 是第几轮，还没有轮次时为 `null`；`hint` 是卡片上的 agent 提示，结构同 `panes[].agent_hint`，`rect` 在检查器里（「过程」页之外为 `null`），没有提示时为 `null`。当前 pane 没有会话时整个为 `null` |
 | `banner` | 字符串或 `null` | 顶部等待横幅的标题，去掉 ⏳，如 `claude · gilvt-lab 在问你` |
 | `timeline_rows` | 数字 | 时间线上列出的条目数（含轮次标题、历史轮次），上一帧的结果 |
 | `banner_rect` | rect 或 `null` | 等待横幅（点击 = `⌘⇧J`） |

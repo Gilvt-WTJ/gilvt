@@ -44,6 +44,8 @@ pub enum RectId {
     InspectorEdge,
     /// The inspector's waiting banner.
     InspectorBanner,
+    /// Button n of the status card's agent hint (复制配置 / 加入 / Agent 设置… / 不再提示, those shown).
+    AgentHintButton(usize),
     /// Item n of the inspector's timeline list (its line).
     TimelineRow(usize),
     /// The ▸ / ▾ of timeline item n.
