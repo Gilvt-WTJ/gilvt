@@ -7,6 +7,8 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-14
+
 ### Fixed
 
 - After a program that turned on mouse reporting died without turning it off (for example an ssh connection that dropped while Claude Code ran on the remote host), moving the mouse no longer types escape codes into the shell: gilvt's shell integration turns mouse reporting, focus reporting and the kitty keyboard flags off before each prompt (fish: mouse reporting only; fish manages the others itself).
@@ -110,7 +112,8 @@ First public release.
   downloads, and installs when you quit gilvt, so running agents are never interrupted; "Check for
   Updates…" in the app menu, and `[update] mode = "download" | "check" | "off"` in `config.toml`.
 
-[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.0...main
+[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.1...main
+[0.4.1]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.2.0...v0.2.1

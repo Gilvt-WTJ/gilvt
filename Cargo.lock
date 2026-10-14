@@ -2150,7 +2150,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-agent"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-i18n",
  "libc",
@@ -2161,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-app"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-channel 2.5.0",
  "block2",
@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-channel 2.5.0",
  "gilvt-agent",
@@ -2222,7 +2222,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-client"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-agent",
  "gilvt-i18n",
@@ -2235,7 +2235,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-config"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-agent",
  "gilvt-i18n",
@@ -2246,7 +2246,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-editor"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -2259,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-fake-agent"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-agent",
  "gilvt-monitor",
@@ -2272,7 +2272,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-finder"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ignore",
  "nucleo-matcher",
@@ -2281,7 +2281,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-i18n"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "toml 0.8.23",
@@ -2289,7 +2289,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-ipc"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-channel 2.5.0",
  "base64 0.22.1",
@@ -2302,7 +2302,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-markdown"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "comrak",
  "gilvt-viewer",
@@ -2310,7 +2310,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-mermaid"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-channel 2.5.0",
  "block2",
@@ -2324,7 +2324,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-monitor"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-channel 2.5.0",
  "gilvt-agent",
@@ -2338,7 +2338,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-remote"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-agent",
  "gilvt-client",
@@ -2353,7 +2353,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-shell"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-term",
  "libc",
@@ -2362,7 +2362,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-snapshot"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-i18n",
  "serde",
@@ -2372,7 +2372,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-term"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "alacritty_terminal",
  "async-channel 2.5.0",
@@ -2383,7 +2383,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-theme"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-i18n",
  "gilvt-term",
@@ -2392,7 +2392,7 @@ dependencies = [
 
 [[package]]
 name = "gilvt-viewer"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gilvt-client",
  "gilvt-i18n",
