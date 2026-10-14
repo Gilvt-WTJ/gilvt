@@ -39,11 +39,12 @@ fn tell(socket: &Path, req: &Request) {
 }
 
 /// A RemoteRecord that only sets the given fields (and never forgets the installed build).
-fn record(host: &str, install: Option<&str>, installed: Option<&str>, arch: Option<&str>, hostname: Option<String>) -> Request {
+fn record(host: &str, install: Option<&str>, installed: Option<&str>, os: Option<&str>, arch: Option<&str>, hostname: Option<String>) -> Request {
     Request::RemoteRecord {
         host: host.to_string(),
         install: install.map(str::to_string),
         installed: installed.map(str::to_string),
+        os: os.map(str::to_string),
         arch: arch.map(str::to_string),
         hostname,
         forget_installed: false,
@@ -81,7 +82,7 @@ pub fn run(argv: &[String]) -> ExitCode {
     }
     let Some(host) = plan::host_id(&g) else { return exec(&ssh, &argv) };
     let pane = std::env::var(ENV_PANE).ok().and_then(|p| p.parse().ok());
-    let Ok(Response::RemoteBegin { link, install, installed, arch, hostname }) =
+    let Ok(Response::RemoteBegin { link, install, installed, os, arch, hostname }) =
         gilvt_ipc::send(&socket, &Request::RemoteBegin { pane, host: host.clone(), display: a.destination.clone() })
     else {
         return exec(&ssh, &argv);
@@ -145,11 +146,12 @@ pub fn run(argv: &[String]) -> ExitCode {
     };
 
     let rdir = bundle::remote_dir();
+    // A host recorded before macOS remotes has no os: it was Linux.
     let cached = match (&installed, &arch, &rdir) {
-        (Some(i), Some(ar), Some(d)) => plan::platform("Linux", ar)
-            .ok()
-            .filter(|p| bundle::build_id(d, &p.key()).as_deref() == Some(i.as_str()))
-            .map(|_| (i.clone(), "Linux".to_string(), ar.clone())),
+        (Some(i), Some(ar), Some(d)) => {
+            let o = os.clone().unwrap_or_else(|| "Linux".into());
+            plan::platform(&o, ar).ok().filter(|p| bundle::build_id(d, &p.key()).as_deref() == Some(i.as_str())).map(|_| (i.clone(), o, ar.clone()))
+        }
         _ => None,
     };
     let (probe, hostname) = match cached {
@@ -168,13 +170,15 @@ pub fn run(argv: &[String]) -> ExitCode {
                     host: host.clone(),
                     install: None,
                     installed: None,
+                    os: Some(p.os.clone()),
                     arch: plan::norm_arch(&p.arch).map(str::to_string),
                     hostname: Some(p.hostname.clone()),
                     forget_installed: !p.installed.iter().any(|i| Some(i) == installed.as_ref()),
                 },
             );
             let h = Some(p.hostname.clone());
-            (p, h)
+            // After the record: remote.json and hosts[].os keep what the host really is (spec macOS §8.10).
+            (plan::apply_override(p, std::env::var("GILVT_PROBE_OVERRIDE").ok().as_deref()), h)
         }
     };
     let key = plan::platform(&probe.os, &probe.arch).ok().map(|p| p.key());
@@ -192,11 +196,11 @@ pub fn run(argv: &[String]) -> ExitCode {
             };
             match ask(&prompt) {
                 plan::Answer::Yes => {
-                    tell(&socket, &record(&host, Some("allowed"), None, None, None));
+                    tell(&socket, &record(&host, Some("allowed"), None, None, None, None));
                     Some(upgrade)
                 }
                 plan::Answer::Never => {
-                    tell(&socket, &record(&host, Some("never"), None, None, None));
+                    tell(&socket, &record(&host, Some("never"), None, None, None, None));
                     return plain(plan::never_reason(), Some(&ctl), hostname);
                 }
                 plan::Answer::NotNow if upgrade => return plain(plan::not_updating_reason(), Some(&ctl), hostname),
@@ -218,7 +222,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         if !ok {
             return plain(gilvt_i18n::text("远端组件上传失败", "uploading the remote helper failed"), Some(&ctl), hostname);
         }
-        tell(&socket, &record(&host, None, Some(&build_id), plan::norm_arch(&probe.arch), hostname.clone()));
+        tell(&socket, &record(&host, None, Some(&build_id), Some(&probe.os), plan::norm_arch(&probe.arch), hostname.clone()));
     }
 
     let mut dest_args = a.opts.clone();

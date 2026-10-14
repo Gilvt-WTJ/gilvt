@@ -326,7 +326,7 @@ fn on_message(host: &str, generation: u64, msg: Option<DaemonMsg>, cx: &mut App)
             if was == Some(BridgeStatus::Connecting) {
                 // Never got a Welcome: the installed binary is probably gone. Forget it so the next
                 // `gilvt ssh` probes again instead of trusting remote.json (spec §3.2 step 4).
-                cx.global_mut::<RemoteHosts>().record(host, None, None, None, None, true);
+                cx.global_mut::<RemoteHosts>().record(host, None, None, None, None, None, true);
                 super::save_prefs(cx);
             }
             set_status(host, BridgeStatus::Down, cx);

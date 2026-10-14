@@ -69,9 +69,11 @@ if [ -n "$real" ]; then
 fi
 
 # Fake app: gilvt_ipc JSON lines, one request per connection. 1st RemoteBegin: install always; 2nd: already installed.
-python3 - "$work/app.sock" "$work/app.log" "$work/app.ts" "$build_id" "$arch" <<'EOF' &
+python3 - "$work/app.sock" "$work/app.log" "$work/app.ts" "$build_id" "$platform" <<'EOF' &
 import json, socket, sys, time
-path, log, ts, bid, arch = sys.argv[1:6]
+path, log, ts, bid, platform = sys.argv[1:6]
+os_name = "Darwin" if platform.startswith("darwin-") else "Linux"
+arch = platform.split("-", 1)[1]
 s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen()
 begins = 0; hostname = None
 while True:
@@ -83,8 +85,8 @@ while True:
     if t["type"] == "remote_record" and t.get("hostname"): hostname = t["hostname"]
     if t["type"] == "remote_begin":
         begins += 1
-        r = {"type": "remote_begin", "link": "t-%d" % begins, "install": "always", "installed": None, "arch": None, "hostname": None}
-        if begins > 1: r.update(installed=bid, arch=arch, hostname=hostname or "smoke-host")
+        r = {"type": "remote_begin", "link": "t-%d" % begins, "install": "always", "installed": None, "os": None, "arch": None, "hostname": None}
+        if begins > 1: r.update(installed=bid, os=os_name, arch=arch, hostname=hostname or "smoke-host")
     else: r = {"type": "ok"}
     c.sendall((json.dumps(r) + "\n").encode()); c.close()
 EOF

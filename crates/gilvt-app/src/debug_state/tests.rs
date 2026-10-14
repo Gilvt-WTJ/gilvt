@@ -917,14 +917,14 @@ fn install_banner_shape() {
 fn pane_remote_and_hosts_shape() {
     let r = PaneRemoteState { link: "i-1".into(), host: "dev@h:22".into(), display: "devbox".into(), hostname: Some("h".into()), enhanced: true, cwd: Some("/tmp".into()) };
     assert_eq!(serde_json::to_value(&r).unwrap(), serde_json::json!({"link":"i-1","host":"dev@h:22","display":"devbox","hostname":"h","enhanced":true,"cwd":"/tmp"}));
-    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "ask", installed: None, bridge: "none", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0, watches: 0 };
-    assert_eq!(serde_json::to_value(&h).unwrap(), serde_json::json!({"id":"dev@h:22","display":"devbox","hostname":null,"install":"ask","installed":null,"bridge":"none","links":[],"cursor":0,"epoch":null,"gap":false,"follows":0,"watches":0}));
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, os: None, install: "ask", installed: None, bridge: "none", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0, watches: 0 };
+    assert_eq!(serde_json::to_value(&h).unwrap(), serde_json::json!({"id":"dev@h:22","display":"devbox","hostname":null,"os":null,"install":"ask","installed":null,"bridge":"none","links":[],"cursor":0,"epoch":null,"gap":false,"follows":0,"watches":0}));
     assert!(serde_json::to_value(top_level(1, false, None, 0)).unwrap()["hosts"].as_array().unwrap().is_empty());
 }
 
 #[test]
 fn r2a_fields_serialize_with_their_documented_names() {
-    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "allowed", installed: None, bridge: "up", links: vec![], cursor: 12, epoch: Some(1_760_000_000_000), gap: false, follows: 1, watches: 0 };
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, os: Some("Darwin".into()), install: "allowed", installed: None, bridge: "up", links: vec![], cursor: 12, epoch: Some(1_760_000_000_000), gap: false, follows: 1, watches: 0 };
     let v = serde_json::to_value(&h).unwrap();
     assert_eq!((v["cursor"].as_u64(), v["epoch"].as_u64(), v["gap"].as_bool(), v["follows"].as_u64()), (Some(12), Some(1_760_000_000_000), Some(false), Some(1)));
 }
@@ -940,6 +940,12 @@ fn remote_file_fields_serialize() {
     e.bar_message = Some("devbox 未连接，未保存".into());
     let v = serde_json::to_value(&e).unwrap();
     assert_eq!((v["host"].as_str(), v["loading"].as_bool(), v["bar_message"].as_str()), (Some("dev@h:22"), Some(false), Some("devbox 未连接，未保存")));
-    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, install: "allowed", installed: None, bridge: "up", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0, watches: 2 };
+    let h = HostState { id: "dev@h:22".into(), display: "devbox".into(), hostname: None, os: None, install: "allowed", installed: None, bridge: "up", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0, watches: 2 };
     assert_eq!(serde_json::to_value(&h).unwrap()["watches"], 2);
+}
+
+#[test]
+fn hosts_os_field() {
+    let h = HostState { id: "gilvttest@127.0.0.1:22".into(), display: "mac-test".into(), hostname: None, os: Some("Darwin".into()), install: "ask", installed: None, bridge: "none", links: vec![], cursor: 0, epoch: None, gap: false, follows: 0, watches: 0 };
+    assert_eq!(serde_json::to_value(&h).unwrap()["os"], "Darwin");
 }

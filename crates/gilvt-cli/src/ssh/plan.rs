@@ -119,7 +119,6 @@ pub fn socket_too_long(os: Os, home: &str) -> Option<String> {
 
 /// `GILVT_PROBE_OVERRIDE=<os>/<arch>` (acceptance AD9). Applied only when the result is unsupported, so it can turn a
 /// login plain but never change which binary is uploaded.
-#[allow(dead_code)] // used from Task 2/4 on
 pub fn apply_override(mut probe: Probe, ov: Option<&str>) -> Probe {
     if let Some((os, arch)) = ov.and_then(|v| v.split_once('/')) {
         if platform(os, arch).is_err() {
