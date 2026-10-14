@@ -21,6 +21,8 @@ pub struct HostPrefs {
     pub install: Option<String>,
     /// The build id installed there, as far as we know.
     pub installed: Option<String>,
+    /// The remote `uname -s` ("Linux" / "Darwin"); None: recorded before macOS remotes, so Linux.
+    pub os: Option<String>,
     pub arch: Option<String>,
     /// The remote `uname -n`.
     pub hostname: Option<String>,
@@ -77,10 +79,21 @@ mod tests {
     }
 
     #[test]
+    fn old_record_without_os_has_none() {
+        // Review Focus 1: a host recorded by 0.3.0 has no "os".
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("remote.json"), r#"{"hosts":{"dev@h:22":{"install":"allowed","installed":"0.3.0-aaaaaaaa","arch":"x86_64","hostname":"h","last_seen":5}}}"#).unwrap();
+        let p = RemotePrefs::load(d.path());
+        let h = &p.hosts["dev@h:22"];
+        assert_eq!(h.os, None, "the Linux default lives in the CLI");
+        assert_eq!(h.installed.as_deref(), Some("0.3.0-aaaaaaaa"));
+    }
+
+    #[test]
     fn save_and_load_round_trip_and_unknown_keys_are_ignored() {
         let d = tempfile::tempdir().unwrap();
         let mut p = RemotePrefs::default();
-        p.hosts.insert("dev@h:22".into(), HostPrefs { install: Some("allowed".into()), installed: Some("0.1.0-aaaaaaaa".into()), arch: Some("x86_64".into()), hostname: Some("h".into()), last_seen: 5 });
+        p.hosts.insert("dev@h:22".into(), HostPrefs { install: Some("allowed".into()), installed: Some("0.1.0-aaaaaaaa".into()), os: Some("Darwin".into()), arch: Some("x86_64".into()), hostname: Some("h".into()), last_seen: 5 });
         p.save(d.path()).unwrap();
         assert_eq!(RemotePrefs::load(d.path()), p);
         std::fs::write(d.path().join("remote.json"), r#"{"hosts":{},"future":1}"#).unwrap();

@@ -806,6 +806,8 @@ pub struct HostState {
     pub id: String,
     pub display: String,
     pub hostname: Option<String>,
+    /// The remote `uname -s` as recorded ("Linux" / "Darwin"); null for a host not probed since 0.3.0.
+    pub os: Option<String>,
     pub install: &'static str,
     pub installed: Option<String>,
     pub bridge: &'static str,
@@ -835,7 +837,7 @@ fn host_states(r: &crate::remote::RemoteHosts, follows: &dyn Fn(&str) -> usize, 
             };
             let mut links = r.links_of(id);
             links.sort();
-            HostState { id: id.clone(), display: h.display.clone(), hostname: h.hostname.clone(), install, installed: prefs.and_then(|p| p.installed.clone()), bridge: h.bridge.id(), links, cursor: h.cursor, epoch: h.epoch, gap: h.gap, follows: follows(id), watches: watches(id) }
+            HostState { id: id.clone(), display: h.display.clone(), hostname: h.hostname.clone(), os: prefs.and_then(|p| p.os.clone()), install, installed: prefs.and_then(|p| p.installed.clone()), bridge: h.bridge.id(), links, cursor: h.cursor, epoch: h.epoch, gap: h.gap, follows: follows(id), watches: watches(id) }
         })
         .collect()
 }

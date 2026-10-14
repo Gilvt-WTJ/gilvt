@@ -156,9 +156,9 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 | `crates/gilvt-finder` | `⌘P` 文件搜索（不依赖 gpui）：搜索根判定、`git ls-files` / 目录遍历、nucleo 模糊匹配与排序、shell 转义 |
 | `crates/gilvt-cli` | `gilvt` 命令行（含 `gilvt hook`：hook 转发、Claude / Codex 参数生成、Codex 信任哈希缓存） |
 | `crates/gilvt-app` | gpui 应用：窗口、标签、分屏、终端渲染元素、IME、Quick Look、设置、会话栏、系统通知、检查器、会话 / 新建 Agent 浮层、清理向导（`launcher/`）、Dock 角标、工作现场持久化（`persist/`、`workspace/restore.rs`）、关闭确认（`workspace/close.rs`） |
-| `crates/gilvt-remote` | 远端小程序（Linux 静态 musl 二进制，随 Gilvt.app 以 gzip 形式携带，`gilvt ssh` 上传到 ssh 主机运行；`release-remote` profile 求小求静态） |
+| `crates/gilvt-remote` | 远端小程序（Linux 静态 musl 二进制与 Apple Silicon macOS 二进制，随 Gilvt.app 以 gzip 形式携带，`gilvt ssh` 上传到 ssh 主机运行；`release-remote` profile 求小求静态） |
 | `crates/gilvt-fake-agent` | 测试用：按剧本扮演 claude / codex（写真实格式的会话记录、调用 hooks），不进 app bundle |
-| `scripts/build-remote.sh` | 构建 `gilvt-remote` 的 x86_64 / aarch64 静态 musl 二进制（默认 docker `rust:1.95-alpine`，`--zig` 用 cargo-zigbuild），产出 `remote/<arch>/{gilvt-remote.gz,build-id}`，由 `bundle.sh` 放进 `Resources/remote/` |
+| `scripts/build-remote.sh` | 构建 `gilvt-remote`：Linux x86_64 / aarch64 静态 musl（默认 docker `rust:1.95-alpine`，`--zig` 用 cargo-zigbuild）与 Apple Silicon macOS（本机原生编译并签名），产出 `remote/<平台>/{gilvt-remote.gz,build-id}`（平台 `linux-x86_64` / `linux-aarch64` / `darwin-aarch64`），由 `bundle.sh` 放进 `Resources/remote/` |
 | `scripts/bundle.sh` | 构建并生成签名的 `Gilvt.app`（有 `gilvt-dev` 证书时用它，否则 ad-hoc，见「稳定签名」） |
 | `docs/compat-checklist.md` | 兼容性验收清单 |
 | `docs/debug-state.md` | `gilvt debug state` 的字段与条件语法 |
@@ -169,8 +169,9 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 | `packaging/entitlements.plist` | 硬化运行时的 entitlements（Apple Events，供「跳到外部终端」） |
 | `site/` | 官网 gilvt.com（中英双语）：`build.sh` 构建到 `dist-site/`，`wrangler.jsonc` 部署到 Cloudflare Worker `gilvt`，`_redirects` 管 `/download` |
 | `tests/gui/remote.sh` | 测试远端：colima/docker 里的两个 sshd 容器（`devbox-test` 直连、`devbox-zsh` 登录 shell 为 zsh、`devbox-jump` 经跳板）；`up` / `down` / `status` / `reset` / `exec`，`requires: remote` 的用例由 `run.sh` 自动起停 |
+| `tests/gui/remote-mac.sh` | macOS 测试远端：本机经 localhost sshd 以测试用户 `gilvttest` 登录（节 AD）；`keygen` / `up` / `down` / `status` / `reset` / `exec`，`requires: remote-mac` 的用例由 `run.sh` 自动 up/down；先要做一次性准备（`remote-mac.sh keygen` 会打印步骤） |
 | `scripts/remote-test.sh` | 在 docker（musl，rust:alpine）里对 `gilvt-remote` / `gilvt-client` / `gilvt-agent` / `gilvt-ipc` 跑 `cargo test`（`SO_PEERCRED`、`run/gilvt.sock`、transcript 跟随、`crates/gilvt-remote/tests/hook_bridge.rs`）：`scripts/remote-test.sh [-p <crate>]… [-- <测试参数>]` |
-| `scripts/build-remote.sh --fake` | 在构建远端组件之外，把 Linux 版 fake agent 构建到 `<out>/fake/<arch>/`（不进 `remote/`，不随 Gilvt.app 发布）；测试远端 `remote.sh up` 把它装成 `claude` / `codex`（AC20–AC26、AC28 用；AC27 不用） |
+| `scripts/build-remote.sh --fake` | 在构建远端组件之外，按所要求的平台构建 fake agent（`remote.sh` 的容器用 Linux 版，`remote-mac.sh` 用 darwin 版）到 `<out>/fake/<平台>/`（不进 `remote/`，不随 Gilvt.app 发布）；测试远端 `remote.sh up` 把它装成 `claude` / `codex`（AC20–AC26、AC28 用；AC27 不用） |
 | `scripts/remote-smoke.sh` | `gilvt-remote` 与 `gilvt ssh` 对测试远端的端到端冒烟（不启动 GUI） |
 | `tests/gui/` | GUI 验收：沙盒、驱动脚本、用例、剧本（见下文「GUI 验收测试」） |
 | `.claude/skills/gilvt-acceptance/` | 让 Claude 执行 GUI 验收并写报告的 skill |
@@ -715,3 +716,5 @@ tests/gui/sandbox.sh down --keep ~/gilvt-lab/reports/s0
 跑过 `requires: remote` 的用例（节 AC）后，除了 `sandbox.sh down`，还要清理测试远端：`tests/gui/remote.sh down`（删容器、网络、镜像），再
 `docker volume rm gilvt-remote-target gilvt-remote-cargo gilvt-remote-rustup-x86_64 gilvt-remote-rustup-aarch64`（`scripts/build-remote.sh` 的编译缓存卷）；
 colima 是这一轮启动的话 `colima stop`。
+
+跑过 `requires: remote-mac` 的用例（节 AD）后，也要 `tests/gui/remote-mac.sh down`（结束测试用户的 helper 进程、删状态目录；`run.sh` 正常结束时会做，被中断或手动 `up` 的要自己做）。

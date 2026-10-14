@@ -127,8 +127,14 @@ done
 # at the end), or skipped as remote-unavailable when docker is not there. Not for --list.
 remote_sh="${GILVT_GUI_REMOTE:-$here/remote.sh}"   # selftest stubs it
 remote_up="" started_remote=""
+remote_mac_sh="${GILVT_GUI_REMOTE_MAC:-$here/remote-mac.sh}"   # selftest stubs it
+remote_mac_up="" started_remote_mac=""
 [ -z "$list" ] || remote_up=1   # --list shows what would run
-stop_remote() { [ -z "$started_remote" ] || { started_remote=""; "$remote_sh" down >/dev/null 2>&1 || true; }; }
+[ -z "$list" ] || remote_mac_up=1
+stop_remote() {
+  [ -z "$started_remote" ] || { started_remote=""; "$remote_sh" down >/dev/null 2>&1 || true; }
+  [ -z "$started_remote_mac" ] || { started_remote_mac=""; "$remote_mac_sh" down >/dev/null 2>&1 || true; }
+}
 
 # The reason a case is skipped (empty: it runs), from its requires and foreground step count.
 skip_reason() {
@@ -136,6 +142,7 @@ skip_reason() {
     manual) echo manual; return ;;
     real-*) [ -n "$real" ] || { echo "$1"; return; } ;;
     remote) [ -n "$remote_up" ] || { echo remote-unavailable; return; } ;;
+    remote-mac) [ -n "$remote_mac_up" ] || { echo remote-mac-unavailable; return; } ;;
   esac
   [ -z "$with_fg" ] && [ "$2" -gt 0 ] && echo foreground
 }
@@ -193,6 +200,16 @@ elif [ -z "$list" ] && printf '%s\n' "${kinds[@]}" | grep -q '^remote '; then
     [ -n "$GILVT_GUI_REMOTE_STATE" ] || unset GILVT_GUI_REMOTE_STATE
   elif [ -z "$was_up" ]; then
     "$remote_sh" down >/dev/null 2>&1 || true   # a partial up: remove what it left
+  fi
+fi
+# remote-mac.sh starts no service, but its state dir and the test user's helpers are cleaned by `down` at the end.
+if [ -n "${GILVT_GUI_PARALLEL_WORKER:-}" ]; then
+  remote_mac_up=1
+elif [ -z "$list" ] && printf '%s\n' "${kinds[@]}" | grep -q '^remote-mac '; then
+  if "$remote_mac_sh" status >/dev/null 2>&1 || "$remote_mac_sh" up >/dev/null 2>&1; then
+    remote_mac_up=1; started_remote_mac=1
+    export GILVT_GUI_REMOTE_MAC_STATE="${GILVT_GUI_REMOTE_MAC_STATE:-$("$remote_mac_sh" status 2>/dev/null | sed -n 's/^up //p')}"
+    [ -n "$GILVT_GUI_REMOTE_MAC_STATE" ] || unset GILVT_GUI_REMOTE_MAC_STATE
   fi
 fi
 
@@ -358,6 +375,9 @@ for i in "${!files[@]}"; do
   if [ "$requires" = remote ]; then
     up_extra=(--remote)
     "$remote_sh" reset >>"$log" 2>&1 || true
+  elif [ "$requires" = remote-mac ]; then
+    up_extra=(--remote-mac)
+    "$remote_mac_sh" reset >>"$log" 2>&1 || true
   fi
   # --keep: a failed pane check tears the sandbox down itself; its failures/ still land in the report.
   if ! "$sandbox" "$up" --label "$id" ${app:+--app "$app"} ${up_extra[@]+"${up_extra[@]}"} --keep "$out/$id" >>"$log" 2>&1; then

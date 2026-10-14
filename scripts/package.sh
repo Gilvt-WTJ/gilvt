@@ -46,7 +46,7 @@ done
 
 rm -rf "$dist"
 mkdir -p "$dist/bin"
-"$root/scripts/build-remote.sh" --zig --out "$dist"
+"$root/scripts/build-remote.sh" --zig --platform all --out "$dist"
 
 for bin in gilvt-app gilvt; do
   lipo -create -output "$dist/bin/$bin" \

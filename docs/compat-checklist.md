@@ -593,6 +593,23 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC35 | 远端文件在编辑器里有未保存修改时被远端改动；隐藏提示条后 `⌘S`，再点「仍然覆盖」 | 改动后约 0.5 秒出现「已修改」条；`⌘S` 不写入并再次出现这个条；「仍然覆盖」后远端内容是编辑器里的版本 | [AC35](../tests/gui/cases/AC/AC35.md) |
 | AC36 | 远端编辑器有未保存修改时 bridge 断开（远端组件不可执行，bridge 起不来），`⌘S` | 红色保存失败条「devbox-test 未连接，未保存」，`dirty` 仍为 true，远端文件没变 | [AC36](../tests/gui/cases/AC/AC36.md) |
 
+## AD. SSH 远程：macOS 主机
+
+在 pane 里 `ssh` 到 Apple Silicon Mac：功能与 AC 节的 Linux 主机一致。测试远端是本机经 localhost 登录的测试用户（`tests/gui/remote-mac.sh`，主机别名 `mac-test`，一次性准备见 `remote-mac.sh keygen`），用例头写 `requires: remote-mac`；环境没准备好时这些用例记为跳过。
+
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| AD1 | 首次 `ssh mac-test`，回答 `Y` | 出现安装询问；`hosts[0].os` 为 `Darwin`；装好后 `enhanced` 为 true、`bridge` 为 `up`、`remote.cwd` 为 `/Users/gilvttest`；远端组件已签名 | [AD1](../tests/gui/cases/AD/AD1.md) |
+| AD2 | 远端 zsh 里 `cd`、执行 `false` | `remote.cwd` 跟随；命令块记录退出码 1 | [AD2](../tests/gui/cases/AD/AD2.md) |
+| AD3 | 远端运行 `claude`（fake agent） | `claude` 是 gilvt 的包装函数；侧栏出现远端会话，分组「mac-test · ad3」，状态从 thinking 到 idle | [AD3](../tests/gui/cases/AD/AD3.md) |
+| AD4 | 远端 `gilvt view --pin a.md`，再在远端追加内容 | 固定预览来自远端（`host` 为 `gilvttest@127.0.0.1:22`），追加后 `size` 跟着变 | [AD4](../tests/gui/cases/AD/AD4.md) |
+| AD5 | ⌘ 点击远端存在的路径、再点不存在的路径 | 前者 Quick Look 打开远端文件；后者横幅「mac-test 上没有这个文件」 | [AD5](../tests/gui/cases/AD/AD5.md) |
+| AD6 | 编辑器打开远端文件、修改、`⌘S` | 保存成功，远端文件内容一致 | [AD6](../tests/gui/cases/AD/AD6.md) |
+| AD7 | 杀掉远端 bridge 进程；之后退出 ssh | bridge 自动恢复；daemon 进程始终是同一个（退出 ssh 后仍在） | [AD7](../tests/gui/cases/AD/AD7.md) |
+| AD8 | 远端只装有旧版本 | 先询问再更新；`n` 普通登录，再连 `Y` 后增强 | [AD8](../tests/gui/cases/AD/AD8.md) |
+| AD9 | `GILVT_PROBE_OVERRIDE=Darwin/x86_64 ssh mac-test`（模拟 Intel Mac） | 提示「远端是 Intel Mac（x86_64），暂不支持」并普通登录；远端没有安装任何东西 | [AD9](../tests/gui/cases/AD/AD9.md) |
+| AD10 | 远端仓库里 `gilvt diff` | Quick Look 列出远端仓库的改动（`base` 为「与 HEAD 相比」） | [AD10](../tests/gui/cases/AD/AD10.md) |
+
 ## 已知限制（M1）
 
 - Kitty 键盘协议只发送按下 / 重复事件，不发送按键抬起事件。

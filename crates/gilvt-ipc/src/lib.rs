@@ -71,8 +71,17 @@ pub enum Request {
     Monitor { token: String, tool: String, args: serde_json::Value },
     /// `gilvt ssh` starts a link (spec §3.2 step 1). Answered by the app's main thread with Response::RemoteBegin.
     RemoteBegin { pane: Option<u64>, host: String, display: String },
-    /// What `gilvt ssh` learned or the user chose for a host (fire-and-forget).
-    RemoteRecord { host: String, install: Option<String>, installed: Option<String>, arch: Option<String>, hostname: Option<String>, forget_installed: bool },
+    /// What `gilvt ssh` learned or the user chose for a host (fire-and-forget). `os`: the remote `uname -s`.
+    RemoteRecord {
+        host: String,
+        install: Option<String>,
+        installed: Option<String>,
+        #[serde(default)]
+        os: Option<String>,
+        arch: Option<String>,
+        hostname: Option<String>,
+        forget_installed: bool,
+    },
     /// The link is about to exec ssh (step 6): with `bridge`, the app starts one; without, the login is plain.
     RemoteLinked { link: String, hostname: Option<String>, bridge: Option<BridgeSpec>, note: Option<String> },
     /// `gilvt ssh` gave up before exec (auth failed etc.).
@@ -102,7 +111,16 @@ pub enum Response {
     /// The answer to [`Request::Monitor`]: the tool result text, and whether it is an error for the model.
     Tool { text: String, is_error: bool },
     /// The answer to RemoteBegin. `install`: "ask" | "allowed" | "always" | "never" (the effective policy for this host).
-    RemoteBegin { link: String, install: String, installed: Option<String>, arch: Option<String>, hostname: Option<String> },
+    /// `os`: as recorded; None for a host recorded before macOS remotes (it was Linux).
+    RemoteBegin {
+        link: String,
+        install: String,
+        installed: Option<String>,
+        #[serde(default)]
+        os: Option<String>,
+        arch: Option<String>,
+        hostname: Option<String>,
+    },
 }
 
 /// How long a connection waits for the app to answer a [`Query`]. Below the client's 5 s read
@@ -773,10 +791,19 @@ mod tests {
         std::thread::spawn(move || {
             let q = rrx.recv_blocking().unwrap();
             assert!(matches!(q.request, Request::RemoteBegin { .. }));
-            q.respond(Response::RemoteBegin { link: "i-1".into(), install: "ask".into(), installed: None, arch: None, hostname: None });
+            q.respond(Response::RemoteBegin { link: "i-1".into(), install: "ask".into(), installed: None, os: None, arch: None, hostname: None });
         });
         let r = send(&path, &Request::RemoteBegin { pane: Some(1), host: "dev@h:22".into(), display: "h".into() }).unwrap();
-        assert_eq!(r, Response::RemoteBegin { link: "i-1".into(), install: "ask".into(), installed: None, arch: None, hostname: None });
+        assert_eq!(r, Response::RemoteBegin { link: "i-1".into(), install: "ask".into(), installed: None, os: None, arch: None, hostname: None });
+    }
+
+    #[test]
+    fn remote_os_is_optional_on_the_wire() {
+        // A RemoteBegin answer / RemoteRecord without "os" (an older peer) still parses.
+        let r: Response = serde_json::from_str(r#"{"type":"remote_begin","link":"i-1","install":"ask","installed":null,"arch":"x86_64","hostname":"h"}"#).unwrap();
+        assert!(matches!(r, Response::RemoteBegin { os: None, .. }));
+        let q: Request = serde_json::from_str(r#"{"type":"remote_record","host":"h","install":null,"installed":null,"arch":null,"hostname":null,"forget_installed":false}"#).unwrap();
+        assert!(matches!(q, Request::RemoteRecord { os: None, .. }));
     }
 
     #[test]

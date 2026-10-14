@@ -564,6 +564,39 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
     if ( GILVT_GUI_REMOTE_STATE="$sv"; install_remote_home "$d" "$T/rhome2" "$T/rbin" "$T/App.app" ) 2>&1 | grep -q 'refusing remote state dir'; then ok; else bad "sandbox.sh accepted remote state dir $sv"; fi
   done
 
+  # --remote-mac: the same against a stub remote-mac.sh and a fake state directory.
+  ms="$T/gilvt-gui-remote-mac"
+  mkdir -p "$ms" "$T/mhome" "$T/mbin"
+  printf 'k\n' >"$ms/id_ed25519"; printf 'h k\n' >"$ms/known_hosts"
+  printf 'Host mac-test\n  IdentityFile ~/.ssh/id_ed25519\n' >"$ms/ssh_config"
+  printf '#!/bin/sh\n[ "$1" = status ] && { echo "up x"; exit 0; }\nexit 1\n' >"$rh/remote-mac.sh"
+  chmod +x "$rh/remote-mac.sh"
+  here="$rh"; GILVT_GUI_REMOTE_MAC_STATE="$ms"
+  ( install_remote_home "$d" "$T/mhome" "$T/mbin" "$T/App.app" remote-mac ) && ok || bad "install_remote_home remote-mac"
+  check "remote-mac: ssh config names the sandbox home" "  IdentityFile $T/mhome/.ssh/id_ed25519" sed -n 2p "$T/mhome/.ssh/config"
+  if grep -q "^exec /bin/bash $rh/remote-mac.sh \"\$@\"\$" "$T/mbin/remote-test" &&
+    grep -q "^export GILVT_GUI_REMOTE_MAC_STATE='$ms'\$" "$T/mbin/remote-test"; then ok; else bad "remote-mac: remote-test helper"; fi
+  check_rc "remote-mac: unknown kind" 2 in_sub_q install_remote_home "$d" "$T/mhome" "$T/mbin" "$T/App.app" bogus
+  here="$sbx_here"; unset GILVT_GUI_REMOTE_MAC_STATE
+  if bash -n "$here/remote-mac.sh"; then ok; else bad "remote-mac.sh syntax"; fi
+  # The file-clearing part of `remote-mac.sh reset`, run by zsh (the test user's shell) and sh on a temp HOME.
+  mac_reset_run() { # <shell> <home>: runs the reset command string; prints its exit code
+    HOME="$2" "$1" -c "$("$here/remote-mac.sh" files-script)" >/dev/null 2>&1; echo $?
+  }
+  mac_reset_home() { rm -rf "$T/mrh"; mkdir -p "$T/mrh/.gilvt-server" "$T/mrh/ad3" "$T/mrh/ad10" "$T/mrh/ad1foo"; }
+  for msh in zsh sh; do
+    if ! command -v "$msh" >/dev/null 2>&1; then echo "  (no $msh: remote-mac reset check skipped)"; continue; fi
+    mac_reset_home
+    check "remote-mac reset ($msh): exit 0" "0" mac_reset_run "$msh" "$T/mrh"
+    if [ ! -e "$T/mrh/.gilvt-server" ] && [ ! -e "$T/mrh/ad3" ] && [ ! -e "$T/mrh/ad10" ] && [ -d "$T/mrh/ad1foo" ]; then ok; else bad "remote-mac reset ($msh): wrong files left: $(ls -A "$T/mrh")"; fi
+    rm -rf "$T/mrh"; mkdir -p "$T/mrh"
+    check "remote-mac reset ($msh): clean home, exit 0" "0" mac_reset_run "$msh" "$T/mrh"
+  done
+  mac_refused() { GILVT_GUI_REMOTE_MAC_STATE="$1" "$here/remote-mac.sh" status 2>&1 | grep -q 'refusing state dir'; }
+  for sv in / "$HOME" "relative/gilvt-gui-remote-mac" "$T/x/../gilvt-gui-remote-mac" "$T/gilvt-gui-remote-mac-x"; do
+    if mac_refused "$sv"; then ok; else bad "remote-mac.sh accepted state dir $sv"; fi
+  done
+
   # With a built workspace: the fake passes check_fake, and the headless Codex trust warm-up (gilvt
   # CLI + fake codex only; PATH has no real codex) writes fake hashes into the sandbox HOME.
   built="$(target_dir)/debug"
@@ -1703,6 +1736,12 @@ remote up
 remote status
 worker remote reset
 remote down" cat "$RMLOG"
+
+# requires: remote-mac: --list shows it runnable, and case-info parses the new requires value.
+mkdir -p "$T/rm/M"
+mk_case "$T/rm/M" M1 remote-mac 'wait ok == 1'
+check "case-info parses requires: remote-mac" "requires=remote-mac foreground=0 steps=1" g case-info "$T/rm/M/M1.md"
+check "run.sh --list: a remote-mac case is RUN" "M1 remote-mac foreground=0 RUN" env GILVT_GUI_CASES="$T/rm" "$here/run.sh" --list M
 
 # S0 remains a serial gate: a failure prevents every other selected case from starting.
 mkdir -p "$T/gate/S" "$T/gate/X"

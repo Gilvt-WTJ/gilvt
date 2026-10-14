@@ -35,7 +35,7 @@
 ### 非目标（已知限制）
 
 - mosh；在远端 shell 里再 `ssh` 到第三台机器（多跳请用 ProxyJump）。
-- 远端是 macOS 或 Windows。第一版只支持 Linux x86_64 / aarch64。
+- 远端是 macOS 或 Windows。第一版只支持 Linux x86_64 / aarch64。（macOS Apple Silicon 自 `2026-10-13-gilvt-ssh-remote-macos-design.md` 起支持）
 - 不经过 shell 的 ssh 调用，例如 scp、rsync、git 内部调用的 ssh，以及 `ssh host cmd` 这种非交互调用：原样透传，不增强。
 - 监控官的 AI 总结仍在 Mac 上运行本地 CLI。远端会话进入 registry 后自然会被纳入，不额外改动。
 

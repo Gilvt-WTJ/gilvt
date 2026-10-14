@@ -139,11 +139,12 @@ impl RemoteHosts {
         self.links.iter().filter(|(_, e)| e.host == host).map(|(l, _)| l.clone()).collect()
     }
 
-    pub fn record(&mut self, host: &str, install: Option<String>, installed: Option<String>, arch: Option<String>, hostname: Option<String>, forget_installed: bool) {
+    pub fn record(&mut self, host: &str, install: Option<String>, installed: Option<String>, os: Option<String>, arch: Option<String>, hostname: Option<String>, forget_installed: bool) {
         let h = self.prefs.hosts.entry(host.to_string()).or_default();
         if install.is_some() { h.install = install; }
         if installed.is_some() { h.installed = installed; }
         if forget_installed { h.installed = None; }
+        if os.is_some() { h.os = os; }
         if arch.is_some() { h.arch = arch; }
         if hostname.is_some() { h.hostname = hostname; }
         h.last_seen = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -168,7 +169,7 @@ pub fn answer_begin(q: Query, cx: &mut App) {
     if let Some(p) = pane {
         apply_to_pane(p, Some(PaneRemote { link: link.clone(), host, display, hostname: cached.hostname.clone(), enhanced: false }), cx);
     }
-    q.respond(Response::RemoteBegin { link, install, installed: cached.installed, arch: cached.arch, hostname: cached.hostname });
+    q.respond(Response::RemoteBegin { link, install, installed: cached.installed, os: cached.os, arch: cached.arch, hostname: cached.hostname });
 }
 
 /// [`RemoteHosts::display`] from anywhere that has the `App` (sidebar, notifications, inspector banner).
@@ -224,8 +225,8 @@ pub fn link_ended(link: &str, cx: &mut App) {
 /// A request from `gilvt ssh` (everything but RemoteBegin, which is a query).
 pub fn handle(req: Request, cx: &mut App) {
     match req {
-        Request::RemoteRecord { host, install, installed, arch, hostname, forget_installed } => {
-            cx.global_mut::<RemoteHosts>().record(&host, install, installed, arch, hostname, forget_installed);
+        Request::RemoteRecord { host, install, installed, os, arch, hostname, forget_installed } => {
+            cx.global_mut::<RemoteHosts>().record(&host, install, installed, os, arch, hostname, forget_installed);
             save_prefs(cx);
         }
         Request::RemoteLinked { link, hostname, bridge: spec, note } => {

@@ -57,7 +57,7 @@ cmd_up() {
   # take them over. Copies, not links (argv[0] picks the persona either way; copies match the local sandbox).
   local arch fake
   arch="$(docker exec "$box" uname -m)"; [ "$arch" = arm64 ] && arch=aarch64
-  fake="${GILVT_REMOTE_FAKE:-${CARGO_TARGET_DIR:-$here/../../target}/remote-dist/fake/$arch/gilvt-fake-agent}"
+  fake="${GILVT_REMOTE_FAKE:-${CARGO_TARGET_DIR:-$here/../../target}/remote-dist/fake/linux-$arch/gilvt-fake-agent}"
   if [ -x "$fake" ]; then
     docker cp "$fake" "$box:/usr/local/bin/claude"
     docker cp "$fake" "$box:/usr/local/bin/codex"

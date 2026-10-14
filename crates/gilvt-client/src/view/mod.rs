@@ -39,6 +39,9 @@ pub fn request_for(cmd: &Command, cwd: &Path, stdin: impl FnOnce() -> Result<Str
         Command::Diff { rev } => {
             // Checked here, before asking the app, so a typo or a non-repository is reported in the terminal instead
             // of showing up as an empty "no changes" preview.
+            if !crate::git::available() {
+                return Err(gilvt_i18n::text("这台主机上没有可用的 git（macOS 需要先安装命令行工具：xcode-select --install）", "git is not usable on this host (on macOS, install the Command Line Tools first: xcode-select --install)").into());
+            }
             let root = crate::git::repo_root(cwd).ok_or("not inside a git repository")?;
             let rev_name = rev.as_deref().unwrap_or("HEAD");
             if !crate::git::is_commit(&root, rev_name) {

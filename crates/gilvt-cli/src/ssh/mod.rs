@@ -39,11 +39,12 @@ fn tell(socket: &Path, req: &Request) {
 }
 
 /// A RemoteRecord that only sets the given fields (and never forgets the installed build).
-fn record(host: &str, install: Option<&str>, installed: Option<&str>, arch: Option<&str>, hostname: Option<String>) -> Request {
+fn record(host: &str, install: Option<&str>, installed: Option<&str>, os: Option<&str>, arch: Option<&str>, hostname: Option<String>) -> Request {
     Request::RemoteRecord {
         host: host.to_string(),
         install: install.map(str::to_string),
         installed: installed.map(str::to_string),
+        os: os.map(str::to_string),
         arch: arch.map(str::to_string),
         hostname,
         forget_installed: false,
@@ -81,7 +82,7 @@ pub fn run(argv: &[String]) -> ExitCode {
     }
     let Some(host) = plan::host_id(&g) else { return exec(&ssh, &argv) };
     let pane = std::env::var(ENV_PANE).ok().and_then(|p| p.parse().ok());
-    let Ok(Response::RemoteBegin { link, install, installed, arch, hostname }) =
+    let Ok(Response::RemoteBegin { link, install, installed, os, arch, hostname }) =
         gilvt_ipc::send(&socket, &Request::RemoteBegin { pane, host: host.clone(), display: a.destination.clone() })
     else {
         return exec(&ssh, &argv);
@@ -145,14 +146,12 @@ pub fn run(argv: &[String]) -> ExitCode {
     };
 
     let rdir = bundle::remote_dir();
-    let cached = match (&installed, &arch, &rdir) {
-        (Some(i), Some(ar), Some(d)) if bundle::build_id(d, ar).as_deref() == Some(i.as_str()) => Some((i.clone(), ar.clone())),
-        _ => None,
-    };
+    // A host recorded before macOS remotes has no os: it was Linux.
+    let cached = rdir.as_deref().and_then(|d| bundle::cached(installed.as_deref(), os.as_deref(), arch.as_deref(), d));
     let (probe, hostname) = match cached {
-        Some((i, ar)) => {
+        Some((i, o, ar)) => {
             let h = hostname.clone().unwrap_or_default();
-            (plan::Probe { os: "Linux".into(), arch: ar, hostname: h, installed: vec![i] }, hostname)
+            (plan::Probe { os: o, arch: ar, hostname: h, home: None, installed: vec![i] }, hostname)
         }
         None => {
             let out = Command::new(&ssh).args(via(plan::probe_command())).stdin(Stdio::null()).stderr(Stdio::null()).output();
@@ -165,17 +164,20 @@ pub fn run(argv: &[String]) -> ExitCode {
                     host: host.clone(),
                     install: None,
                     installed: None,
+                    os: Some(p.os.clone()),
                     arch: plan::norm_arch(&p.arch).map(str::to_string),
                     hostname: Some(p.hostname.clone()),
                     forget_installed: !p.installed.iter().any(|i| Some(i) == installed.as_ref()),
                 },
             );
             let h = Some(p.hostname.clone());
-            (p, h)
+            // After the record: remote.json and hosts[].os keep what the host really is (spec macOS §8.10).
+            (plan::apply_override(p, std::env::var("GILVT_PROBE_OVERRIDE").ok().as_deref()), h)
         }
     };
-    let narch = plan::norm_arch(&probe.arch).unwrap_or("x86_64");
-    let build_id = rdir.as_deref().and_then(|d| bundle::build_id(d, narch));
+    let key = plan::platform(&probe.os, &probe.arch).ok().map(|p| p.key());
+    let build_id = rdir.as_deref().zip(key.as_deref()).and_then(|(d, k)| bundle::build_id(d, k));
+    let mb = rdir.as_deref().zip(key.as_deref()).and_then(|(d, k)| bundle::unpacked_mb(d, k)).unwrap_or(4);
     let upgrade = match plan::decide(&install, &probe, build_id.as_deref()) {
         plan::Decision::UseInstalled => None,
         plan::Decision::Plain(r) => return plain(&r, Some(&ctl), hostname),
@@ -183,16 +185,16 @@ pub fn run(argv: &[String]) -> ExitCode {
         plan::Decision::Ask { upgrade, old } => {
             let new = build_id.as_deref().unwrap_or_default();
             let prompt = match &old {
-                Some(old) => plan::upgrade_prompt(&a.destination, old, new),
-                None => plan::install_prompt(&a.destination),
+                Some(old) => plan::upgrade_prompt(&a.destination, old, new, mb),
+                None => plan::install_prompt(&a.destination, mb),
             };
             match ask(&prompt) {
                 plan::Answer::Yes => {
-                    tell(&socket, &record(&host, Some("allowed"), None, None, None));
+                    tell(&socket, &record(&host, Some("allowed"), None, None, None, None));
                     Some(upgrade)
                 }
                 plan::Answer::Never => {
-                    tell(&socket, &record(&host, Some("never"), None, None, None));
+                    tell(&socket, &record(&host, Some("never"), None, None, None, None));
                     return plain(plan::never_reason(), Some(&ctl), hostname);
                 }
                 plan::Answer::NotNow if upgrade => return plain(plan::not_updating_reason(), Some(&ctl), hostname),
@@ -200,12 +202,12 @@ pub fn run(argv: &[String]) -> ExitCode {
             }
         }
     };
-    // decide() answers Plain whenever there is no bundled build for this arch; this is only belt and braces.
-    let (Some(build_id), Some(rdir)) = (build_id, rdir) else { return plain(plan::no_helper_reason(), Some(&ctl), hostname) };
+    // decide() answers Plain whenever there is no bundled build for this platform; this is only belt and braces.
+    let (Some(build_id), Some(rdir), Some(key)) = (build_id, rdir, key) else { return plain(plan::no_helper_reason(), Some(&ctl), hostname) };
     if let Some(upgrade) = upgrade {
         eprint!("gilvt: {}", if upgrade { gilvt_i18n::text("正在更新远端组件…", "updating the remote helper…") } else { gilvt_i18n::text("正在安装远端组件…", "installing the remote helper…") });
         let _ = std::io::stderr().flush();
-        let ok = std::fs::File::open(bundle::gz(&rdir, narch))
+        let ok = std::fs::File::open(bundle::gz(&rdir, &key))
             .ok()
             .and_then(|f| Command::new(&ssh).args(via(plan::upload_command(&build_id))).stdin(f).stdout(Stdio::null()).stderr(Stdio::null()).status().ok())
             .is_some_and(|s| s.success());
@@ -214,7 +216,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         if !ok {
             return plain(gilvt_i18n::text("远端组件上传失败", "uploading the remote helper failed"), Some(&ctl), hostname);
         }
-        tell(&socket, &record(&host, None, Some(&build_id), Some(narch), hostname.clone()));
+        tell(&socket, &record(&host, None, Some(&build_id), Some(&probe.os), plan::norm_arch(&probe.arch), hostname.clone()));
     }
 
     let mut dest_args = a.opts.clone();
