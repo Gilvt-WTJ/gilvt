@@ -46,7 +46,7 @@ pub fn script(name: &str) -> String {
     format!(
         "#!/bin/sh\n{MARKER}\n\
 if [ -n \"${{GILVT_BIN_DIR-}}\" ] && [ -x \"$GILVT_BIN_DIR/gilvt\" ]; then\n  exec \"$GILVT_BIN_DIR/gilvt\" shim {q} \"$@\"\nfi\n\
-IFS=:\nfor d in $PATH; do\n  [ -n \"$d\" ] || d=.\n  f=\"$d\"/{q}\n  [ -f \"$f\" ] && [ -x \"$f\" ] || continue\n  grep -qxF '{MARKER}' \"$f\" 2>/dev/null && continue\n  exec \"$f\" \"$@\"\ndone\n\
+set -f\nIFS=:\nfor d in $PATH; do\n  [ -n \"$d\" ] || d=.\n  f=\"$d\"/{q}\n  [ -f \"$f\" ] && [ -x \"$f\" ] || continue\n  _l2=\n  {{ IFS= read -r _l1; IFS= read -r _l2; }} 2>/dev/null < \"$f\"\n  [ \"$_l2\" = '{MARKER}' ] && continue\n  exec \"$f\" \"$@\"\ndone\n\
 echo {q}': command not found' >&2\nexit 127\n"
     )
 }
@@ -133,6 +133,56 @@ mod tests {
         assert!(s.starts_with("#!/bin/sh\n"));
         assert_eq!(s.lines().nth(1), Some(MARKER));
         assert!(s.contains("exec \"$GILVT_BIN_DIR/gilvt\" shim codex-w \"$@\""));
+    }
+
+    /// Runs a generated shim with PATH set to `path` only (no /usr/bin, so no grep) and GILVT_BIN_DIR unset.
+    /// Kills it and fails if it has not exited within 10 seconds (a shim that re-execs itself never exits).
+    fn run_shim(shim: &Path, path: &OsStr, args: &[&str]) -> std::process::Output {
+        let mut child = std::process::Command::new(shim)
+            .args(args)
+            .env_clear()
+            .env("PATH", path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while child.try_wait().unwrap().is_none() {
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                panic!("shim did not exit: it loops back into itself");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        child.wait_with_output().unwrap()
+    }
+
+    #[test]
+    fn shim_without_gilvt_execs_the_real_program_without_grep() {
+        let d = tempfile::tempdir().unwrap();
+        let (shims, shims2, real) = (d.path().join("shims"), d.path().join("shims2"), d.path().join("real"));
+        for p in [&shims, &shims2, &real] {
+            std::fs::create_dir(p).unwrap();
+        }
+        install(&shims, &["codex".into()]).unwrap();
+        install(&shims2, &["codex".into()]).unwrap();
+        exe(&real.join("codex"), "#!/bin/sh\necho \"real:$1\"\n");
+        let path = std::env::join_paths([&shims, &shims2, &real]).unwrap();
+        let out = run_shim(&shims.join("codex"), &path, &["hi"]);
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "real:hi\n");
+    }
+
+    #[test]
+    fn shim_with_no_real_program_fails_like_the_shell() {
+        let d = tempfile::tempdir().unwrap();
+        let shims = d.path().join("shims");
+        std::fs::create_dir(&shims).unwrap();
+        install(&shims, &["codex".into()]).unwrap();
+        let out = run_shim(&shims.join("codex"), shims.as_os_str(), &[]);
+        assert_eq!(out.status.code(), Some(127));
+        assert_eq!(String::from_utf8_lossy(&out.stderr), "codex: command not found\n");
     }
 
     #[test]
