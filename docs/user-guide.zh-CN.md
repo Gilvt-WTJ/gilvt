@@ -522,14 +522,14 @@ theme = "My Theme"                                   # 固定
 
 ### SSH 远程（预览）
 
-在 gilvt 的 pane 里 `ssh` 到 Linux 主机后，gilvt 知道这个 pane 已经在远端：pane 和标签显示主机名，远端 shell 加载 gilvt 的 shell 集成（命令标记、当前目录），并跟踪远端目录。只有交互式登录受影响；`ssh host command`、`scp`、`git push` 原样运行。
+在 gilvt 的 pane 里 `ssh` 到 Linux 或 Apple Silicon Mac 后，gilvt 知道这个 pane 已经在远端：pane 和标签显示主机名，远端 shell 加载 gilvt 的 shell 集成（命令标记、当前目录），并跟踪远端目录。只有交互式登录受影响；`ssh host command`、`scp`、`git push` 原样运行。
 
 - **询问**：第一次 `ssh` 到某台主机时，gilvt 会问要不要在它上面安装一个小程序（`gilvt-remote`，约 4 MB）：`Y` 安装，`n` 这次不用，`N` 这台主机永不安装（会记住）。也可以在 `config.toml` 里用 `[remote] install = "ask" | "always" | "never"` 预设（默认 `ask`）。不安装时 `ssh` 照常登录。
 - **更新**：gilvt 升级后第一次连接装有旧版远端组件的主机时，会先询问是否更新（`Y` 更新，`n` 这次普通登录，`N` 永不安装；`[remote] install = "always"` 则不询问直接更新）。
 - **绕过**：输入 `command ssh host`，或设置 `GILVT_SSH=0`（如 `GILVT_SSH=0 ssh host`），gilvt 完全不介入。
 - **远端目录**：全部在 `~/.gilvt-server`，并常驻一个小 daemon。手动卸载：`pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server`。
 - **远端文件**：装好远端组件后，在远端 shell 里 `gilvt view`、`gilvt diff` 和 ⌘ 点击路径会在 Quick Look 里打开远端主机上的文件，按 `E` 或 ⇧⌘ 点击用内置编辑器打开；保存会写回远端主机（文件在你打开之后被远端改过，会出现常见的重新载入 / 对比 / 覆盖条）。远端预览上限 5 MB、编辑上限 10 MB。`⌘P`、从访达拖入、git 状态、编辑器的实时预览在远端 pane 里暂不支持。
-- **当前限制（R2a）**：只支持 Linux x86_64 / aarch64 主机；不支持 mosh；不支持从远端再跳到别的主机；远端 shell 里直接运行的 claude / codex 会出现在侧栏，通知、审批跳转、检查器、会话历史与恢复都可用；远端 tmux 里的 Agent 暂不检测；远端会话的清理、归档、Review、检查器「配置」页和「产物」页暂不支持。
+- **当前限制（R2a）**：支持 Linux x86_64 / aarch64 与 Apple Silicon（arm64）macOS 主机；Intel Mac 以普通方式登录；不支持 mosh；不支持从远端再跳到别的主机；远端 shell 里直接运行的 claude / codex 会出现在侧栏，通知、审批跳转、检查器、会话历史与恢复都可用；远端 tmux 里的 Agent 暂不检测；远端会话的清理、归档、Review、检查器「配置」页和「产物」页暂不支持。远端 Mac 没装命令行工具时，`gilvt diff` 会提示先运行 `xcode-select --install`。
 
 ### 配置
 
