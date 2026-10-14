@@ -242,6 +242,9 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 pub fn git_changes(cwd: &Path, rev: Option<&str>) -> RemoteResponse {
+    if !gilvt_client::git::available() {
+        return RemoteResponse::Error { message: "git is not usable on this host (on macOS, install the Command Line Tools first: xcode-select --install)".into() };
+    }
     let Some(root) = gilvt_client::git::repo_root(cwd) else { return RemoteResponse::Error { message: "not inside a git repository".into() } };
     match gilvt_client::git::changed_entries(&root, rev.unwrap_or("HEAD")) {
         Ok(files) => RemoteResponse::Changes { root, files },

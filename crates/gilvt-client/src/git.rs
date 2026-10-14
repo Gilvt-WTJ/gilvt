@@ -14,17 +14,27 @@ fn git(dir: &Path) -> Command {
 }
 
 /// Whether `git` can run here. On macOS without the Command Line Tools `/usr/bin/git` is only a stub that opens an
-/// install dialog on that Mac's screen, so it counts as no git (spec macOS §4.4). Checked once per process.
+/// install dialog on that Mac's screen, so it counts as no git (spec macOS §4.4). Only a positive answer is cached: the
+/// remote daemon is long-lived and the user may install git (or the tools) after being told to, so "no" is re-checked.
 pub fn available() -> bool {
-    static AVAILABLE: OnceLock<bool> = OnceLock::new();
-    *AVAILABLE.get_or_init(|| {
-        let found = std::env::var_os("PATH").and_then(|p| {
-            std::env::split_paths(&p).map(|d| d.join("git")).find(|g| g.is_file())
-        });
-        usable(found.as_deref(), cfg!(target_os = "macos"), || {
-            Command::new("xcode-select").arg("-p").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
-        })
-    })
+    static AVAILABLE: OnceLock<()> = OnceLock::new();
+    if AVAILABLE.get().is_some() {
+        return true;
+    }
+    let found = find_git(std::env::var_os("PATH"));
+    let ok = usable(found.as_deref(), cfg!(target_os = "macos"), || {
+        Command::new("xcode-select").arg("-p").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+    });
+    if ok {
+        let _ = AVAILABLE.set(());
+    }
+    ok
+}
+
+/// The first `git` file on `path`; an unset PATH searches `/usr/bin:/bin` like execvp does.
+fn find_git(path: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let path = path.unwrap_or_else(|| "/usr/bin:/bin".into());
+    std::env::split_paths(&path).map(|d| d.join("git")).find(|g| g.is_file())
 }
 
 fn usable(git: Option<&Path>, macos: bool, clt_installed: impl FnOnce() -> bool) -> bool {
@@ -153,6 +163,16 @@ mod tests {
         assert!(usable(Some(brew), true, || panic!("not asked for another git")));
         // Elsewhere /usr/bin/git is a real git.
         assert!(usable(Some(stub), false, || panic!("not asked on Linux")));
+    }
+
+    #[test]
+    fn an_unset_path_searches_the_default_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("git"), "").unwrap();
+        assert_eq!(find_git(Some(dir.path().into())), Some(dir.path().join("git")));
+        assert_eq!(find_git(Some("/nonexistent-gilvt-dir".into())), None);
+        // None means /usr/bin:/bin: whatever is there is found (both exist on Linux and macOS).
+        assert_eq!(find_git(None), ["/usr/bin/git", "/bin/git"].iter().map(PathBuf::from).find(|p| p.is_file()));
     }
 
     #[test]
