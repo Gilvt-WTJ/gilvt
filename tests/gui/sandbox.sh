@@ -191,6 +191,27 @@ check_fake() {
 # ---------------------------------------------------------------------------------------------
 # Sandbox HOME
 
+# Props for section AE (agents started through wrappers; gilvt puts its agent shims first on the pane's PATH):
+#   fakewrap CMD…  a wrapper that stays the foreground leader (perl, like ttadk's node) and runs CMD as its child,
+#                  by name; with FAKEWRAP_PREPEND=DIR it first puts DIR first on PATH, the way ttadk prepends
+#                  ~/.local/bin
+#   cw …           a script that runs `codex` by name (through the shim; nothing to configure)
+#   cc …           a script that runs claude by path (bypasses the shim; `cc` is not a listed command name)
+#   <dir>/realbin/claude  a second fake claude for FAKEWRAP_PREPEND (AE5: the wrapper bypasses the shim);
+#                  session.env's REALBIN
+install_wrapper_props() {
+  local dir="$1" bin="$2" fake="$3"
+  cat >"$bin/fakewrap" <<'EOF'
+#!/bin/bash
+[ -n "${FAKEWRAP_PREPEND-}" ] && export PATH="$FAKEWRAP_PREPEND:$PATH"
+exec /usr/bin/perl -e 'my $s = system { $ARGV[0] } @ARGV; exit($s == -1 ? 127 : $s >> 8)' -- "$@"
+EOF
+  printf '#!/bin/sh\nexec codex "$@"\n' >"$bin/cw"
+  printf '#!/bin/sh\nexec "%s/claude" "$@"\n' "$bin" >"$bin/cc"
+  mkdir -p "$dir/realbin" && cp "$fake" "$dir/realbin/claude"
+  chmod 755 "$bin/fakewrap" "$bin/cw" "$bin/cc"
+}
+
 write_home() {
   local dir="$1" home="$1/home" bin="$1/bin"
   mkdir -p "$home/.config/gilvt"
@@ -333,6 +354,7 @@ write_session() {
     echo "LABEL='$7'"
     echo "CONTROL_DIR='${8:-}'"
     echo "REMOTE_DIR='${9:-}'"
+    [ "$5" != sandbox ] || echo "REALBIN='$1/realbin'"
     echo "STARTED='$(date +%Y-%m-%dT%H:%M:%S%z)'"
   } >"$file"
   ln -sfn "$1" "$current"
@@ -513,6 +535,7 @@ cmd_up() {
     # Copies, not symlinks: gilvt names the foreground program after the resolved executable.
     cp "$fake" "$bin/claude"
     cp "$fake" "$bin/codex"
+    install_wrapper_props "$dir" "$bin" "$fake"
     cp -L "$here"/scenarios/*.toml "$dir/scenarios/" 2>/dev/null
     write_home "$dir"
     if [ -n "$remote" ]; then

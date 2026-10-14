@@ -160,6 +160,14 @@ check "lark: peekaboo format lists only full-width" "Lark window 151107 layer 0 
 check "check-paths ok (soft-wrapped)" "claude=/sbx/bin/claude codex=/sbx/bin/codex HOME=/sbx/home" g check-paths "$S" 151702 /sbx/bin /sbx/home
 check_rc "check-paths wrong bin" 3 g check-paths "$S" 151702 /other/bin /sbx/home
 check_rc "check-paths wrong home" 3 g check-paths "$S" 151702 /sbx/bin /Users/me
+# gilvt's agent shims go first on the pane's PATH: a shim under the sandbox HOME is fine, one under another HOME is not.
+sed 's#CHK:/sbx/bin/claude:/sbx/bin/co", "dex:#CHK:/sbx/home/Library/Application Support/gilvt/shims/claude:/sbx/home/Library/Application Support/gilvt/shims/co", "dex:#' \
+  "$S" >"$T/state-shims.json"
+check "check-paths ok (agent shims in the sandbox HOME)" \
+  "claude=/sbx/home/Library/Application Support/gilvt/shims/claude codex=/sbx/home/Library/Application Support/gilvt/shims/codex HOME=/sbx/home" \
+  g check-paths "$T/state-shims.json" 151702 /sbx/bin /sbx/home
+sed 's#/sbx/home/Library#/Users/me/Library#g' "$T/state-shims.json" >"$T/state-shims-real.json"
+check_rc "check-paths: shims under another HOME" 3 g check-paths "$T/state-shims-real.json" 151702 /sbx/bin /sbx/home
 
 check_rc "perms ok" 0 g perms "$fx/permissions-ok.json"
 check "perms missing" "Screen Recording, Event Synthesizing" g perms "$fx/permissions-missing.json"
@@ -1465,6 +1473,11 @@ mk_cl "$H" "$J1" "$J2" "$J3" '| J4 | a | b | 真实 codex（没有用例文件�
 check_rc "checklist lint: 真实 codex without a case file" 1 clj
 mk_cl "$H" "$J1" "$J2"
 check_rc "checklist lint: a case file without a row" 1 clj
+mk_cl_j5() { mk_cl "$H" "$J1" "$J2" "$J3" "$1"; printf '%s\n' '# J5 用例' 'requires: real-ttadk' 'checklist: J5' 'scenarios: []' '' '## steps' >"$T/cl/tests/gui/cases/J/J5.md"; }
+mk_cl_j5 '| J5 | a | b | [J5](../tests/gui/cases/J/J5.md) 真实 ttadk（需要 SSO 登录态） |'
+check_rc "checklist lint: a real-ttadk case with 真实 ttadk（…）" 0 clj
+mk_cl_j5 '| J5 | a | b | [J5](../tests/gui/cases/J/J5.md) |'
+check_rc "checklist lint: a real-ttadk case without 真实 ttadk（…）" 1 clj
 
 # ---------------------------------------------------------------------------------------------
 echo "run.sh"
@@ -1742,6 +1755,13 @@ mkdir -p "$T/rm/M"
 mk_case "$T/rm/M" M1 remote-mac 'wait ok == 1'
 check "case-info parses requires: remote-mac" "requires=remote-mac foreground=0 steps=1" g case-info "$T/rm/M/M1.md"
 check "run.sh --list: a remote-mac case is RUN" "M1 remote-mac foreground=0 RUN" env GILVT_GUI_CASES="$T/rm" "$here/run.sh" --list M
+
+# requires: real-ttadk is skipped like real-claude without --real.
+mkdir -p "$T/rt/T"
+mk_case "$T/rt/T" T1 real-ttadk 'wait ok == 1'
+check "case-info parses requires: real-ttadk" "requires=real-ttadk foreground=0 steps=1" g case-info "$T/rt/T/T1.md"
+check "run.sh --list: a real-ttadk case is SKIP(real-ttadk)" "T1 real-ttadk foreground=0 SKIP(real-ttadk)" env GILVT_GUI_CASES="$T/rt" "$here/run.sh" --list T
+check "run.sh --list --real: a real-ttadk case is RUN" "T1 real-ttadk foreground=0 RUN" env GILVT_GUI_CASES="$T/rt" "$here/run.sh" --real --list T
 
 # S0 remains a serial gate: a failure prevents every other selected case from starting.
 mkdir -p "$T/gate/S" "$T/gate/X"

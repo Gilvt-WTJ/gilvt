@@ -52,13 +52,25 @@ Claude 仍可从 `.claude/skills/gilvt-acceptance/SKILL.md` 进入同一份流�
 
 ```
 home/      沙盒 HOME：.config/gilvt/config.toml、.bash_profile、.bashrc、.zshrc
-bin/       bash（包装脚本）、claude、codex（gilvt-fake-agent 的副本）
+bin/       bash（包装脚本）、claude、codex（gilvt-fake-agent 的副本）；AE 节的道具 fakewrap、cw、cc（见下）
+realbin/   claude（又一个 fake agent 副本，AE5 用 FAKEWRAP_PREPEND 把这个目录放到 PATH 最前；session.env 的 REALBIN）
 bin-tools/ keys、wins、mouse、ax（本次编译的 Swift 工具）
 scenarios/ tests/gui/scenarios 的副本（GILVT_FAKE_SCENARIOS_DIR 指向这里）
 shots/     drive.sh shot 的截图
 failures/  wait / assert 失败时保存的完整 state
 trashed.txt、session.env
 ```
+
+AE 节（经包装器启动的 Agent）的道具，`up` 装进 `bin/`（`install_wrapper_props`）：
+
+- `fakewrap CMD…`：perl 包装器，一直留在前台当进程组组长，按名字运行 CMD 作为子进程（像 ttadk 的 node）；
+  设置 `FAKEWRAP_PREPEND=DIR` 时先把 DIR 插到 PATH 最前（像 ttadk 插入 `~/.local/bin`）。
+- `cw …`：`exec codex "$@"` 的脚本（按名字调用 codex，经过垫片）。
+- `cc …`：`exec "$bin/claude" "$@"` 的脚本（按路径调用 claude，绕过垫片；`cc` 不在命令名列表里）。
+
+gilvt 把它的 agent 垫片目录（`~/Library/Application Support/gilvt/shims/`，在沙盒 HOME 下）放在 pane 的 PATH 最前，
+所以 `up` 的路径检查里 `type -P claude` / `codex` 可以是 `$bin/…`，也可以是沙盒 HOME 里的垫片（垫片再找到 `$bin` 里的程序）；
+别的位置都算泄漏。
 
 为什么这样搭（2026-09-29 实测）：
 
@@ -106,7 +118,7 @@ tests/gui/run.sh --list all                                              # 只�
 - `requires: remote`：用例需要测试远端（`remote.sh`，见下）。`run.sh` 在跑这类用例之前 `remote.sh up`（已经是 up 就沿用，也不会在结束时拆掉；自己启动的，结束或中断时 `remote.sh down`），每个用例前 `remote.sh reset`，并用 `sandbox.sh up --remote`。起不来（没有 docker / colima）时 `SKIP(remote-unavailable)`。`remote` 用例不并行。
   R2a 起 `remote.sh up` 还会把 Linux 版 fake agent 装成 devbox 上的 `claude` / `codex`：先 `scripts/build-remote.sh --fake`（或用 `GILVT_REMOTE_FAKE` 指定）；没有它时 `up` 只警告，用到远端 agent 的 AC 用例会失败。
 - `requires: remote-mac`：用例需要 macOS 测试远端（`remote-mac.sh`，见下）。`run.sh` 在跑这类用例前执行 `remote-mac.sh up`（只检查和写状态目录，不起服务；本次运行起的状态目录和测试用户的 helper 进程由 `run.sh` 结束时 `remote-mac.sh down` 清掉），每个用例前 `remote-mac.sh reset`，并用 `sandbox.sh up --remote-mac`。环境没准备好时 `SKIP(remote-mac-unavailable)`。
-- `requires: real-claude` / `real-codex` 没有 `--real` 时 `SKIP(real-…)`；`manual` 总是 `SKIP(manual)`（要人来做）。
+- `requires: real-claude` / `real-codex` / `real-ttadk` 没有 `--real` 时 `SKIP(real-…)`（`real-ttadk`：本机的 ttadk 与 SSO 登录态，`real-up` 里运行）；`manual` 总是 `SKIP(manual)`（要人来做）。
 - `--out DIR`：evidence bundle 的目录，必须不存在或为空；默认 `~/gilvt-lab/reports/run-<UTC 时间>-<提交>-<pid>`。
 - `--jobs N`：按 case 并行运行隔离安全的沙盒用例。每个 worker 有自己的 `TMPDIR`、session、HOME 和 app 进程；S0（若在选择中）
   先作为门禁运行。前台、真实 Agent、剪贴板、废纸篓和用例头含 `parallel: serial` 的 case 自动进入串行阶段。并行 run 在整个执行
@@ -373,8 +385,8 @@ pbpaste 上的分派和重试逻辑（含 `step`）、`run.sh` 在桩 `sandbox.s
 `lib/checklist_links.py` 的 `LEGACY` 里，迁移过来就从列表里删掉）都必须有「用例」列，而且每一行必须：
 
 - 链接一个存在的用例文件：`[I10](../tests/gui/cases/I/I10.md)`，文件头的 `checklist:` 正是这一行的 ID；或者
-- 写 `手动`、`真实 claude`、`真实 codex`，**后面用括号写原因**：`手动（访达「放回原处」只能由你操作）`。`真实 …` 仍然要链接
-  用例文件，其 `requires:` 是 `real-claude` / `real-codex`；链接的用例 `requires:` 是 `real-*` 或 `manual` 时，这一列也必须
+- 写 `手动`、`真实 claude`、`真实 codex`、`真实 ttadk`，**后面用括号写原因**：`手动（访达「放回原处」只能由你操作）`。`真实 …` 仍然要链接
+  用例文件，其 `requires:` 是 `real-claude` / `real-codex` / `real-ttadk`；链接的用例 `requires:` 是 `real-*` 或 `manual` 时，这一列也必须
   写上对应的标记和原因。
 
 反过来，每个用例文件头的 `checklist:` ID（`—` 除外）都必须是清单里的一行。`selftest.sh` 检查这些，所以新功能
