@@ -15,11 +15,12 @@ use super::requests::Pending;
 use super::{BridgeStatus, RemoteHosts};
 
 /// `spec.args` is the user's options followed by the destination. gilvt's `-o` come first (for `-o` the
-/// first value wins: `ControlMaster=no` so a configured `auto` never opens a second master), and `-T`
+/// first value wins: `ControlMaster=no` so a configured `auto` never opens a second master, and
+/// `ClearAllForwardings=yes` because the master holds the user's port forwardings), and `-T`
 /// goes right before the destination (for `-t`/`-T` the last one wins: a user `-tt` must not put a pty
 /// between the frames and us).
 pub fn bridge_argv(spec: &BridgeSpec) -> Vec<String> {
-    let mut v: Vec<String> = vec!["-S".into(), spec.control_path.display().to_string(), "-o".into(), "BatchMode=yes".into(), "-o".into(), "ControlMaster=no".into()];
+    let mut v: Vec<String> = vec!["-S".into(), spec.control_path.display().to_string(), "-o".into(), "BatchMode=yes".into(), "-o".into(), "ControlMaster=no".into(), "-o".into(), "ClearAllForwardings=yes".into()];
     let (dest, opts) = spec.args.split_last().map(|(d, o)| (Some(d), o)).unwrap_or((None, &[][..]));
     v.extend(opts.iter().cloned());
     v.push("-T".into());
@@ -389,7 +390,7 @@ mod tests {
         let spec = gilvt_ipc::BridgeSpec { ssh: "/usr/bin/ssh".into(), control_path: "/tmp/gilvt-501/cm-0011223344556677".into(), args: vec!["-p".into(), "2222".into(), "devbox".into()], remote_bin: "~/.gilvt-server/0.1.0-aaaaaaaa/gilvt-remote".into(), build_id: "0.1.0-aaaaaaaa".into() };
         assert_eq!(
             bridge_argv(&spec),
-            ["-S", "/tmp/gilvt-501/cm-0011223344556677", "-o", "BatchMode=yes", "-o", "ControlMaster=no", "-p", "2222", "-T", "devbox", "~/.gilvt-server/0.1.0-aaaaaaaa/gilvt-remote", "bridge"]
+            ["-S", "/tmp/gilvt-501/cm-0011223344556677", "-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", "ClearAllForwardings=yes", "-p", "2222", "-T", "devbox", "~/.gilvt-server/0.1.0-aaaaaaaa/gilvt-remote", "bridge"]
         );
     }
 
@@ -402,6 +403,7 @@ mod tests {
         assert!(pos("-tt") < pos("-T"), "for -t/-T the last one wins");
         assert_eq!(v[pos("-T") + 1], "devbox", "-T sits right before the destination");
         assert!(pos("ControlMaster=no") < pos("ControlMaster=auto"), "for -o the first one wins");
+        assert!(pos("ClearAllForwardings=yes") < pos("devbox"), "the master holds the forwardings");
         assert_eq!(&v[v.len() - 2..], ["~/.gilvt-server/b/gilvt-remote", "bridge"]);
     }
 

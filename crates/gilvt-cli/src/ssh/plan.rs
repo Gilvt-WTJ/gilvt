@@ -20,6 +20,13 @@ pub fn control_path(dir: &Path, host_id: &str) -> PathBuf {
     dir.join(format!("cm-{:016x}", fnv1a64(host_id)))
 }
 
+/// gilvt's options for every ssh that goes through the master, placed before the user's options (for `-o` the
+/// first one wins): `ControlMaster=no` so a configured `auto` never opens a second master at gilvt's path, and
+/// `ClearAllForwardings=yes` because the master already holds the user's LocalForward / RemoteForward / `-L`.
+pub fn through_master(ctl: &Path) -> Vec<String> {
+    ["-S", &ctl.display().to_string(), "-o", "ControlMaster=no", "-o", "ClearAllForwardings=yes"].iter().map(|s| s.to_string()).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Probe { pub os: String, pub arch: String, pub hostname: String, pub home: Option<String>, pub installed: Vec<String> }
 
@@ -236,6 +243,14 @@ pub fn parse_answer(line: &str) -> Answer {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn connections_through_the_master_never_forward_ports_again() {
+        // The master (started with the user's options) holds the user's LocalForward / -L; a muxed session
+        // asking for them again prints "bind: Address already in use" for each one.
+        let v = through_master(Path::new("/tmp/gilvt-501/cm-0011223344556677"));
+        assert_eq!(v, ["-S", "/tmp/gilvt-501/cm-0011223344556677", "-o", "ControlMaster=no", "-o", "ClearAllForwardings=yes"]);
+    }
 
     #[test]
     fn host_id_from_ssh_g() {
