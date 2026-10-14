@@ -9,6 +9,7 @@ breaking changes; they are called out under **Changed**.
 
 ### Fixed
 
+- After a program that turned on mouse reporting died without turning it off (for example an ssh connection that dropped while Claude Code ran on the remote host), moving the mouse no longer types escape codes into the shell: gilvt's shell integration turns mouse reporting, focus reporting and the kitty keyboard flags off before each prompt (fish: mouse reporting only; fish manages the others itself).
 - `gilvt ssh` to a host with `LocalForward` / `RemoteForward` (or `-L` / `-R`) no longer prints "bind: Address already in use" for every forwarding: the shared connection holds them, and the login, the remote helper's bridge and gilvt's own commands through it no longer ask for them again.
 
 ## [0.4.0] - 2026-10-14
