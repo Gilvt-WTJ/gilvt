@@ -11,9 +11,10 @@ function __gilvt_prompt --on-event fish_prompt
     if set -q GILVT_BIN_DIR
         set -l front $GILVT_BIN_DIR
         set -q GILVT_SHIMS_DIR; and test -n "$GILVT_SHIMS_DIR"; and set front $GILVT_SHIMS_DIR $GILVT_BIN_DIR
-        if test "$PATH[1..(count $front)]" != "$front"
-            for d in $front
-                while set -l i (contains -i -- $d $PATH)
+        set -l cur $PATH[1..(count $front)]
+        if test "$cur" != "$front"
+            for __gilvt_d in $front
+                while set -l i (contains -i -- $__gilvt_d $PATH)
                     set -e PATH[$i]
                 end
             end
@@ -51,7 +52,10 @@ function gilvt_agent --description 'gilvt_agent claude|codex <command> [args…]
     if test -n "$GILVT_SOCKET"; and test -n "$GILVT_BIN_DIR"; and test -x "$bin"
         set -l full ("$bin" hook $kind-args -- $argv 2>/dev/null | string split0)
         if test (count $full) -gt 0
-            GILVT_AGENT_HOOKED=1 command $cmd $full
+            begin
+                set -lx GILVT_AGENT_HOOKED 1
+                command $cmd $full
+            end
             return $status
         end
     end

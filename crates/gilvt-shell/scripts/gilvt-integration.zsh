@@ -37,6 +37,9 @@ _gilvt_precmd() {
   # /etc/zprofile's path_helper or brew shellenv may reorder PATH (another
   # command of the same name could then win), so move GILVT_SHIMS_DIR and GILVT_BIN_DIR back to the front
   # before every prompt.
+  # Anonymous function with emulate -L: the user's KSH_ARRAYS etc. must not change how this block indexes.
+  () {
+  emulate -L zsh
   if [[ -n "${GILVT_BIN_DIR-}" ]]; then
     local -a _gilvt_front=("$GILVT_BIN_DIR")
     [[ -n "${GILVT_SHIMS_DIR-}" ]] && _gilvt_front=("$GILVT_SHIMS_DIR" "$GILVT_BIN_DIR")
@@ -49,6 +52,7 @@ _gilvt_precmd() {
       path=("${_gilvt_front[@]}" "${_gilvt_rest[@]}")
     fi
   fi
+  }
   printf '\e]7;file://%s%s\e\\' "$HOST" "$(_gilvt_urlencode "$PWD")"
   # Only the shell reaches its prompt: turn off what a program that died without cleaning up (an ssh that
   # dropped under a full-screen app) left on, or every mouse move types escape codes here. Mouse reporting

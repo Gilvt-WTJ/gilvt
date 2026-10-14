@@ -220,6 +220,25 @@ fn zsh_keeps_shims_then_bin_first() {
     check_shims_first("/bin/zsh", ".zshrc", rc, POSIX_SHIMS_REPORT);
 }
 
+/// A user's `setopt KSH_ARRAYS` (0-based arrays) must not break the PATH fix-up: after two prompts the
+/// shims dir is still first and appears exactly once.
+#[test]
+fn zsh_ksh_arrays_keeps_shims_once() {
+    let rc = "setopt KSH_ARRAYS\nexport PATH=\"/usr/bin:/opt/gilvt-test-bin:/opt/gilvt-test-shims:$PATH\"\n";
+    let report = r#"echo "n=$(echo "$PATH" | tr ':' '\n' | grep -c '^/opt/gilvt-test-shims$') front=${PATH%%:/opt/gilvt-test-bin:*};""#;
+    let home = tempfile::tempdir().unwrap();
+    let env = vec![
+        ("GILVT_BIN_DIR".to_string(), "/opt/gilvt-test-bin".to_string()),
+        ("GILVT_SHIMS_DIR".to_string(), "/opt/gilvt-test-shims".to_string()),
+    ];
+    let mut sh = start_in(home, "/bin/zsh", ".zshrc", rc, None, env);
+    sh.wait("first prompt", |ev, _| has(ev, PromptMark::PromptStart));
+    sh.run("true");
+    sh.wait("second prompt", |ev, _| has(ev, PromptMark::CommandEnd(Some(0))));
+    sh.run(report);
+    sh.wait("shims once and first", |_, screen| screen.contains("n=1 front=/opt/gilvt-test-shims;"));
+}
+
 #[test]
 fn bash_keeps_shims_then_bin_first() {
     let rc = "export PATH=\"/usr/bin:/opt/gilvt-test-bin:/opt/gilvt-test-shims:$PATH\"\n";
