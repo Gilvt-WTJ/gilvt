@@ -7,6 +7,8 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-14
+
 ### Added
 
 - `gilvt ssh` works with Apple Silicon Macs as remote hosts, with the same features as Linux hosts: the remote helper installs (and asks before updating), agents in the remote shell show up in the sidebar, and `gilvt view` / `gilvt diff`, ⌘-click and editing work on the Mac's files. Intel Macs log in the plain way with a note.
@@ -103,7 +105,8 @@ First public release.
   downloads, and installs when you quit gilvt, so running agents are never interrupted; "Check for
   Updates…" in the app menu, and `[update] mode = "download" | "check" | "off"` in `config.toml`.
 
-[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.3.0...main
+[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.0...main
+[0.4.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.1.0...v0.2.0
