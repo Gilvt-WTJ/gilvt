@@ -552,7 +552,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 
 ## AC. SSH 远程（R1、R2a）
 
-在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。R2a 起远端 shell 里运行的 claude / codex 进入侧栏；测试远端上的 `claude` / `codex` 是 Linux 版 fake agent（`remote.sh up` 安装）。R2a 第二份计划起，远端 pane 里的 `gilvt view` / `gilvt diff` / ⌘点击 / 内置编辑器作用于远端文件（AC8、AC30–AC36）。
+在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。R2a 起远端 shell 里运行的 claude / codex 进入侧栏；测试远端上的 `claude` / `codex` 是 Linux 版 fake agent（`remote.sh up` 安装）。R2a 第二份计划起，远端 pane 里的 `gilvt view` / `gilvt diff` / ⌘点击 / 内置编辑器作用于远端文件（AC8、AC30–AC36），检查器时间线里 ⌘+点击远端会话的文件名也是（AC37）。
 
 | # | 操作 | 期望 | 用例 |
 |---|------|------|------|
@@ -592,6 +592,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC34 | 远端 `gilvt view f.txt` 后按 `E`，在编辑器里行首输入 `x`，`⌘S` | 编辑器的 `host` 为远端、路径是远端路径；保存后 `dirty` 为 false，远端文件内容变为 `xhello` | [AC34](../tests/gui/cases/AC/AC34.md) |
 | AC35 | 远端文件在编辑器里有未保存修改时被远端改动；隐藏提示条后 `⌘S`，再点「仍然覆盖」 | 改动后约 0.5 秒出现「已修改」条；`⌘S` 不写入并再次出现这个条；「仍然覆盖」后远端内容是编辑器里的版本 | [AC35](../tests/gui/cases/AC/AC35.md) |
 | AC36 | 远端编辑器有未保存修改时 bridge 断开（远端组件不可执行，bridge 起不来），`⌘S` | 红色保存失败条「devbox-test 未连接，未保存」，`dirty` 仍为 true，远端文件没变 | [AC36](../tests/gui/cases/AC/AC36.md) |
+| AC37 | 远端会话的检查器时间线里 `⌘`+点击「Update README.md」行的文件名 | Quick Look 打开远端的 `/home/dev/ac37/README.md`（`host` 为远端，`size` 为 12），没有「这项功能暂不支持远端」提示 | [AC37](../tests/gui/cases/AC/AC37.md) |
 
 ## AD. SSH 远程：macOS 主机
 

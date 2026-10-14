@@ -358,7 +358,7 @@ R1 的「版本变化后自动更新」那一行改为只在 `remote.install = "
 ### 9.3 合入前整体 review 的裁决
 
 33. **补发规则**（修订第 4 条）：(a) daemon 的 hook 缓冲同时受条数（2000）和字节数（payload 的 JSON 长度合计 **32 MB**）限制，超出时从最旧的丢，`gap` 的判定不变（cursor 早于被丢掉的最大 `seq` 就是 gap）；单条超过 32 MB 的 hook 不进缓冲，也算被丢掉。(b) `ensure_daemon` 的探测改用新的 `LocalMsg::Probe { build_id }`（只增不改）：同一 build 的 daemon 回 `LocalReply::Ok`，不登记 bridge、不补发；别的 build（包括不认识 `Probe` 的旧 daemon）不回复直接关连接，调用方照旧启动新 daemon 接管。(c) 只补发 link 仍在 link 表里的 hook：已结束的 link 没有 pane 可去，补发只会让 app 白白处理。这种过滤不算 gap。(d) 事件在 daemon 里以 `Arc` 共享：广播给各 bridge、放进缓冲、补发时都只复制指针，帧在各 bridge 的写线程里（锁外）序列化，`State` 锁内不再复制大的 payload；`hook_size` 也在取锁之前算好。
-34. **检查器时间线里 ⌘+点击文件名**：远端会话只显示「这项功能暂不支持远端」，不在 Mac 上解析路径（远端 cwd、Mac 的 `$HOME`）也不打开 Mac 上的文件。时间线的其他操作（跳到终端位置、展开、复制）不碰文件，照常可用。
+34. **检查器时间线里 ⌘+点击文件名**：远端会话只显示「这项功能暂不支持远端」，不在 Mac 上解析路径（远端 cwd、Mac 的 `$HOME`）也不打开 Mac 上的文件。时间线的其他操作（跳到终端位置、展开、复制）不碰文件，照常可用。（2026-10-14 起被取代：文件名按远端会话的 cwd 和远端主机的 `$HOME` 解析，以 `HostPath::remote` 在 Quick Look 里从远端读取，仍不碰 Mac 上的文件；AC37。）
 35. **远端 catch-up 与实时事件的顺序**：`HistoryDone` 和行一起按到达顺序排队，catch-up 批次在 `HistoryDone` 所在的位置发给 registry，总在它之后到达的实时批次之前，旧状态不会覆盖新状态。
 36. **`[monitor] exclude_paths` 对远端会话只按写出来的路径比较**：远端会话的 cwd 是 ssh 主机上的目录，与配置里的目录逐个路径分量比较（写了 `/home/dev/secret`，远端 `/home/dev/secret/x` 照样排除），但从不在 Mac 上解析 symlink，也不缓存答案；`~` 仍按 Mac 的 `$HOME` 展开，所以 `~/secret` 不匹配远端目录。排除是隐私开关，宁可多排除：完全不让远端会话匹配会让用户没有办法把远端目录挡在监控官之外。远端终端 pane 的 `cwd` 本来就是 `null`，不受影响。
 37. **远端恢复的命令总是用裸的 `claude` / `codex`**：Mac 上的启动命令设置（例如 `/opt/homebrew/bin/claude`）指的是 Mac 上的文件，远端多半没有，而且绕过远端的 `gilvt` 包装函数（没有 hook）。会话面板、侧栏「已结束」和 Session Center 的远端恢复都这样。

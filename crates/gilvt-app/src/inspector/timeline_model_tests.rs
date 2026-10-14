@@ -223,11 +223,15 @@ fn file_targets_resolve_against_the_session_cwd() {
 fn quick_look_of_a_remote_session_never_names_a_mac_file() {
     let cwd = Path::new("/home/u/repo");
     let home = Path::new("/Users/u");
-    assert_eq!(quick_look_target("src/lib.rs", Some(cwd), Some(home), false), QuickLook::Open(PathBuf::from("/home/u/repo/src/lib.rs")));
-    assert_eq!(quick_look_target("src/lib.rs", None, Some(home), false), QuickLook::Nothing);
-    for raw in ["src/lib.rs", "/etc/hosts", "~/notes.md"] {
-        assert_eq!(quick_look_target(raw, Some(cwd), Some(home), true), QuickLook::NotYetRemote, "{raw}");
-    }
+    assert_eq!(quick_look_target("src/lib.rs", Some(cwd), Some(home), None), QuickLook::Open(PathBuf::from("/home/u/repo/src/lib.rs")));
+    assert_eq!(quick_look_target("src/lib.rs", None, Some(home), None), QuickLook::Nothing);
+    let remote = |path: &str| QuickLook::OpenRemote { host: "dev@h:22".into(), path: PathBuf::from(path) };
+    let remote_home = Path::new("/home/u");
+    assert_eq!(quick_look_target("src/lib.rs", Some(cwd), Some(remote_home), Some("dev@h:22")), remote("/home/u/repo/src/lib.rs"));
+    assert_eq!(quick_look_target("/etc/hosts", Some(cwd), Some(remote_home), Some("dev@h:22")), remote("/etc/hosts"));
+    assert_eq!(quick_look_target("~/notes.md", Some(cwd), Some(remote_home), Some("dev@h:22")), remote("/home/u/notes.md"));
+    assert_eq!(quick_look_target("~/notes.md", Some(cwd), None, Some("dev@h:22")), QuickLook::Nothing, "host's home not known yet");
+    assert_eq!(quick_look_target("src/lib.rs", None, Some(remote_home), Some("dev@h:22")), QuickLook::Nothing);
 }
 
 #[test]
