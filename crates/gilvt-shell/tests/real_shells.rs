@@ -199,6 +199,52 @@ fn fish_keeps_gilvt_bin_dir_first() {
     check_bin_dir_first(fish.to_str().unwrap(), ".config/fish/config.fish", rc, report);
 }
 
+const POSIX_SHIMS_REPORT: &str = r#"echo "front=${PATH%%:/opt/gilvt-test-bin:*};""#;
+
+/// With GILVT_SHIMS_DIR set, the prompt hook keeps `shims:bin` as the first two PATH entries.
+fn check_shims_first(shell: &str, rc_file: &str, rc_body: &str, report: &str) {
+    let home = tempfile::tempdir().unwrap();
+    let env = vec![
+        ("GILVT_BIN_DIR".to_string(), "/opt/gilvt-test-bin".to_string()),
+        ("GILVT_SHIMS_DIR".to_string(), "/opt/gilvt-test-shims".to_string()),
+    ];
+    let mut sh = start_in(home, shell, rc_file, rc_body, None, env);
+    sh.wait("first prompt", |ev, _| has(ev, PromptMark::PromptStart));
+    sh.run(report);
+    sh.wait("shims then bin first on PATH", |_, screen| screen.contains("front=/opt/gilvt-test-shims;"));
+}
+
+#[test]
+fn zsh_keeps_shims_then_bin_first() {
+    let rc = "export PATH=\"/usr/bin:/opt/gilvt-test-bin:/opt/gilvt-test-shims:$PATH\"\n";
+    check_shims_first("/bin/zsh", ".zshrc", rc, POSIX_SHIMS_REPORT);
+}
+
+#[test]
+fn bash_keeps_shims_then_bin_first() {
+    let rc = "export PATH=\"/usr/bin:/opt/gilvt-test-bin:/opt/gilvt-test-shims:$PATH\"\n";
+    check_shims_first("/bin/bash", ".bash_profile", rc, POSIX_SHIMS_REPORT);
+}
+
+#[test]
+fn fish_keeps_shims_then_bin_first() {
+    let Some(fish) = find_fish() else {
+        eprintln!("fish not installed; skipping");
+        return;
+    };
+    let rc = "set -gx PATH /usr/bin /opt/gilvt-test-bin /opt/gilvt-test-shims $PATH\n";
+    let report = r#"echo "front=$PATH[1] $PATH[2];""#;
+    let home = tempfile::tempdir().unwrap();
+    let env = vec![
+        ("GILVT_BIN_DIR".to_string(), "/opt/gilvt-test-bin".to_string()),
+        ("GILVT_SHIMS_DIR".to_string(), "/opt/gilvt-test-shims".to_string()),
+    ];
+    let mut sh = start_in(home, fish.to_str().unwrap(), ".config/fish/config.fish", rc, None, env);
+    sh.wait("first prompt", |ev, _| has(ev, PromptMark::PromptStart));
+    sh.run(report);
+    sh.wait("shims then bin", |_, screen| screen.contains("front=/opt/gilvt-test-shims /opt/gilvt-test-bin;"));
+}
+
 // ---- Agent wrappers (claude / codex / codex-w) ----------------------------------------------
 
 /// Fake `gilvt` (prints a recognizable NUL-separated argv), fake agents that log their argv to
@@ -206,7 +252,7 @@ fn fish_keeps_gilvt_bin_dir_first() {
 /// `-c` flags like the user's real one. The real agents are never run.
 fn install_fakes(home: &Path) {
     use std::os::unix::fs::PermissionsExt;
-    let log_argv = "#!/bin/bash\n{ printf '%s\\0' \"${0##*/}\" \"$@\"; printf '\\036'; } >> \"$HOME/argv.log\"\n";
+    let log_argv = "#!/bin/bash\n{ printf '%s\\0' \"${0##*/}\" \"$@\" \"hooked=${GILVT_AGENT_HOOKED-}\"; printf '\\036'; } >> \"$HOME/argv.log\"\n";
     let files = [
         (
             "gilvt-bin/gilvt",
@@ -311,24 +357,24 @@ fn v(items: &[&str]) -> Vec<String> {
 fn agents_in_gilvt(d: &Dialect) {
     let got = run_agents(d, true, "", &[], d.calls, 6);
     assert_eq!(got, vec![
-        v(&["claude", "--settings", "/tmp/merged.json", "a b", "new\nline", "", "it's", "\"dq\"", "--settings", "/u.json"]),
-        v(&["codex", "-c", "hooks.Stop=gilvt", "exec", "x y"]),
-        v(&["codex", "-c", "model_provider=x", "-c", "hooks.Stop=gilvt", "exec", "x y"]),
-        v(&["claude", "p q"]),
-        v(&["claude", "--settings", "/tmp/merged.json", "--direct"]),
-        v(&["claude", "--settings", "/tmp/merged.json"]),
+        v(&["claude", "--settings", "/tmp/merged.json", "a b", "new\nline", "", "it's", "\"dq\"", "--settings", "/u.json", "hooked=1"]),
+        v(&["codex", "-c", "hooks.Stop=gilvt", "exec", "x y", "hooked=1"]),
+        v(&["codex", "-c", "model_provider=x", "-c", "hooks.Stop=gilvt", "exec", "x y", "hooked=1"]),
+        v(&["claude", "p q", "hooked="]),
+        v(&["claude", "--settings", "/tmp/merged.json", "--direct", "hooked=1"]),
+        v(&["claude", "--settings", "/tmp/merged.json", "hooked=1"]),
     ]);
 }
 
 /// The user's own alias / function win, and GILVT_CODEX_COMMANDS limits what is wrapped.
 fn agents_respect_user_definitions(d: &Dialect) {
     let got = run_agents(d, true, d.user_defs, &[("GILVT_CODEX_COMMANDS", "codex")], "claude x\ncodex y\ncodex-w z\n", 3);
-    assert_eq!(got, vec![v(&["claude", "--mine", "x"]), v(&["codex", "--fn", "y"]), v(&["codex", "-c", "model_provider=x", "z"])]);
+    assert_eq!(got, vec![v(&["claude", "--mine", "x", "hooked="]), v(&["codex", "--fn", "y", "hooked="]), v(&["codex", "-c", "model_provider=x", "z", "hooked="])]);
 }
 
 fn agents_outside_gilvt(d: &Dialect) {
     let got = run_agents(d, false, "", &[], d.plain_calls, 2);
-    assert_eq!(got, vec![v(&["claude", "a b"]), v(&["codex", "-c", "model_provider=x", "q"])]);
+    assert_eq!(got, vec![v(&["claude", "a b", "hooked="]), v(&["codex", "-c", "model_provider=x", "q", "hooked="])]);
 }
 
 #[test]

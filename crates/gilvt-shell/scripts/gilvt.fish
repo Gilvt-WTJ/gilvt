@@ -7,12 +7,18 @@ function __gilvt_prompt --on-event fish_prompt
         printf '\e]133;D;%s\e\\' $ret
         set -e __gilvt_cmd_running
     end
-    # Profile scripts may reorder PATH: move GILVT_BIN_DIR back to the front.
-    if set -q GILVT_BIN_DIR; and test "$PATH[1]" != "$GILVT_BIN_DIR"
-        while set -l i (contains -i -- $GILVT_BIN_DIR $PATH)
-            set -e PATH[$i]
+    # Profile scripts may reorder PATH: move GILVT_SHIMS_DIR and GILVT_BIN_DIR back to the front.
+    if set -q GILVT_BIN_DIR
+        set -l front $GILVT_BIN_DIR
+        set -q GILVT_SHIMS_DIR; and test -n "$GILVT_SHIMS_DIR"; and set front $GILVT_SHIMS_DIR $GILVT_BIN_DIR
+        if test "$PATH[1..(count $front)]" != "$front"
+            for d in $front
+                while set -l i (contains -i -- $d $PATH)
+                    set -e PATH[$i]
+                end
+            end
+            set -gx PATH $front $PATH
         end
-        set -gx PATH $GILVT_BIN_DIR $PATH
     end
     printf '\e]7;file://%s%s\e\\' (hostname) (string escape --style=url -- $PWD)
     # Only the shell reaches its prompt: turn off mouse reporting a program that died without cleaning up
@@ -45,7 +51,7 @@ function gilvt_agent --description 'gilvt_agent claude|codex <command> [args…]
     if test -n "$GILVT_SOCKET"; and test -n "$GILVT_BIN_DIR"; and test -x "$bin"
         set -l full ("$bin" hook $kind-args -- $argv 2>/dev/null | string split0)
         if test (count $full) -gt 0
-            command $cmd $full
+            GILVT_AGENT_HOOKED=1 command $cmd $full
             return $status
         end
     end

@@ -85,18 +85,23 @@ __gilvt_prompt() {
     printf '\033]133;D;%s\033\\' "$ret"
     __gilvt_cmd_running=
   fi
-  # Profile scripts (path_helper, brew shellenv) may reorder PATH: move GILVT_BIN_DIR back to the front.
+  # Profile scripts (path_helper, brew shellenv) may reorder PATH: move GILVT_SHIMS_DIR and GILVT_BIN_DIR back to the front.
   if [ -n "${GILVT_BIN_DIR-}" ]; then
+    local front="$GILVT_BIN_DIR" d p
+    [ -n "${GILVT_SHIMS_DIR-}" ] && front="$GILVT_SHIMS_DIR:$GILVT_BIN_DIR"
     case "$PATH:" in
-      "$GILVT_BIN_DIR:"*) ;;
+      "$front:"*) ;;
       *)
-        local p=":$PATH:"
-        while case "$p" in *":$GILVT_BIN_DIR:"*) true ;; *) false ;; esac; do
-          p="${p/":$GILVT_BIN_DIR:"/:}"
+        p=":$PATH:"
+        for d in "${GILVT_SHIMS_DIR-}" "$GILVT_BIN_DIR"; do
+          [ -n "$d" ] || continue
+          while case "$p" in *":$d:"*) true ;; *) false ;; esac; do
+            p="${p/":$d:"/:}"
+          done
         done
         p="${p#:}"
         p="${p%:}"
-        PATH="$GILVT_BIN_DIR${p:+:$p}"
+        PATH="$front${p:+:$p}"
         ;;
     esac
   fi
@@ -131,7 +136,7 @@ gilvt_agent() {
     done < <("$GILVT_BIN_DIR/gilvt" hook "$__gilvt_kind-args" -- "$@" 2>/dev/null)
   fi
   if [ ${#__gilvt_argv[@]} -gt 0 ]; then
-    command "$__gilvt_cmd" "${__gilvt_argv[@]}"
+    GILVT_AGENT_HOOKED=1 command "$__gilvt_cmd" "${__gilvt_argv[@]}"
   else
     command "$__gilvt_cmd" "$@"
   fi

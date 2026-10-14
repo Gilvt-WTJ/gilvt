@@ -35,9 +35,19 @@ _gilvt_precmd() {
     unset _gilvt_cmd_running
   fi
   # /etc/zprofile's path_helper or brew shellenv may reorder PATH (another
-  # command of the same name could then win), so move GILVT_BIN_DIR back to the front before every prompt.
-  if [[ -n "${GILVT_BIN_DIR-}" && "${path[1]-}" != "$GILVT_BIN_DIR" ]]; then
-    path=("$GILVT_BIN_DIR" "${(@)path:#$GILVT_BIN_DIR}")
+  # command of the same name could then win), so move GILVT_SHIMS_DIR and GILVT_BIN_DIR back to the front
+  # before every prompt.
+  if [[ -n "${GILVT_BIN_DIR-}" ]]; then
+    local -a _gilvt_front=("$GILVT_BIN_DIR")
+    [[ -n "${GILVT_SHIMS_DIR-}" ]] && _gilvt_front=("$GILVT_SHIMS_DIR" "$GILVT_BIN_DIR")
+    if [[ "${(j.:.)path[1,${#_gilvt_front}]}" != "${(j.:.)_gilvt_front}" ]]; then
+      local -a _gilvt_rest=()
+      local _gilvt_p
+      for _gilvt_p in "${path[@]}"; do
+        (( ${_gilvt_front[(Ie)$_gilvt_p]} )) || _gilvt_rest+=("$_gilvt_p")
+      done
+      path=("${_gilvt_front[@]}" "${_gilvt_rest[@]}")
+    fi
   fi
   printf '\e]7;file://%s%s\e\\' "$HOST" "$(_gilvt_urlencode "$PWD")"
   # Only the shell reaches its prompt: turn off what a program that died without cleaning up (an ssh that
@@ -81,7 +91,7 @@ gilvt_agent() {
     out=${out%$'\0'}
     local -a argv_
     argv_=("${(@0)out}")
-    command "$cmd" "${argv_[@]}"
+    GILVT_AGENT_HOOKED=1 command "$cmd" "${argv_[@]}"
   else
     command "$cmd" "$@"
   fi
