@@ -404,7 +404,9 @@ fn bash_skips_unrecorded_commands() {
 fn long_command_still_marks_c() {
     for (shell, rc) in [("/bin/zsh", ".zshrc"), ("/bin/bash", ".bash_profile")] {
         let mut sh = start(shell, rc, "");
-        sh.wait("first prompt", |ev, _| has(ev, PromptMark::PromptStart));
+        // Type only once the line editor is reading (B): before it, the tty is still canonical and macOS keeps
+        // at most 1024 bytes of a line, so a long line would lose its end (and the Return) under load.
+        sh.wait("first prompt", |ev, _| has(ev, PromptMark::InputStart));
         // 3000 × ";" encodes to 9000 bytes before the hook's 2000-byte cut.
         let line = format!("true {}", "\\;".repeat(1500));
         sh.run(&line);
@@ -465,7 +467,9 @@ fn bash_keeps_bash_rematch() {
 fn long_non_ascii_command_still_marks_c() {
     for (shell, rc) in [("/bin/zsh", ".zshrc"), ("/bin/bash", ".bash_profile")] {
         let mut sh = start(shell, rc, "");
-        sh.wait("first prompt", |ev, _| has(ev, PromptMark::PromptStart));
+        // Type only once the line editor is reading (B): before it, the tty is still canonical and macOS keeps
+        // at most 1024 bytes of a line, so a long line would lose its end (and the Return) under load.
+        sh.wait("first prompt", |ev, _| has(ev, PromptMark::InputStart));
         // A 7-byte prefix: the 2000-byte cut lands inside a character.
         let line = format!("true x {}", "中".repeat(1500));
         sh.run(&line);
