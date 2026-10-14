@@ -74,7 +74,7 @@ impl CodexBin {
     pub fn find(path_var: Option<&std::ffi::OsStr>) -> Option<CodexBin> {
         use std::os::unix::fs::PermissionsExt;
         let invoked = std::env::split_paths(path_var?).map(|d| d.join("codex")).find(|p| {
-            std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0) && !crate::shim::is_shim(p)
         })?;
         let real = invoked.canonicalize().ok()?;
         let meta = std::fs::metadata(&real).ok()?;
@@ -339,5 +339,19 @@ mod tests {
         let found = CodexBin::find(Some(&path)).unwrap();
         assert_eq!(found.invoked, b.join("codex"));
         assert!(CodexBin::find(Some(std::ffi::OsStr::new(a.to_str().unwrap()))).is_none());
+    }
+
+    #[test]
+    fn codex_lookup_skips_gilvt_shims() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let (shims, real) = (d.path().join("shims"), d.path().join("real"));
+        std::fs::create_dir(&real).unwrap();
+        crate::shim::install(&shims, &["codex".into()]).unwrap();
+        std::fs::write(real.join("codex"), "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(real.join("codex"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = std::env::join_paths([&shims, &real]).unwrap();
+        let found = CodexBin::find(Some(&path)).unwrap();
+        assert_eq!(found.invoked, real.join("codex"));
     }
 }

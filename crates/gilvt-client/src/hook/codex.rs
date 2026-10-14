@@ -20,8 +20,8 @@ pub const EVENTS: [&str; 9] =
     ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"];
 
 /// First arguments that never start a session: no hooks, no trust lookup.
-const PASSTHROUGH: [&str; 20] = [
-    "login", "logout", "mcp", "mcp-server", "app-server", "completion", "apply", "a", "sandbox", "debug", "features", "cloud", "help",
+const PASSTHROUGH: [&str; 21] = [
+    "login", "logout", "mcp", "mcp-server", "app", "app-server", "completion", "apply", "a", "sandbox", "debug", "features", "cloud", "help",
     "generate-ts", "responses-api-proxy", "stdio-to-uds", "--version", "-V", "--help", "-h",
 ];
 
@@ -166,6 +166,11 @@ mod tests {
 
     fn t(event: &str, snake: &str) -> TrustedHook {
         TrustedHook { event: event.into(), key: format!("/<session-flags>/config.toml:{snake}:0:0"), hash: format!("sha256:{snake}") }
+    }
+
+    #[test]
+    fn codex_app_opens_the_desktop_app_without_hooks() {
+        assert_eq!(args_for(Path::new(GILVT), None, &s(&["app"])), s(&["app"]));
     }
 
     #[test]
