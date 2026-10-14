@@ -1,8 +1,8 @@
 # Homebrew cask. The published copy lives in the tap repo Gilvt-WTJ/homebrew-gilvt (Casks/gilvt.rb);
 # keep the two identical. After each release, set `version` and `sha256` there (HACKING.md, 发一个新版本).
 cask "gilvt" do
-  version "0.4.0"
-  sha256 "b21abd0835162075ddda63ced46412ecb605bdcf375be5d3a6ea1cb1e5f24545"
+  version "0.4.1"
+  sha256 "f1df3e5f7a514a42acee9fffdfa972a0182bc7edc789a5e376eaa7fe501b9f4d"
 
   url "https://github.com/Gilvt-WTJ/gilvt/releases/download/v#{version}/Gilvt-#{version}.dmg"
   name "gilvt"
