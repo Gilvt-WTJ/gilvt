@@ -7,6 +7,7 @@ mod debug;
 mod hook;
 mod integrate;
 mod mcp;
+mod shim;
 mod ssh;
 
 use std::path::Path;
@@ -107,6 +108,9 @@ fn main() -> ExitCode {
     }
     if argv.first().is_some_and(|a| a == "mcp") {
         return mcp::run(&argv[1..]);
+    }
+    if argv.first().is_some_and(|a| a == "shim") {
+        return shim::run(&argv[1..]);
     }
     if argv.first().is_some_and(|a| a == "ssh") {
         return ssh::run(&argv[1..]);

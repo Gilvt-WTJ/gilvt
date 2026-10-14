@@ -188,5 +188,5 @@
 
 ## 8. 实施时要记录的结果
 
-- `claude doctor` 和 `codex --version` 在垫片下的表现（§3.5）。
+- `claude doctor` 和 `codex --version` 在垫片下的表现（§3.5）：已验证（claude 2.1.300、codex-cli 0.160.0，PATH 首位放两个垫片、不在 gilvt 里）。`claude doctor` 非交互、秒级退出，输出 "No installation issues found."，没有多安装或 PATH 警告；`codex --version` 正常输出 `codex-cli 0.160.0`。
 - 真实 ttadk 在本机的验证结果（AE9）。
