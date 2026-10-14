@@ -95,7 +95,7 @@ pub fn run(argv: &[String]) -> ExitCode {
         tell(&socket, &Request::RemoteLinked { link: link.clone(), hostname, bridge: None, note: Some(reason.to_string()) });
         let mut v = Vec::new();
         if let Some(c) = ctl {
-            v.extend(["-S".to_string(), c.display().to_string(), "-o".into(), "ControlMaster=no".into()]);
+            v.extend(plan::through_master(c));
         }
         v.extend(argv.iter().cloned());
         exec(&ssh, &v)
@@ -134,10 +134,9 @@ pub fn run(argv: &[String]) -> ExitCode {
     drop(lock);
     // Probe and upload through the master. `-T` after the user's options (for flags the last one wins):
     // a user `-t`/`-tt` must not put a pty between us and the probe output or the gzip stream.
-    // `ControlMaster=no` before the user's options (for `-o` the first one wins): a configured
-    // `ControlMaster auto` must never open a second master at gilvt's path.
+    // `plan::through_master` before the user's options (for `-o` the first one wins).
     let via = |script: String| -> Vec<String> {
-        let mut v = vec!["-S".to_string(), ctl.display().to_string(), "-o".into(), "ControlMaster=no".into()];
+        let mut v = plan::through_master(&ctl);
         v.extend(a.opts.iter().cloned());
         v.push("-T".into());
         v.push(a.destination.clone());
@@ -230,7 +229,8 @@ pub fn run(argv: &[String]) -> ExitCode {
     };
     tell(&socket, &Request::RemoteLinked { link: link.clone(), hostname, bridge: Some(bridge), note: None });
     let exec_cmd = (!a.command.is_empty()).then(|| a.command.join(" "));
-    let mut v = vec!["-S".to_string(), ctl.display().to_string(), "-o".into(), "ControlMaster=no".into(), "-t".into()];
+    let mut v = plan::through_master(&ctl);
+    v.push("-t".into());
     v.extend(a.opts.iter().cloned());
     v.push(a.destination.clone());
     v.push(plan::login_command(&build_id, &link, exec_cmd.as_deref()));

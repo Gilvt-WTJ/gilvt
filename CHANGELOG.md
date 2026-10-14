@@ -7,6 +7,10 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Fixed
+
+- `gilvt ssh` to a host with `LocalForward` / `RemoteForward` (or `-L` / `-R`) no longer prints "bind: Address already in use" for every forwarding: the shared connection holds them, and the login, the remote helper's bridge and gilvt's own commands through it no longer ask for them again.
+
 ## [0.4.0] - 2026-10-14
 
 ### Added
