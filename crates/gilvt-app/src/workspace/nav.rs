@@ -264,15 +264,15 @@ pub fn focus_pane_anywhere(pane: PaneId, cx: &mut App) {
     });
 }
 
-/// The sidebar's 「精简模式」 tag: focuses `pane` like a row click and shows the inspector if it is hidden (its
-/// status card says why the session runs in lite mode). Call it outside window updates.
+/// The sidebar's 「精简模式」 tag: focuses `pane` like a row click and shows the inspector's 「过程」 tab (its status
+/// card says why the session runs in lite mode). Call it outside window updates.
 pub fn inspect_pane_anywhere(pane: PaneId, cx: &mut App) {
     let Some(w) = workspaces(cx).into_iter().find(|w| w.read(cx).is_ok_and(|ws| ws.has_pane(pane))) else { return };
     cx.activate(true);
     let _ = w.update(cx, |ws, window, cx| {
         window.activate_window();
         ws.focus_pane(pane, window, cx);
-        if ws.inspector.hidden {
+        if ws.inspector.hidden || ws.inspector.tab != crate::inspector::InspectorTab::Process {
             ws.choose_inspector_tab(crate::inspector::InspectorTab::Process, window, cx);
         }
     });

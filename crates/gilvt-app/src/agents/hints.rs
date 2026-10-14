@@ -56,6 +56,10 @@ pub fn cause(via: &Via, agent: AgentKind, cmdline: Option<&str>, claude: &[Strin
         Via::Descendant { parent } => Some(Cause::Bypassed { parent: parent.clone() }),
         Via::Leader => {
             let word = first_word(cmdline?)?;
+            // A path (`./cc`, `~/bin/cc`) bypasses the shims whatever the lists say, and 「加入」 could not take it.
+            if !gilvt_client::shim::name_ok(&word) {
+                return None;
+            }
             let listed = claude.iter().chain(codex).any(|n| *n == word);
             (!listed).then_some(Cause::Unlisted { word, kind: agent })
         }

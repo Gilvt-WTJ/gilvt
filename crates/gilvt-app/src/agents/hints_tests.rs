@@ -62,3 +62,11 @@ fn dismissed_hints_persist() {
     s.save(d.path()).unwrap();
     assert!(!Dismissed::load(d.path()).contains(&c));
 }
+
+#[test]
+fn a_path_or_unusable_name_gets_no_hint() {
+    for c in ["./cc hi", "~/bin/cc", "/usr/local/bin/cc x"] {
+        assert_eq!(cause(&Via::Leader, Claude, Some(c), &l(&["claude"]), &l(&["codex"]), false), None, "{c}: 加入 could not help");
+    }
+    assert_eq!(cause(&Via::Leader, Claude, Some("cc hi"), &l(&["claude"]), &l(&["codex"]), false), Some(Cause::Unlisted { word: "cc".into(), kind: Claude }));
+}
