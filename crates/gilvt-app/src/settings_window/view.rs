@@ -121,6 +121,8 @@ pub struct SettingsWindow {
     /// The 「⌘ Agent」 page: its status (computed when it opens and on 「刷新」) and refusals.
     pub(super) agent: AgentView,
     pub(super) agent_input: Option<AgentInput>,
+    /// The status being worked out (`refresh_agent_status`).
+    agent_task: Option<Task<()>>,
     _observers: [Subscription; 3],
 }
 
@@ -253,6 +255,7 @@ impl SettingsWindow {
             trial_task: None,
             agent: AgentView::default(),
             agent_input: None,
+            agent_task: None,
             _observers: observers,
         };
         this.sync_models(cx);
@@ -677,16 +680,29 @@ impl SettingsWindow {
         }
     }
 
-    /// Where each command name resolves now (spec §5.1 item 3): the app's PATH has no shims directory in it, so the
-    /// first match is the real program.
+    /// Where each command name resolves (spec §5.1 item 3), with the PATH panes get: the login shell's (a
+    /// Finder-launched app's own PATH is only /usr/bin:/bin:…). Reading it can take seconds the first time, so the
+    /// rows are worked out on a thread; a newer refresh replaces (drops) an older one. The login PATH has no shims
+    /// directory in it (it is added per pane), so the first match is the real program.
     pub(super) fn refresh_agent_status(&mut self, cx: &mut Context<Self>) {
-        let agent = &cx.global::<AppSettings>().0.agent;
+        let agent = cx.global::<AppSettings>().0.agent.clone();
         let env = cx.try_global::<crate::launch::ShellEnv>();
         let (shims_dir, shims_error) = env.map(|e| (e.shims_dir.clone(), e.shims_error.clone())).unwrap_or_default();
-        let path = std::env::var_os("PATH").unwrap_or_default();
-        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-        self.agent.status = agent_page::status_rows(&agent.claude_commands, &agent.codex_commands, &path, shims_dir.as_deref(), &home);
-        (self.agent.shims_dir, self.agent.shims_error) = (shims_dir, shims_error);
+        (self.agent.shims_dir, self.agent.shims_error) = (shims_dir.clone(), shims_error);
+        self.agent.status_loading = true;
+        let rx = probe::spawn(move || {
+            let path = shell_path().map(std::ffi::OsString::from).or_else(|| std::env::var_os("PATH")).unwrap_or_default();
+            let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+            agent_page::status_rows(&agent.claude_commands, &agent.codex_commands, &path, shims_dir.as_deref(), &home)
+        });
+        self.agent_task = Some(cx.spawn(async move |this, cx| {
+            let rows = rx.recv().await.unwrap_or_default();
+            let _ = this.update(cx, |view, cx| {
+                view.agent.status = rows;
+                view.agent.status_loading = false;
+                cx.notify();
+            });
+        }));
         cx.notify();
     }
 
@@ -913,6 +929,7 @@ impl SettingsWindow {
                                 .relative()
                                 .children(rects::recorder(RectId::SettingsAgentChipRemove(ki, j)))
                                 .child("×")
+                                .when(readonly, |d| d.opacity(0.5))
                                 .when(!readonly, |d| d.cursor_pointer().on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.remove_agent_command(kind, j, cx)))),
                         ),
                 );
@@ -980,7 +997,11 @@ impl SettingsWindow {
         let can_restore = can_restore(cx);
         let mut status = section(k, t("状态", "Status")).child(
             div().flex().items_center().gap(px(8.)).mb(px(4.)).child(self.agent_button(0, agent_page::button_labels(&self.agent)[0], true, k, cx, |view, cx| view.refresh_agent_status(cx))).child(
-                div().text_size(px(10.5)).text_color(k.muted).child(t("真正的程序是 PATH 里排在垫片后面的第一个", "The real program is the first one on PATH after the shims")),
+                div().text_size(px(10.5)).text_color(k.muted).child(if self.agent.status_loading {
+                    t("正在检查…", "Checking…")
+                } else {
+                    t("真正的程序是 PATH 里排在垫片后面的第一个", "The real program is the first one on PATH after the shims")
+                }),
             ),
         );
         let copy_buttons: std::collections::HashMap<usize, usize> = (3..).zip(self.agent.copy_rows()).map(|(b, (i, _))| (i, b)).collect();
@@ -996,11 +1017,9 @@ impl SettingsWindow {
             let path = r.real_path.as_ref().map_or_else(|| t("找不到", "not found").to_string(), |p| p.display().to_string());
             let shim = if r.shim_ok { t("垫片 ✓", "shim ✓") } else { t("垫片 ✗", "shim ✗") };
             let copy = copy_buttons.get(&i).map(|&b| {
-                let kind = r.kind;
-                let dir = shims_dir.clone();
-                self.agent_button(b, t("复制配置", "Copy Config"), true, k, cx, move |view, cx| {
-                    let cause = crate::agents::hints::Cause::Bypassed { parent: "ttadk".into() };
-                    if let Some(text) = crate::agents::hints::hint(&cause, kind, dir.as_deref()).copy {
+                let line = agent_page::copy_config(r, shims_dir.as_deref());
+                self.agent_button(b, t("复制配置", "Copy Config"), line.is_some(), k, cx, move |view, cx| {
+                    if let Some(text) = line.clone() {
                         view.copy_text(text, cx);
                     }
                 })
@@ -1250,6 +1269,15 @@ impl SettingsWindow {
                 Some(notice_box(if *ok { k.ok } else { k.error }, text.clone()))
             }
         }
+    }
+}
+
+/// The login shell's PATH (what panes get); None: gilvt's own. Tests never start a login shell.
+fn shell_path() -> Option<String> {
+    if cfg!(test) {
+        None
+    } else {
+        crate::monitor::summaries::login_path()
     }
 }
 
@@ -1522,6 +1550,19 @@ mod tests {
         assert_eq!((s.notice.as_deref(), s.notice_error), (None, false), "the switch cleared the notice");
     }
 
+    /// Waits for the status thread's answer (it runs on an OS thread, outside the test executor).
+    fn settle_agent_status(cx: &mut TestAppContext, w: &WindowHandle<SettingsWindow>) -> crate::debug_state::SettingsState {
+        for _ in 0..500 {
+            cx.run_until_parked();
+            let s = cx.update(|cx| w.read(cx).unwrap().debug_state(None, true, 0.0, &Default::default(), cx));
+            if !s.agent.as_ref().is_some_and(|a| a.status_loading) {
+                return s;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the agent status never arrived");
+    }
+
     #[gpui::test]
     fn adding_a_command_writes_the_file_and_rebuilds_nothing_else(cx: &mut gpui::TestAppContext) {
         let dir = tempfile::tempdir().unwrap();
@@ -1568,7 +1609,10 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("claude_launch = \"ttadk claude\"") && text.contains("claude_commands = [\"cc\"]"), "{text}");
         let s = cx.update(|cx| w.read(cx).unwrap().debug_state(None, true, 0.0, &Default::default(), cx));
+        assert!(s.agent.unwrap().status_loading, "status is worked out off the UI thread");
+        let s = settle_agent_status(cx, &w);
         let a = s.agent.unwrap();
+        assert!(!a.status_loading);
         assert_eq!(a.launch.claude.preview[1], "ttadk claude --resume <会话 ID>");
         assert_eq!(a.status.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["cc", "codex"], "status follows the lists");
     }

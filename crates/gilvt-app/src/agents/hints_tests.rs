@@ -39,13 +39,26 @@ fn no_hint_when_wrappers_are_off_or_unknown() {
 
 #[test]
 fn ttadk_hint_copies_its_config_line() {
-    let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, Some(Path::new("/L/gilvt/shims")));
+    let shims = Some(Path::new("/L/gilvt/shims"));
+    let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, shims, &l(&["claude", "cc"]));
     assert_eq!(h.copy.as_deref(), Some(r#""claude": "/L/gilvt/shims/claude""#));
     assert!(h.text.contains("ttadk"));
-    let g = hint(&Cause::Bypassed { parent: "perl".into() }, Codex, Some(Path::new("/L/gilvt/shims")));
+    let g = hint(&Cause::Bypassed { parent: "perl".into() }, Codex, shims, &l(&["codex"]));
     assert_eq!(g.copy.as_deref(), Some("/L/gilvt/shims/codex"));
-    let u = hint(&Cause::Unlisted { word: "cc".into(), kind: Claude }, Claude, None);
+    let u = hint(&Cause::Unlisted { word: "cc".into(), kind: Claude }, Claude, None, &l(&["claude"]));
     assert_eq!(u.copy, None);
+}
+
+#[test]
+fn the_copied_shim_is_one_that_is_installed() {
+    let shims = Some(Path::new("/L/gilvt/shims"));
+    // Only names in the list have a shim: `claude_commands = ["cc"]` leaves no `<shims>/claude`.
+    let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, shims, &l(&["cc"]));
+    assert_eq!(h.copy.as_deref(), Some(r#""claude": "/L/gilvt/shims/cc""#));
+    assert_eq!(hint(&Cause::Bypassed { parent: "perl".into() }, Codex, shims, &l(&["cw"])).copy.as_deref(), Some("/L/gilvt/shims/cw"));
+    assert_eq!(hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, shims, &[]).copy, None, "no names: no shim to point at");
+    assert_eq!(hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, None, &l(&["claude"])).copy, None, "no shims directory");
+    assert_eq!(ttadk_line(Codex, Path::new("/L/s/cw")), r#""codex": "/L/s/cw""#);
 }
 
 #[test]

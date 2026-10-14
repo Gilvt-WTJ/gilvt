@@ -66,6 +66,13 @@ pub fn launch_preview(kind: AgentKind, launch: &str) -> (String, String) {
     (new, resume)
 }
 
+/// 「复制配置」 of a ttadk row: ttadk's line pointing the agent at this row's own shim; None when that shim is not
+/// in place (pasting it would break ttadk).
+pub fn copy_config(row: &StatusRow, shims_dir: Option<&Path>) -> Option<String> {
+    let dir = shims_dir.filter(|_| row.shim_ok)?;
+    Some(crate::agents::hints::ttadk_line(row.kind, &dir.join(&row.name)))
+}
+
 /// 0 Claude, 1 Codex: the index of a kind's row, input and RectIds.
 pub fn kind_index(kind: AgentKind) -> usize {
     match kind {
@@ -88,6 +95,8 @@ pub enum AgentField {
 pub struct AgentView {
     /// Computed when the page opens and on 「刷新」.
     pub status: Vec<StatusRow>,
+    /// The status is being worked out (with the login shell's PATH, off the UI thread).
+    pub status_loading: bool,
     pub shims_dir: Option<PathBuf>,
     pub shims_error: Option<String>,
     /// The open text box and its text.
@@ -170,6 +179,16 @@ mod tests {
         assert_eq!(launch_preview(Codex, "ttadk codex --x 'a b'").0, "ttadk codex --x 'a b'");
         assert_eq!(launch_preview(Codex, "ttadk \"a b\"").0, "ttadk 'a b'");
         assert_eq!(launch_preview(Codex, "ttadk 'x").0, "ttadk 'x", "an open quote is shown as typed");
+    }
+
+    #[test]
+    fn copy_config_names_the_rows_own_shim() {
+        let row = StatusRow { name: "cc".into(), kind: Claude, real_path: None, shim_ok: true, problem: Some(Problem::BypassedByTtadk) };
+        let shims = Path::new("/L/shims");
+        assert_eq!(copy_config(&row, Some(shims)).as_deref(), Some(r#""claude": "/L/shims/cc""#));
+        assert_eq!(copy_config(&row, None), None);
+        let missing = StatusRow { shim_ok: false, ..row };
+        assert_eq!(copy_config(&missing, Some(shims)), None, "never point ttadk at a shim that is not there");
     }
 
     #[test]

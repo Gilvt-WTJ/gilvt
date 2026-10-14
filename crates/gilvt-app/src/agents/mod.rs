@@ -139,7 +139,12 @@ fn note_lite_binding(d: &Discovery, cx: &mut App) {
     if h.dismissed.contains(&cause) {
         return;
     }
-    let hint = hints::hint(&cause, d.agent, shims.as_deref());
+    let agent = &cx.global::<AppSettings>().0.agent;
+    let names = match d.agent {
+        gilvt_agent::AgentKind::Claude => &agent.claude_commands,
+        gilvt_agent::AgentKind::Codex => &agent.codex_commands,
+    };
+    let hint = hints::hint(&cause, d.agent, shims.as_deref(), names);
     cx.global_mut::<AgentHints>().by_pane.insert(d.pane, hint);
 }
 

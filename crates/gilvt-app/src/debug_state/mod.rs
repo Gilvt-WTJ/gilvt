@@ -1545,6 +1545,8 @@ pub struct SettingsAgent {
     pub launch: AgentLaunch,
     /// One row per command name, Claude's first.
     pub status: Vec<AgentStatus>,
+    /// The status is being worked out (the page shows 「正在检查…」); `status` is the previous one meanwhile.
+    pub status_loading: bool,
     pub shims_dir: Option<String>,
     /// Why the shims directory could not be set up.
     pub shims_error: Option<String>,
@@ -1615,7 +1617,7 @@ pub struct SettingsButton {
 /// A page in the settings window's nav column.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsPage {
-    /// "appearance" | "language" | "monitor".
+    /// "appearance" | "language" | "monitor" | "agent".
     pub id: &'static str,
     pub label: &'static str,
     /// The page shown.

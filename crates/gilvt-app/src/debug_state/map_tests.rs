@@ -444,7 +444,7 @@ fn foreground_via_maps_to_debug_values() {
 #[test]
 fn agent_hint_lists_its_buttons_in_drawing_order() {
     use crate::agents::hints::{hint, Cause};
-    let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, AgentKind::Claude, Some(std::path::Path::new("/L/shims")));
+    let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, AgentKind::Claude, Some(std::path::Path::new("/L/shims")), &["claude".to_string()]);
     let ds = super::agent_hint(&h, |i| (i == 0).then_some([1.0, 2.0, 3.0, 4.0]));
     assert_eq!(ds.cause, "bypassed");
     assert_eq!(ds.text, h.text);

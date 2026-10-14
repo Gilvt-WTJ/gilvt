@@ -464,7 +464,7 @@ mod tests {
 
         let mut hinted = card(Tone::Running, None, None, vec![]);
         let cause = crate::agents::hints::Cause::Bypassed { parent: "ttadk".into() };
-        hinted.hint = Some(crate::agents::hints::hint(&cause, gilvt_agent::AgentKind::Claude, None));
+        hinted.hint = Some(crate::agents::hints::hint(&cause, gilvt_agent::AgentKind::Claude, None, &[]));
         assert_ne!(Head { banner: None, card: hinted, plan: None, failed: false }.signature(), base_sig);
     }
 }

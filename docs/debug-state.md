@@ -119,7 +119,7 @@ pane（`panes[]`）：
 | `commands` | 数组 | 终端 pane：shell 集成（OSC 133）记下的最近 10 条命令块，**最新在前**：`[{ "id", "command", "exit", "running", "has_output", "error_line" }]`。`id` 在 pane 内递增；`command` 是输入的命令原文（shell 没发来时为 `null`，超长截断并以 `…` 结尾）；`exit` 是退出码（还在运行、或没看到结束时为 `null`）；`running` 表示还在运行；`has_output` 表示抓到了输出尾部（备用屏或读不到时为 `false`）；`error_line` 是命令失败时输出的最后一个非空行（S2 起来自 PTY 精确捕获），否则为 `null`。只在内存里，不含输出文字。其他 pane 为 `[]` |
 | `running_command` | 字符串或 `null` | 终端 pane：正在运行的命令（shell 没发原文时为 `""`）；没有在运行的命令、其他 pane 为 `null` |
 | `foreground_via` | 字符串、对象或 `null` | 终端 pane 前台是 agent 时，它是怎么找到的：`"leader"`（前台进程组组长就是 agent），或 `{ "descendant": "<父进程名>" }`（包装器启动的，如 `{ "descendant": "ttadk" }`；node / bun 脚本取脚本文件名）。不是 agent、其他 pane 为 `null` |
-| `agent_hint` | 对象或 `null` | 这个 pane 的精简会话为什么没有 hooks（agent-shims §4.2）：`{ cause, text, buttons: [{ label, rect }] }`。`cause` 为 `"bypassed"`（包装器绕过了垫片）或 `"unlisted"`（输入的命令不在识别列表里）；`text` 是提示原文；`buttons` 按显示顺序：「复制配置」（有可复制内容时）→「加入」（`unlisted`）→「Agent 设置…」→「不再提示」，`rect` 只在检查器正显示这个 pane 的提示时有值，否则为 `null`。会话结束、点「不再提示」或「加入」成功后变回 `null`；设置了 `GILVT_NO_AGENT_WRAPPERS` 时总是 `null` |
+| `agent_hint` | 对象或 `null` | 这个 pane 的精简会话为什么没有 hooks（agent-shims §4.2）：`{ cause, text, buttons: [{ label, rect }] }`。`cause` 为 `"bypassed"`（包装器绕过了垫片）或 `"unlisted"`（输入的命令不在识别列表里）；`text` 是提示原文；`buttons` 按显示顺序：「复制配置」（有可复制内容时：复制的路径是这类 agent 识别列表里第一个名字的垫片，例如 `claude_commands = ["cc"]` 时是 `"claude": "<垫片目录>/cc"`；列表为空或没有垫片目录时没有这个按钮）→「加入」（`unlisted`）→「Agent 设置…」→「不再提示」，`rect` 只在检查器正显示这个 pane 的提示时有值，否则为 `null`。会话结束、点「不再提示」或「加入」成功后变回 `null`；设置了 `GILVT_NO_AGENT_WRAPPERS` 时总是 `null` |
 | `host` | 字符串或 `null` | 终端：所在的主机；预览、编辑器：所显示文件的主机（`local` 或 `user@hostname:port`；stdin 预览为 `null`）；监控官为 `null` |
 | `remote` | 对象或 `null` | 终端 pane 处在 ssh 里时：`{ link, host, display, hostname, enhanced, cwd }`。`display` 是用户输入的主机名；`hostname` 是远端 `uname -n`；`enhanced`：经由 gilvt-remote 登录（装了远端组件）；`cwd`：远端 shell 上报的目录（OSC 7），未知为 `null`。此时上面的 `cwd` 为 `null` |
 | `loading` | 布尔 | 预览、编辑器在等远端主机的回应（R2a §8）；终端为 false |
@@ -573,9 +573,10 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 | `commands` | 对象 | `{ claude, codex, add, input, input_text }`：`claude` / `codex` 是命令名标签 `[{ name, rect, remove_rect }]`（`remove_rect` 是标签上的 ×，点了删除这个名字）；`add` 是两组末尾「+」的 rect `[Claude, Codex]`；`input` 是「+」前面输入框的 rect（点它打开输入框，输入后 ⏎ 或点「+」添加）；`input_text` 是打开的输入框里的文字，关着时为 `null` |
 | `launch` | 对象 | `{ claude, codex }`，每个 `{ text, editing, preview, error, rect }`：`text` 是启动命令（输入框打开时是正在输入的文字），`editing` 表示输入框开着，`preview` 是 `[新建, 恢复]` 两行预览（如 `ttadk claude`、`ttadk claude --resume <会话 ID>`；Codex 的恢复是 `… resume <会话 ID>`，英文界面是 `<session ID>`），`error` 是上次输入被拒绝的原因（第一个词不是合法命令名、引号没闭合），`rect` 是输入框（点它打开，⏎ 保存） |
 | `status` | 数组 | 每个命令名一行，Claude 的在前：`{ name, kind, real_path, shim_ok, problem, button }`；`kind` 为 `claude` / `codex`；`real_path` 是 PATH 里第一个不是垫片的同名程序，找不到为 `null`；`shim_ok` 是垫片目录里有这个名字的垫片；`problem` 为 `null`、`not_found`（找不到命令）或 `bypassed_by_ttadk`（真正的程序在 `~/.local/bin` 或 `~/.claude/local`，ttadk 会绕过垫片）；`button` 是这一行「复制配置」在 `buttons` 里的下标（只有 `bypassed_by_ttadk` 行有） |
+| `status_loading` | 布尔 | 正在计算 `status`（页面显示「正在检查…」）；这期间 `status` 是上一次的结果（第一次为空数组）。计算用的是登录 shell 的 PATH（与 pane 里一致；第一次读取可能要几秒），读不到时用 gilvt 自己的 PATH。用例应先 `wait 'settings.agent.status_loading == false'` 再断言 `status` |
 | `shims_dir` | 字符串或 `null` | 垫片目录 |
 | `shims_error` | 字符串或 `null` | 垫片目录建不起来的原因（页面顶部的黄色横幅） |
-| `buttons` | 数组 | `{ label, enabled, rect }`，顺序固定：0「↻ 刷新」（重新计算 `status`）、1「复制」（复制垫片目录；没有目录时 `enabled` 为假）、2「恢复所有已关闭的提示」（没有关闭过的提示时 `enabled` 为假），3 起每个 `bypassed_by_ttadk` 行一个「复制配置」 |
+| `buttons` | 数组 | `{ label, enabled, rect }`，顺序固定：0「↻ 刷新」（重新计算 `status`）、1「复制」（复制垫片目录；没有目录时 `enabled` 为假）、2「恢复所有已关闭的提示」（没有关闭过的提示时 `enabled` 为假），3 起每个 `bypassed_by_ttadk` 行一个「复制配置」（复制 `"<kind>": "<垫片目录>/<name>"`，即这一行自己的垫片；`shim_ok` 为假或没有垫片目录时 `enabled` 为假） |
 
 `status` 在打开这一页、点「刷新」和改动命令名之后计算。添加、删除命令名和保存启动命令立即生效（重建垫片，对新开的 pane 生效）并写入 `config.toml` 的 `[agent]` 表；被拒绝时（名字不合法、已在另一组里、`config.toml` 有语法错误）原因在顶层 `notice`（`notice_error` 为真），启动命令的拒绝原因在 `launch.*.error`。复制、恢复提示成功时 `notice` 是一行说明（`notice_error` 为假）。
 

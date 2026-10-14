@@ -82,8 +82,15 @@ fn label(k: AgentKind) -> &'static str {
     }
 }
 
-pub fn hint(cause: &Cause, agent: AgentKind, shims_dir: Option<&Path>) -> Hint {
-    let shim = shims_dir.map(|d| d.join(agent.name()).display().to_string());
+/// ttadk's `ai_tool_commands` line pointing `agent` at `shim`.
+pub fn ttadk_line(agent: AgentKind, shim: &Path) -> String {
+    format!("\"{}\": \"{}\"", agent.name(), shim.display())
+}
+
+/// `names` is the agent's command list: only those names have a shim, so 「复制配置」 points at the first of them
+/// (no copy without a name or a shims directory).
+pub fn hint(cause: &Cause, agent: AgentKind, shims_dir: Option<&Path>, names: &[String]) -> Hint {
+    let shim = shims_dir.zip(names.first()).map(|(d, n)| d.join(n));
     match cause {
         Cause::Bypassed { parent } if parent == "ttadk" => Hint {
             cause: cause.clone(),
@@ -92,7 +99,7 @@ pub fn hint(cause: &Cause, agent: AgentKind, shims_dir: Option<&Path>) -> Hint {
             } else {
                 format!("ttadk 启动的 {0} 没有经过 gilvt，只能用精简模式。把 ~/.ttadk/setting.json 里 ai_tool_commands 的 {0} 指向 gilvt 的垫片即可。", agent.name())
             },
-            copy: shim.map(|s| format!("\"{}\": \"{s}\"", agent.name())),
+            copy: shim.map(|s| ttadk_line(agent, &s)),
         },
         Cause::Bypassed { parent } => Hint {
             cause: cause.clone(),
@@ -101,7 +108,7 @@ pub fn hint(cause: &Cause, agent: AgentKind, shims_dir: Option<&Path>) -> Hint {
             } else {
                 format!("{parent} 直接启动了 {}，没有经过 gilvt，只能用精简模式。让它改为调用 gilvt 的垫片即可。", agent.name())
             },
-            copy: shim,
+            copy: shim.map(|s| s.display().to_string()),
         },
         Cause::Unlisted { word, kind } => Hint {
             cause: cause.clone(),

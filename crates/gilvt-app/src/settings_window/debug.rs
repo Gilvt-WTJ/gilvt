@@ -118,7 +118,8 @@ fn agent(view: &agent_page::AgentView, settings: &Settings, at: &dyn Fn(RectId) 
         LaunchField { text, editing: open.is_some(), preview: [new, resume], error: view.launch_error[k].clone(), rect: at(RectId::SettingsAgentLaunch(k)) }
     };
     let mut copy = (3..).zip(view.copy_rows()).map(|(b, (i, _))| (i, b)).collect::<HashMap<_, _>>();
-    let enabled = [true, view.shims_dir.is_some(), view.can_restore];
+    let mut enabled = vec![true, view.shims_dir.is_some(), view.can_restore];
+    enabled.extend(view.copy_rows().map(|(_, r)| agent_page::copy_config(r, view.shims_dir.as_deref()).is_some()));
     SettingsAgent {
         commands: AgentCommands {
             claude: chips(0, &settings.agent.claude_commands),
@@ -141,6 +142,7 @@ fn agent(view: &agent_page::AgentView, settings: &Settings, at: &dyn Fn(RectId) 
                 button: copy.remove(&i),
             })
             .collect(),
+        status_loading: view.status_loading,
         shims_dir: view.shims_dir.as_ref().map(|d| d.display().to_string()),
         shims_error: view.shims_error.clone(),
         buttons: agent_page::button_labels(view)
@@ -322,6 +324,10 @@ mod tests {
         let a = state.agent.unwrap();
         assert_eq!(a.commands.claude.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["claude"]);
         assert_eq!(a.status[0].problem, Some("not_found"));
+        assert!(!a.status_loading);
+        p.agent.status_loading = true;
+        let a = build(&p, &settings(MonitorSettings::default()), file(None), None, true, 28.0, &HashMap::new()).agent.unwrap();
+        assert!(a.status_loading, "checking with the login shell's PATH");
     }
 
     #[test]
@@ -331,6 +337,7 @@ mod tests {
         p.agent = agent_page::AgentView::for_tests();
         p.agent.status[0].problem = Some(agent_page::Problem::BypassedByTtadk);
         p.agent.status[0].real_path = Some("/h/.local/bin/claude".into());
+        p.agent.status[0].shim_ok = true;
         p.agent.shims_dir = Some("/h/Library/Application Support/gilvt/shims".into());
         p.agent.editing = Some((agent_page::AgentField::Launch(gilvt_agent::AgentKind::Codex), "ttadk codex".into()));
         p.agent.launch_error[1] = Some("bad".into());
