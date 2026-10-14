@@ -177,7 +177,7 @@
 | AE1 | `fakewrap claude @scenario:remote-approval`（经包装器启动） | 侧栏出现这个会话并进入等待审批（说明 hooks 生效）；`foreground_via` 为 descendant |
 | AE2 | 运行最后执行 `exec codex` 的 `codex-w` 脚本，不改任何配置 | 完整识别（不是精简模式） |
 | AE3 | agent 运行中，在它的 Bash 工具里执行 `claude -p` | 外层会话仍然绑定在这个 pane 上，侧栏没有新增行 |
-| AE4 | `claude -p hi \| cat` | 不进侧栏 |
+| AE4 | `claude … \| cat`（输出不是终端） | 不加 hooks：侧栏没有非精简的会话行（管道里 claude 是前台组长，可能以精简模式显示） |
 | AE5 | 设置 `FAKEWRAP_PREPEND` 模拟被绕过 | 精简模式，`agent_hint.cause == "bypassed"`；点「复制配置」后剪贴板内容正确 |
 | AE6 | 运行一个改了名字的 agent 程序 | `agent_hint.cause == "unlisted"`；点「加入」后配置文件里多了这个名字，新开的 pane 中完整识别 |
 | AE7 | ⌘, 打开 Agent 页，添加和删除命令名 | 列表和配置文件同步；状态行显示真实路径；模拟的 `~/.local/bin` 程序显示警告 |
