@@ -3,6 +3,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 use gilvt_ipc::remote::{ChangeEntry, ChangeStatus};
 
@@ -12,8 +13,33 @@ fn git(dir: &Path) -> Command {
     c
 }
 
+/// Whether `git` can run here. On macOS without the Command Line Tools `/usr/bin/git` is only a stub that opens an
+/// install dialog on that Mac's screen, so it counts as no git (spec macOS §4.4). Checked once per process.
+pub fn available() -> bool {
+    static AVAILABLE: OnceLock<bool> = OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        let found = std::env::var_os("PATH").and_then(|p| {
+            std::env::split_paths(&p).map(|d| d.join("git")).find(|g| g.is_file())
+        });
+        usable(found.as_deref(), cfg!(target_os = "macos"), || {
+            Command::new("xcode-select").arg("-p").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+        })
+    })
+}
+
+fn usable(git: Option<&Path>, macos: bool, clt_installed: impl FnOnce() -> bool) -> bool {
+    match git {
+        None => false,
+        Some(g) if macos && g == Path::new("/usr/bin/git") => clt_installed(),
+        Some(_) => true,
+    }
+}
+
 /// Top-level directory of the repository containing `dir` (a directory or a file's parent).
 pub fn repo_root(dir: &Path) -> Option<PathBuf> {
+    if !available() {
+        return None;
+    }
     let out = git(dir).args(["rev-parse", "--show-toplevel"]).output().ok()?;
     if !out.status.success() {
         return None;
@@ -115,6 +141,19 @@ pub(crate) mod testrepo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_command_line_tools_stub_is_no_git() {
+        let stub = Path::new("/usr/bin/git");
+        let brew = Path::new("/opt/homebrew/bin/git");
+        // macOS: /usr/bin/git without the Command Line Tools would pop up an install dialog on that Mac's screen.
+        assert!(!usable(None, true, || true), "no git on PATH");
+        assert!(!usable(Some(stub), true, || false));
+        assert!(usable(Some(stub), true, || true), "CLT installed");
+        assert!(usable(Some(brew), true, || panic!("not asked for another git")));
+        // Elsewhere /usr/bin/git is a real git.
+        assert!(usable(Some(stub), false, || panic!("not asked on Linux")));
+    }
 
     #[test]
     fn root_show_and_changes() {

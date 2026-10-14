@@ -88,3 +88,15 @@ usage:
   gilvt view --as TYPE -                             preview standard input
   gilvt diff [REV]                                   preview changes against REV (default HEAD)
 ";
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_remote_never_records_leases() {
+        // Leases are the only path to the macOS process scan (gilvt-agent runtime_for_hook); a macOS host must not run it
+        // (spec macOS §8.1).
+        let home = tempfile::tempdir().unwrap();
+        let cfg = super::hook_config(&crate::paths::Layout::from_home(home.path()), "0.3.1-aaaaaaaa");
+        assert!(!cfg.lease && cfg.remote);
+    }
+}
