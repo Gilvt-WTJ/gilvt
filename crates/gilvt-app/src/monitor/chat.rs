@@ -683,7 +683,7 @@ mod tests {
     fn send_without_the_gilvt_cli_shows_a_card(cx: &mut TestAppContext) {
         setup(cx, true);
         cx.update(|cx| {
-            cx.set_global(ShellEnv { integration: None, socket: None, bin_dir: None, user: None });
+            cx.set_global(ShellEnv { integration: None, socket: None, bin_dir: None, user: None, shims_dir: None, shims_error: None });
             send(out("哪些需要我？"), cx);
             let v = view(cx);
             assert_eq!(v.conv.status, Status::Error);
@@ -1070,7 +1070,7 @@ mod tests {
             let f = running(cx, true);
             // The restart's own start finds no CLI (a bare name nowhere on PATH; Codex writes no file first).
             std::fs::write(f.dir.path().join("gilvt"), "").unwrap();
-            cx.set_global(ShellEnv { integration: None, socket: Some(f.dir.path().join("sock")), bin_dir: Some(f.dir.path().to_path_buf()), user: None });
+            cx.set_global(ShellEnv { integration: None, socket: Some(f.dir.path().join("sock")), bin_dir: Some(f.dir.path().to_path_buf()), user: None, shims_dir: None, shims_error: None });
             {
                 let m = &mut cx.global_mut::<AppSettings>().0.monitor;
                 m.provider = MonitorProvider::Codex;

@@ -369,6 +369,10 @@ pub fn apply_settings(new: Settings, cx: &mut App) -> Vec<String> {
         crate::i18n::set_current(cx.global::<AppSettings>().0.language);
         cx.set_menus(crate::actions::menus(cx.global::<AppSettings>().0.language));
     }
+    if cx.has_global::<crate::launch::ShellEnv>() {
+        let settings = cx.global::<AppSettings>().0.clone();
+        cx.update_global::<crate::launch::ShellEnv, _>(|env, _| crate::launch::refresh_shims(&settings, env));
+    }
     let mut theme_errors = Vec::new();
     if theme_changed && cx.has_global::<crate::theme::ThemeState>() {
         cx.update_global::<crate::theme::ThemeState, _>(|t, _| t.reconfigure(selection, overrides));

@@ -1069,7 +1069,7 @@ mod tests {
     fn the_chat_test_needs_the_monitor_on() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("gilvt"), "").unwrap();
-        let env = crate::launch::ShellEnv { integration: None, socket: Some(dir.path().join("sock")), bin_dir: Some(dir.path().to_path_buf()), user: None };
+        let env = crate::launch::ShellEnv { integration: None, socket: Some(dir.path().join("sock")), bin_dir: Some(dir.path().to_path_buf()), user: None, shims_dir: None, shims_error: None };
         assert_eq!(chat_launch(true, Some(&env)), Ok((dir.path().join("gilvt"), dir.path().join("sock"))));
         // Off: no token is issued (the switch promises no data leaves), so the chat half is not tried.
         assert_eq!(chat_launch(false, Some(&env)), Err("监控官未开启".to_string()));

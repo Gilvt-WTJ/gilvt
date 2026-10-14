@@ -7,6 +7,10 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- Claude Code / Codex started by another program in a gilvt pane — `ttadk claude`, `ttadk codex`, a script, a Makefile — is recognized like one you type: gilvt puts small shims for the agent commands first on the pane's PATH (only inside gilvt; no global config is changed). Calls whose input or output is not the terminal (`claude -p … | cat`) are left alone.
+
 ## [0.4.1] - 2026-10-14
 
 ### Fixed

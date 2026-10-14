@@ -2166,6 +2166,7 @@ dependencies = [
  "async-channel 2.5.0",
  "block2",
  "gilvt-agent",
+ "gilvt-client",
  "gilvt-config",
  "gilvt-editor",
  "gilvt-finder",

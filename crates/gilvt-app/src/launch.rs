@@ -25,6 +25,10 @@ pub struct ShellEnv {
     pub bin_dir: Option<PathBuf>,
     /// User name and login shell from the password database.
     pub user: Option<(String, String)>,
+    /// The agent shims directory (agent-shims spec §3), when it could be set up.
+    pub shims_dir: Option<PathBuf>,
+    /// Why the shims directory could not be set up (shown on the Agent settings page).
+    pub shims_error: Option<String>,
 }
 
 impl Global for ShellEnv {}
@@ -73,7 +77,23 @@ impl ShellEnv {
             .ok()
             .and_then(|exe| exe.parent().map(Path::to_path_buf))
             .filter(|dir| dir.join("gilvt").is_file());
-        ShellEnv { integration, socket, bin_dir, user: gilvt_shell::user_and_shell() }
+        let mut env = ShellEnv { integration, socket, bin_dir, user: gilvt_shell::user_and_shell(), shims_dir: None, shims_error: None };
+        refresh_shims(settings, &mut env);
+        env
+    }
+}
+
+/// Rebuilds the shims for the current `[agent]` lists (startup and every settings change).
+pub fn refresh_shims(settings: &Settings, env: &mut ShellEnv) {
+    refresh_shims_in(settings, env, gilvt_client::shim::default_dir());
+}
+
+fn refresh_shims_in(settings: &Settings, env: &mut ShellEnv, dir: Option<PathBuf>) {
+    let names: Vec<String> = settings.agent.claude_commands.iter().chain(&settings.agent.codex_commands).cloned().collect();
+    match dir.map(|d| gilvt_client::shim::install(&d, &names).map(|()| d)) {
+        Some(Ok(d)) => (env.shims_dir, env.shims_error) = (Some(d), None),
+        Some(Err(e)) => (env.shims_dir, env.shims_error) = (None, Some(e.to_string())),
+        None => (env.shims_dir, env.shims_error) = (None, Some("HOME is not set".into())),
     }
 }
 
@@ -113,7 +133,15 @@ pub fn session_options(settings: &Settings, env: &ShellEnv, pane: PaneId, cwd: O
         // Profile scripts may reorder PATH; the prompt hooks move GILVT_BIN_DIR back to the front.
         opts.env.insert("GILVT_BIN_DIR".into(), bin.clone());
         let path = getenv("PATH").unwrap_or_else(|| "/usr/bin:/bin:/usr/sbin:/sbin".into());
-        opts.env.insert("PATH".into(), format!("{bin}:{path}"));
+        let front = match &env.shims_dir {
+            Some(s) => {
+                let s = s.display().to_string();
+                opts.env.insert(gilvt_client::shim::ENV_SHIMS_DIR.into(), s.clone());
+                format!("{s}:{bin}")
+            }
+            None => bin,
+        };
+        opts.env.insert("PATH".into(), format!("{front}:{path}"));
     }
     opts
 }
@@ -140,8 +168,44 @@ mod tests {
             socket: Some("/tmp/gilvt-501/42.sock".into()),
             bin_dir: Some("/Apps/gilvt/bin".into()),
             user: Some(("me".into(), "/bin/zsh".into())),
+            shims_dir: None,
+            shims_error: None,
         };
         (env, dir)
+    }
+
+    #[test]
+    fn shims_go_first_on_path_and_are_named_in_the_env() {
+        let (mut e, _dir) = env(false);
+        e.shims_dir = Some("/Lib/gilvt/shims".into());
+        let o = session_options(&Settings::default(), &e, 1, None, getenv);
+        assert_eq!(o.env.get("PATH").map(String::as_str), Some("/Lib/gilvt/shims:/Apps/gilvt/bin:/usr/bin:/bin"));
+        assert_eq!(o.env.get("GILVT_SHIMS_DIR").map(String::as_str), Some("/Lib/gilvt/shims"));
+    }
+
+    #[test]
+    fn without_shims_path_is_as_before() {
+        let (e, _dir) = env(false);
+        let o = session_options(&Settings::default(), &e, 1, None, getenv);
+        assert_eq!(o.env.get("PATH").map(String::as_str), Some("/Apps/gilvt/bin:/usr/bin:/bin"));
+        assert!(!o.env.contains_key("GILVT_SHIMS_DIR"));
+    }
+
+    #[test]
+    fn refresh_shims_installs_both_lists_and_reports_failures() {
+        let d = tempfile::tempdir().unwrap();
+        let mut settings = Settings::default();
+        settings.agent.codex_commands = vec!["codex".into(), "cw".into()];
+        let mut e = ShellEnv::default();
+        refresh_shims_in(&settings, &mut e, Some(d.path().join("shims")));
+        assert_eq!(e.shims_dir, Some(d.path().join("shims")));
+        for n in ["claude", "codex", "cw"] {
+            assert!(gilvt_client::shim::is_shim(&d.path().join("shims").join(n)), "{n}");
+        }
+        std::fs::write(d.path().join("file"), "").unwrap();
+        refresh_shims_in(&settings, &mut e, Some(d.path().join("file").join("shims")));
+        assert_eq!(e.shims_dir, None);
+        assert!(e.shims_error.is_some());
     }
 
     fn getenv(k: &str) -> Option<String> {
