@@ -142,12 +142,10 @@ impl Dismissed {
         self.0.insert(c.key());
     }
 
-    #[allow(dead_code)] // The Agent settings page's 「恢复所有已关闭的提示」 (Task 8).
     pub fn clear(&mut self) {
         self.0.clear();
     }
 
-    #[allow(dead_code)] // The Agent settings page (Task 8).
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

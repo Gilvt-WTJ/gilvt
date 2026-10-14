@@ -93,7 +93,7 @@ fn refresh_shims_in(settings: &Settings, env: &mut ShellEnv, dir: Option<PathBuf
     match dir.map(|d| gilvt_client::shim::install(&d, &names).map(|()| d)) {
         Some(Ok(d)) => (env.shims_dir, env.shims_error) = (Some(d), None),
         Some(Err(e)) => (env.shims_dir, env.shims_error) = (None, Some(e.to_string())),
-        None => (env.shims_dir, env.shims_error) = (None, Some("HOME is not set".into())),
+        None => (env.shims_dir, env.shims_error) = (None, Some(crate::i18n::text("没有设置 HOME 环境变量", "HOME is not set").into())),
     }
 }
 

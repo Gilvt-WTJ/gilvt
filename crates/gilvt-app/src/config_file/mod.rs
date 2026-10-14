@@ -451,6 +451,48 @@ pub fn set_agent_commands(kind: gilvt_agent::AgentKind, names: Vec<String>, cx: 
     Ok(())
 }
 
+/// Replaces `[agent]`'s `claude_launch` / `codex_launch` (the Agent page): what ⌘⇧N / ⌘⇧R type. Only the first
+/// word must be a plain command name (spec §5.2); the rest are arguments.
+pub fn set_agent_launch(kind: gilvt_agent::AgentKind, launch: String, cx: &mut App) -> Result<(), String> {
+    if readonly(cx) {
+        return Err(crate::i18n::text(
+            "config.toml 有语法错误，修好之前不能修改",
+            "config.toml has a syntax error and cannot be changed until it is fixed",
+        )
+        .into());
+    }
+    let launch = launch.trim().to_string();
+    let first_ok = gilvt_agent::launch::split_command(&launch)
+        .and_then(|w| w.into_iter().next())
+        .is_some_and(|w| gilvt_client::shim::name_ok(&w));
+    if !first_ok {
+        return Err(if crate::i18n::english() {
+            format!("\"{launch}\": the first word must be a command name (letters, digits, . _ + -), with any quotes closed")
+        } else {
+            format!("「{launch}」的第一个词必须是命令名（字母、数字、. _ + -），引号要成对")
+        });
+    }
+    let mut settings = cx.global::<AppSettings>().0.clone();
+    let key = match kind {
+        gilvt_agent::AgentKind::Claude => {
+            settings.agent.claude_launch = launch.clone();
+            "claude_launch"
+        }
+        gilvt_agent::AgentKind::Codex => {
+            settings.agent.codex_launch = launch.clone();
+            "codex_launch"
+        }
+    };
+    apply_settings(settings, cx);
+    let change = Changes {
+        agent: vec![(key, edit::TomlValue::Str(launch))],
+        ..Changes::default()
+    };
+    let pending = cx.global::<ConfigFile>().unsaved.then(&change);
+    write(pending, cx);
+    Ok(())
+}
+
 fn refresh_all(cx: &mut App) {
     for handle in cx.windows() {
         let _ = handle.update(cx, |_, window, _| window.refresh());

@@ -4,9 +4,10 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::form::{self, CodexModels, FieldId, Notice, TestState};
-use super::Page;
+use super::{agent_page, Page};
 use crate::debug_state::rects::{in_frame, Rect4, RectId};
 use crate::debug_state::{
+    AgentChip, AgentCommands, AgentLaunch, AgentStatus, LaunchField, SettingsAgent, SettingsButton,
     AppearanceState, SettingsField, SettingsLanguage, SettingsOption, SettingsOther, SettingsPage,
     SettingsState, SettingsTest,
 };
@@ -25,6 +26,8 @@ pub struct PageState {
     pub notice: Option<Notice>,
     pub codex: CodexModels,
     pub test: TestState,
+    /// The 「⌘ Agent」 page.
+    pub agent: agent_page::AgentView,
 }
 
 pub struct FileView<'a> {
@@ -98,6 +101,53 @@ pub fn build(
             })
             .collect(),
         appearance: page.appearance.clone(),
+        agent: (page.page == Page::Agent).then(|| agent(&page.agent, settings, &at)),
+    }
+}
+
+fn agent(view: &agent_page::AgentView, settings: &Settings, at: &dyn Fn(RectId) -> Option<Rect4>) -> SettingsAgent {
+    let chips = |k: usize, names: &[String]| {
+        names.iter().enumerate().map(|(j, n)| AgentChip { name: n.clone(), rect: at(RectId::SettingsAgentChip(k, j)), remove_rect: at(RectId::SettingsAgentChipRemove(k, j)) }).collect()
+    };
+    let editing = |field: agent_page::AgentField| view.editing.as_ref().filter(|(f, _)| *f == field).map(|(_, t)| t.clone());
+    let launch = |kind: gilvt_agent::AgentKind| {
+        let k = agent_page::kind_index(kind);
+        let open = editing(agent_page::AgentField::Launch(kind));
+        let text = open.clone().unwrap_or_else(|| settings.agent.launch(kind).to_string());
+        let (new, resume) = agent_page::launch_preview(kind, &text);
+        LaunchField { text, editing: open.is_some(), preview: [new, resume], error: view.launch_error[k].clone(), rect: at(RectId::SettingsAgentLaunch(k)) }
+    };
+    let mut copy = (3..).zip(view.copy_rows()).map(|(b, (i, _))| (i, b)).collect::<HashMap<_, _>>();
+    let enabled = [true, view.shims_dir.is_some(), view.can_restore];
+    SettingsAgent {
+        commands: AgentCommands {
+            claude: chips(0, &settings.agent.claude_commands),
+            codex: chips(1, &settings.agent.codex_commands),
+            add: [at(RectId::SettingsAgentAdd(0)), at(RectId::SettingsAgentAdd(1))],
+            input: [at(RectId::SettingsAgentInput(0)), at(RectId::SettingsAgentInput(1))],
+            input_text: agent_page::KINDS.map(|k| editing(agent_page::AgentField::Add(k))),
+        },
+        launch: AgentLaunch { claude: launch(gilvt_agent::AgentKind::Claude), codex: launch(gilvt_agent::AgentKind::Codex) },
+        status: view
+            .status
+            .iter()
+            .enumerate()
+            .map(|(i, r)| AgentStatus {
+                name: r.name.clone(),
+                kind: r.kind.name(),
+                real_path: r.real_path.as_ref().map(|p| p.display().to_string()),
+                shim_ok: r.shim_ok,
+                problem: r.problem.map(agent_page::Problem::id),
+                button: copy.remove(&i),
+            })
+            .collect(),
+        shims_dir: view.shims_dir.as_ref().map(|d| d.display().to_string()),
+        shims_error: view.shims_error.clone(),
+        buttons: agent_page::button_labels(view)
+            .into_iter()
+            .enumerate()
+            .map(|(i, label)| SettingsButton { label, enabled: enabled.get(i).copied().unwrap_or(true), rect: at(RectId::SettingsAgentButton(i)) })
+            .collect(),
     }
 }
 
@@ -120,7 +170,7 @@ mod tests {
     }
 
     fn page() -> PageState {
-        PageState { page: Page::Monitor, appearance: appearance(), open_menu: None, other: None, notice: None, codex: CodexModels::Loading, test: TestState::Idle }
+        PageState { page: Page::Monitor, appearance: appearance(), open_menu: None, other: None, notice: None, codex: CodexModels::Loading, test: TestState::Idle, agent: agent_page::AgentView::default() }
     }
 
     fn file(error: Option<&str>) -> FileView<'_> {
@@ -206,6 +256,7 @@ mod tests {
                     Some([8.0, 68.0, 134.0, 24.0])
                 ),
                 ("monitor", "◎ 监控官", false, None),
+                ("agent", "⌘ Agent", false, None),
             ]
         );
         let json = serde_json::to_value(&s).unwrap();
@@ -239,7 +290,8 @@ mod tests {
             [
                 ("appearance", "◐ Appearance"),
                 ("language", "文A Language"),
-                ("monitor", "◎ Monitor")
+                ("monitor", "◎ Monitor"),
+                ("agent", "⌘ Agent")
             ]
         );
         assert_eq!(
@@ -258,6 +310,54 @@ mod tests {
                 ("en", "English", true, Some([170.0, 136.0, 500.0, 40.0])),
             ]
         );
+    }
+
+    #[test]
+    fn agent_page_reports_commands_launch_and_status() {
+        let mut p = page();
+        p.page = Page::Agent;
+        p.agent = agent_page::AgentView::for_tests(); // claude=["claude"], codex=["codex"], one NotFound row
+        let state = build(&p, &settings(MonitorSettings::default()), file(None), None, true, 28.0, &HashMap::new());
+        assert_eq!(state.page, "agent");
+        let a = state.agent.unwrap();
+        assert_eq!(a.commands.claude.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["claude"]);
+        assert_eq!(a.status[0].problem, Some("not_found"));
+    }
+
+    #[test]
+    fn agent_page_rects_buttons_and_launch() {
+        let mut p = page();
+        p.page = Page::Agent;
+        p.agent = agent_page::AgentView::for_tests();
+        p.agent.status[0].problem = Some(agent_page::Problem::BypassedByTtadk);
+        p.agent.status[0].real_path = Some("/h/.local/bin/claude".into());
+        p.agent.shims_dir = Some("/h/Library/Application Support/gilvt/shims".into());
+        p.agent.editing = Some((agent_page::AgentField::Launch(gilvt_agent::AgentKind::Codex), "ttadk codex".into()));
+        p.agent.launch_error[1] = Some("bad".into());
+        let rects = HashMap::from([
+            (RectId::SettingsAgentChip(1, 0), [200.0, 50.0, 60.0, 18.0]),
+            (RectId::SettingsAgentChipRemove(1, 0), [250.0, 50.0, 10.0, 18.0]),
+            (RectId::SettingsAgentAdd(0), [300.0, 30.0, 20.0, 18.0]),
+            (RectId::SettingsAgentInput(0), [270.0, 30.0, 30.0, 18.0]),
+            (RectId::SettingsAgentLaunch(1), [200.0, 90.0, 240.0, 20.0]),
+            (RectId::SettingsAgentButton(3), [400.0, 140.0, 60.0, 18.0]),
+        ]);
+        let a = build(&p, &settings(MonitorSettings::default()), file(None), None, true, 28.0, &rects).agent.unwrap();
+        let chip = &a.commands.codex[0];
+        assert_eq!((chip.name.as_str(), chip.rect, chip.remove_rect), ("codex", Some([200.0, 78.0, 60.0, 18.0]), Some([250.0, 78.0, 10.0, 18.0])));
+        assert_eq!((a.commands.add, a.commands.input), ([Some([300.0, 58.0, 20.0, 18.0]), None], [Some([270.0, 58.0, 30.0, 18.0]), None]));
+        assert_eq!(a.launch.claude.text, "claude");
+        assert_eq!((a.launch.codex.text.as_str(), a.launch.codex.editing), ("ttadk codex", true), "the open box's text");
+        assert_eq!(a.launch.codex.preview, ["ttadk codex".to_string(), "ttadk codex resume <会话 ID>".to_string()]);
+        assert_eq!(a.launch.codex.error.as_deref(), Some("bad"));
+        assert_eq!(a.launch.codex.rect, Some([200.0, 118.0, 240.0, 20.0]));
+        assert_eq!((a.status[0].kind, a.status[0].real_path.as_deref(), a.status[0].button), ("claude", Some("/h/.local/bin/claude"), Some(3)));
+        assert_eq!(a.buttons.iter().map(|b| b.label).collect::<Vec<_>>(), ["↻ 刷新", "复制", "恢复所有已关闭的提示", "复制配置"]);
+        assert_eq!(a.buttons.iter().map(|b| b.enabled).collect::<Vec<_>>(), [true, true, false, true]);
+        assert_eq!(a.buttons[3].rect, Some([400.0, 168.0, 60.0, 18.0]));
+        assert_eq!(a.shims_dir.as_deref(), Some("/h/Library/Application Support/gilvt/shims"));
+        let json = serde_json::to_value(build(&page(), &settings(MonitorSettings::default()), file(None), None, true, 0.0, &HashMap::new())).unwrap();
+        assert_eq!(json["agent"], serde_json::Value::Null, "only on the Agent page");
     }
 
     #[test]

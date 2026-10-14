@@ -212,6 +212,18 @@ pub enum RectId {
     SettingsNav(usize),
     /// Settings window: language choice n (`i18n::Language::ALL` order).
     SettingsLanguage(usize),
+    /// Settings window, 「⌘ Agent」 page: name `j` of command list `k` (0 Claude, 1 Codex).
+    SettingsAgentChip(usize, usize),
+    /// Its ×.
+    SettingsAgentChipRemove(usize, usize),
+    /// The text box before list `k`'s 「+」 (closed or open).
+    SettingsAgentInput(usize),
+    /// List `k`'s 「+」.
+    SettingsAgentAdd(usize),
+    /// The launch command box of kind `k` (closed or open).
+    SettingsAgentLaunch(usize),
+    /// Button n: 0 刷新, 1 复制垫片目录, 2 恢复所有已关闭的提示, 3.. 「复制配置」 of each ttadk status row.
+    SettingsAgentButton(usize),
 }
 
 /// The buttons of the Session Center's review (header, page edges, action bar and snooze menu).

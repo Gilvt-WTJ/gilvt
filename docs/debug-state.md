@@ -515,13 +515,13 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 
 ## `settings`
 
-`⌘,` 设置窗口（左栏三页：「◐ 外观」、「文A 语言」、「◎ 监控官」；打开时停在上次看的那一页，第一次是「外观」），在根上，不在 `windows[]` 里：GUI 用例读 `settings.…`。窗口关着时整个键不存在。所有 `rect` 与 `windows[]` 同一坐标系（窗口外框左上角为原点），上一帧没画出来的元素为 `null`。查询时设置窗口也会被立即重绘一帧。
+`⌘,` 设置窗口（左栏四页：「◐ 外观」、「文A 语言」、「◎ 监控官」、「⌘ Agent」；打开时停在上次看的那一页，第一次是「外观」），在根上，不在 `windows[]` 里：GUI 用例读 `settings.…`。窗口关着时整个键不存在。所有 `rect` 与 `windows[]` 同一坐标系（窗口外框左上角为原点），上一帧没画出来的元素为 `null`。查询时设置窗口也会被立即重绘一帧。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | 数字或 `null` | CGWindowID |
 | `key` | 布尔 | 是否是 key window |
-| `page` | 字符串 | 当前页：`appearance`（外观）、`language`（语言）或 `monitor`（监控官） |
+| `page` | 字符串 | 当前页：`appearance`（外观）、`language`（语言）、`monitor`（监控官）或 `agent`（Agent） |
 | `language` | 字符串 | 当前界面语言：`zh-CN` 或 `en` |
 | `language_source` | 字符串 | `language` 从哪来：`config`（`config.toml` 写了 `language`）或 `system`（没写，跟随 macOS 首选语言；`GILVT_TEST_SYSTEM_LANGUAGE` 可以假装） |
 | `languages` | 数组 | 语言项：`{ id, label, selected, rect }`；`id` 是 `zh-CN` / `en`，只在语言页显示时 `rect` 非空 |
@@ -534,8 +534,9 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 | `notice` | 字符串或 `null` | 控件区下方的提示行（正在试跑、模型不存在或无权使用、设置已改变而作废、无法打开编辑器、写回失败…）；没有时为 `null` |
 | `notice_error` | 布尔 | `notice` 是错误（红）还是进行中（黄）；`notice` 为 `null` 时为 `false` |
 | `test` | 对象 | 「测试连接」结果：`{ state, text }`，`state` 为 `idle` / `running` / `ok` / `failed`；`text` 是结果行（`✓ …` / `✗ …`），`idle` / `running` 时为空串 |
-| `pages` | 数组 | 左栏的页，按顺序：`{ id, label, selected, rect }`，`id` 为 `appearance` / `language` / `monitor`，`label` 随当前语言变化，`selected` 是当前页；点 `rect` 切换页 |
+| `pages` | 数组 | 左栏的页，按顺序：`{ id, label, selected, rect }`，`id` 为 `appearance` / `language` / `monitor` / `agent`，`label` 随当前语言变化，`selected` 是当前页；点 `rect` 切换页 |
 | `appearance` | 对象 | 「外观」页，见下；不在这一页时字段照常给出，但 `rect` 都是 `null` |
+| `agent` | 对象或 `null` | 「⌘ Agent」页，见下；不在这一页时为 `null` |
 
 `fields[]`：`{ id, label, value, hint, open, options, rect }`。
 
@@ -564,6 +565,21 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 | `chips` | 数组 | 分段控件的每一项 `{ id, on, rect }`：`filter-all`、`filter-dark`、`filter-light`、`mode-fixed`、`mode-system`；跟随系统时另有 `slot-light`、`slot-dark` |
 | `search_rect` | rect 或 `null` | 搜索框 |
 | `colors_overrides` | 数字 | `[colors]` 生效项数（大于 0 时页面上有一行说明） |
+
+`agent`（「⌘ Agent」页：命令名、启动命令、各命令名的状态；agent-shims 设计 §5）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `commands` | 对象 | `{ claude, codex, add, input, input_text }`：`claude` / `codex` 是命令名标签 `[{ name, rect, remove_rect }]`（`remove_rect` 是标签上的 ×，点了删除这个名字）；`add` 是两组末尾「+」的 rect `[Claude, Codex]`；`input` 是「+」前面输入框的 rect（点它打开输入框，输入后 ⏎ 或点「+」添加）；`input_text` 是打开的输入框里的文字，关着时为 `null` |
+| `launch` | 对象 | `{ claude, codex }`，每个 `{ text, editing, preview, error, rect }`：`text` 是启动命令（输入框打开时是正在输入的文字），`editing` 表示输入框开着，`preview` 是 `[新建, 恢复]` 两行预览（如 `ttadk claude`、`ttadk claude --resume <会话 ID>`；Codex 的恢复是 `… resume <会话 ID>`，英文界面是 `<session ID>`），`error` 是上次输入被拒绝的原因（第一个词不是合法命令名、引号没闭合），`rect` 是输入框（点它打开，⏎ 保存） |
+| `status` | 数组 | 每个命令名一行，Claude 的在前：`{ name, kind, real_path, shim_ok, problem, button }`；`kind` 为 `claude` / `codex`；`real_path` 是 PATH 里第一个不是垫片的同名程序，找不到为 `null`；`shim_ok` 是垫片目录里有这个名字的垫片；`problem` 为 `null`、`not_found`（找不到命令）或 `bypassed_by_ttadk`（真正的程序在 `~/.local/bin` 或 `~/.claude/local`，ttadk 会绕过垫片）；`button` 是这一行「复制配置」在 `buttons` 里的下标（只有 `bypassed_by_ttadk` 行有） |
+| `shims_dir` | 字符串或 `null` | 垫片目录 |
+| `shims_error` | 字符串或 `null` | 垫片目录建不起来的原因（页面顶部的黄色横幅） |
+| `buttons` | 数组 | `{ label, enabled, rect }`，顺序固定：0「↻ 刷新」（重新计算 `status`）、1「复制」（复制垫片目录；没有目录时 `enabled` 为假）、2「恢复所有已关闭的提示」（没有关闭过的提示时 `enabled` 为假），3 起每个 `bypassed_by_ttadk` 行一个「复制配置」 |
+
+`status` 在打开这一页、点「刷新」和改动命令名之后计算。添加、删除命令名和保存启动命令立即生效（重建垫片，对新开的 pane 生效）并写入 `config.toml` 的 `[agent]` 表；被拒绝时（名字不合法、已在另一组里、`config.toml` 有语法错误）原因在顶层 `notice`（`notice_error` 为真），启动命令的拒绝原因在 `launch.*.error`。复制、恢复提示成功时 `notice` 是一行说明（`notice_error` 为假）。
+
+例：`click 'rect(settings.pages[?id=="agent"])'`、`click 'rect(settings.agent.commands.input[1])'`、`click 'rect(settings.agent.commands.codex[?name=="cw"].remove_rect)'`、`click 'rect(settings.agent.buttons[0])'`、`gilvt debug wait 'settings.agent.commands.codex[?name=="cw"] exists'`、`gilvt debug wait 'settings.agent.status[?name=="claude"].problem == "bypassed_by_ttadk"'`。
 
 在「外观」页点一行、`↑` / `↓` 或 `⏎`（选中高亮行）、切换「固定 / 跟随系统」，主题立即在所有窗口生效（顶层 `theme` 随之变化），约 300 ms 内选择不再变化后写入 `config.toml` 的 `theme` 键。写回失败（例如文件只读）时主题仍然生效，原因在 `write_error`（以「config.toml 是只读的…」这类短句开头）。`config.toml` 有语法错误时 `readonly` 为真，选择被拒绝，页面回到正在使用的主题。
 
