@@ -579,6 +579,19 @@ sandbox:   unregister the stale ones with: $T/lsregister -u <path>" sh -c "$(dec
   check_rc "remote-mac: unknown kind" 2 in_sub_q install_remote_home "$d" "$T/mhome" "$T/mbin" "$T/App.app" bogus
   here="$sbx_here"; unset GILVT_GUI_REMOTE_MAC_STATE
   if bash -n "$here/remote-mac.sh"; then ok; else bad "remote-mac.sh syntax"; fi
+  # The file-clearing part of `remote-mac.sh reset`, run by zsh (the test user's shell) and sh on a temp HOME.
+  mac_reset_run() { # <shell> <home>: runs the reset command string; prints its exit code
+    HOME="$2" "$1" -c "$("$here/remote-mac.sh" files-script)" >/dev/null 2>&1; echo $?
+  }
+  mac_reset_home() { rm -rf "$T/mrh"; mkdir -p "$T/mrh/.gilvt-server" "$T/mrh/ad3" "$T/mrh/ad10" "$T/mrh/ad1foo"; }
+  for msh in zsh sh; do
+    if ! command -v "$msh" >/dev/null 2>&1; then echo "  (no $msh: remote-mac reset check skipped)"; continue; fi
+    mac_reset_home
+    check "remote-mac reset ($msh): exit 0" "0" mac_reset_run "$msh" "$T/mrh"
+    if [ ! -e "$T/mrh/.gilvt-server" ] && [ ! -e "$T/mrh/ad3" ] && [ ! -e "$T/mrh/ad10" ] && [ -d "$T/mrh/ad1foo" ]; then ok; else bad "remote-mac reset ($msh): wrong files left: $(ls -A "$T/mrh")"; fi
+    rm -rf "$T/mrh"; mkdir -p "$T/mrh"
+    check "remote-mac reset ($msh): clean home, exit 0" "0" mac_reset_run "$msh" "$T/mrh"
+  done
   mac_refused() { GILVT_GUI_REMOTE_MAC_STATE="$1" "$here/remote-mac.sh" status 2>&1 | grep -q 'refusing state dir'; }
   for sv in / "$HOME" "relative/gilvt-gui-remote-mac" "$T/x/../gilvt-gui-remote-mac" "$T/gilvt-gui-remote-mac-x"; do
     if mac_refused "$sv"; then ok; else bad "remote-mac.sh accepted state dir $sv"; fi

@@ -25,9 +25,11 @@ state="${GILVT_GUI_REMOTE_MAC_STATE:-${tmp%/}/gilvt-gui-remote-mac}"
 case "$state" in /*) ;; *) echo "remote-mac.sh: refusing state dir $state" >&2; exit 2 ;; esac
 case "/$state/" in */../*) echo "remote-mac.sh: refusing state dir $state" >&2; exit 2 ;; esac
 _s="${state%/}"; [ "${_s##*/}" = gilvt-gui-remote-mac ] || { echo "remote-mac.sh: refusing state dir $state" >&2; exit 2; }
+# Run by the test user's shell (zsh or sh): nonomatch keeps zsh from aborting on an empty glob; ad + 1-2 digits only.
+reset_files_script='setopt nonomatch 2>/dev/null; rm -rf ~/.gilvt-server ~/ad7.pid; for d in ~/ad[0-9] ~/ad[0-9][0-9]; do [ -e "$d" ] && rm -rf "$d"; done; true'
 usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 is_up() { [ -f "$state/ssh_config" ] && [ -f "$state/ssh_config.local" ]; }
-rssh() { ssh -F "$state/ssh_config.local" -o BatchMode=yes mac-test "$@"; }
+rssh() { /usr/bin/ssh -F "$state/ssh_config.local" -o BatchMode=yes mac-test "$@"; }
 
 # $1: the directory the config names for the key and known_hosts.
 write_config() {
@@ -90,7 +92,7 @@ cmd_up() {
   if [ -x "$fake" ]; then
     rssh 'mkdir -p ~/bin && cat > ~/bin/.claude.tmp && chmod 755 ~/bin/.claude.tmp && mv ~/bin/.claude.tmp ~/bin/claude && cp ~/bin/claude ~/bin/codex' <"$fake"
     # zsh (the macOS default) reads ~/.zshenv for every shell; gilvt's ZDOTDIR shim sources it too.
-    rssh 'grep -qx "path=(~/bin \$path)" ~/.zshenv 2>/dev/null || echo "path=(~/bin \$path)" >> ~/.zshenv'
+    rssh 'grep -qx "path=(\"\$HOME/bin\" \$path)" ~/.zshenv 2>/dev/null || echo "path=(\"\$HOME/bin\" \$path)" >> ~/.zshenv'
   else
     echo "remote-mac.sh: no macOS fake agent at $fake (scripts/build-remote.sh --platform darwin-aarch64 --fake); the test user has no claude / codex" >&2
   fi
@@ -109,7 +111,7 @@ cmd_status() {
 cmd_reset() {
   is_up || { echo "remote-mac.sh: not up" >&2; exit 2; }
   # '[.]' keeps pkill from matching its own command line; only the test user's processes.
-  rssh 'pkill -u "$(id -u)" -f "[.]gilvt-server/" || true; rm -rf ~/.gilvt-server ~/ad[0-9]* ~/ad7.pid'
+  rssh "pkill -u \"\$(id -u)\" -f \"[.]gilvt-server/\" || true; $reset_files_script"
 }
 
 cmd_exec() {
@@ -124,6 +126,7 @@ case "${1:-}" in
   down) cmd_down ;;
   status) cmd_status ;;
   reset) cmd_reset ;;
+  files-script) printf '%s\n' "$reset_files_script" ;;   # for selftest
   exec) shift; cmd_exec "$@" ;;
   *) usage ;;
 esac
