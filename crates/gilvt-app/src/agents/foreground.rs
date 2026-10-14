@@ -21,11 +21,20 @@ pub const SHELL_POLLS: u32 = 2;
 /// (the agent started): a shell reading (stale, or `cd` / a wrapper function being in front) never clears it.
 pub const TYPED_HOLD: Duration = Duration::from_secs(5);
 
+/// How the agent in a pane's foreground was found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Via {
+    /// The foreground process group leader is the agent.
+    Leader,
+    /// A descendant of the leader (a wrapper such as `ttadk`); `parent` names the wrapper.
+    Descendant { parent: String },
+}
+
 /// The foreground program of a pane, classified on a background thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Foreground {
     Shell,
-    Agent { kind: AgentKind, pid: u32, cwd: Option<PathBuf> },
+    Agent { kind: AgentKind, pid: u32, cwd: Option<PathBuf>, via: Via },
     /// Some other program (an editor, a build).
     Other,
     /// The lookup failed (the process group leader already exited).
@@ -38,7 +47,7 @@ pub enum Action {
     /// The pane's live sessions end.
     Exited(PaneId),
     /// Look for the newest transcript of `agent` for `cwd` written at or after `since`, then bind it.
-    Discover { pane: PaneId, agent: AgentKind, cwd: PathBuf, since: SystemTime },
+    Discover { pane: PaneId, agent: AgentKind, cwd: PathBuf, since: SystemTime, via: Via },
 }
 
 #[derive(Default)]
@@ -101,7 +110,7 @@ impl Tracker {
                         actions.push(Action::Exited(*pane));
                     }
                 }
-                Foreground::Agent { kind, pid, cwd } => {
+                Foreground::Agent { kind, pid, cwd, via } => {
                     track.shell_polls = 0;
                     if !matches!(track.agent, Some((k, p, ..)) if k == *kind && p == *pid) {
                         track.agent = Some((*kind, *pid, now, wall));
@@ -113,7 +122,7 @@ impl Tracker {
                     if let (true, false, Some(cwd)) = (due, has_live(*pane), cwd) {
                         track.last_try = Some(now);
                         let since = since_wall.checked_sub(SINCE_SLACK).unwrap_or(since_wall);
-                        actions.push(Action::Discover { pane: *pane, agent: *kind, cwd: cwd.clone(), since });
+                        actions.push(Action::Discover { pane: *pane, agent: *kind, cwd: cwd.clone(), since, via: via.clone() });
                     }
                 }
                 Foreground::Other => {
@@ -171,7 +180,7 @@ mod tests {
     use super::*;
 
     fn agent(pid: u32) -> Foreground {
-        Foreground::Agent { kind: AgentKind::Claude, pid, cwd: Some("/r".into()) }
+        Foreground::Agent { kind: AgentKind::Claude, pid, cwd: Some("/r".into()), via: Via::Leader }
     }
 
     #[test]
@@ -186,10 +195,21 @@ mod tests {
         assert!(obs(&mut tr, 0, false).is_empty());
         assert!(obs(&mut tr, 2, false).is_empty(), "within the grace period");
         let since = w0 - SINCE_SLACK;
-        assert_eq!(obs(&mut tr, 3, false), vec![Action::Discover { pane: 1, agent: AgentKind::Claude, cwd: "/r".into(), since }]);
+        assert_eq!(obs(&mut tr, 3, false), vec![Action::Discover { pane: 1, agent: AgentKind::Claude, cwd: "/r".into(), since, via: Via::Leader }]);
         assert!(obs(&mut tr, 4, false).is_empty(), "not again before RETRY");
         assert_eq!(obs(&mut tr, 6, false).len(), 1);
         assert!(obs(&mut tr, 9, true).is_empty(), "a hook (or the lite bind) made the pane live");
+    }
+
+    #[test]
+    fn discovery_carries_how_the_agent_was_found() {
+        let mut tr = Tracker::default();
+        let t0 = Instant::now();
+        let via = Via::Descendant { parent: "node".into() };
+        let fg = Foreground::Agent { kind: AgentKind::Claude, pid: 11, cwd: Some("/r".into()), via: via.clone() };
+        assert!(tr.observe(&[(1, fg.clone())], |_| false, t0, SystemTime::UNIX_EPOCH).is_empty());
+        let a = tr.observe(&[(1, fg)], |_| false, t0 + LITE_DELAY, SystemTime::UNIX_EPOCH);
+        assert!(matches!(&a[..], [Action::Discover { via: v, .. }] if *v == via), "{a:?}");
     }
 
     #[test]

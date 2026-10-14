@@ -54,8 +54,8 @@ pub use review::{
     ReviewTurnIndex, TurnCursor, REVIEW_PAGE_BYTES, REVIEW_PAGE_TURNS,
 };
 pub use runtime::{
-    default_state_dir, interrupt_runtime, runtime_diagnostics, scan_agent_processes, terminate_runtime,
-    BindingConfidence, Lease, LeaseStore, ProcessObservation, RuntimeRef, SignalError, TerminalOwner,
+    default_state_dir, interrupt_runtime, process_table, runtime_diagnostics, scan_agent_processes, terminate_runtime,
+    BindingConfidence, Lease, LeaseStore, ProcRow, ProcessObservation, RuntimeRef, SignalError, TerminalOwner,
 };
 pub use status::{local_key, session_name, PaneId, Session, SessionKey, Status, NAME_MAX};
 pub use store::{session_key_id, Store};

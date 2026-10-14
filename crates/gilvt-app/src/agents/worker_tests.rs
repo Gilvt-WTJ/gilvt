@@ -333,7 +333,7 @@ fn a_resumed_codex_session_is_named_from_its_history() {
     assert_eq!((s.name.as_str(), &s.status), (first, &Status::Idle));
 
     let mut core = Core::new(Store::in_memory());
-    let d = Discovery { pane: 2, agent: AgentKind::Codex, cwd: "/Users/u/proj".into(), since: SystemTime::UNIX_EPOCH };
+    let d = Discovery { pane: 2, agent: AgentKind::Codex, cwd: "/Users/u/proj".into(), since: SystemTime::UNIX_EPOCH, via: crate::agents::foreground::Via::Leader };
     core.bind_found(&d, Some((key.1.clone(), path.clone())), t0);
     catch_up(&mut core, t0);
     let s = core.registry.get(&key).unwrap();

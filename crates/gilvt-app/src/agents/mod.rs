@@ -12,6 +12,7 @@ mod recorder;
 mod state;
 mod tails;
 mod timelines;
+mod tree;
 mod worker;
 
 use std::collections::{HashMap, HashSet};
@@ -653,8 +654,12 @@ async fn poll_loop(cx: &mut AsyncApp) {
         let (panes, leases, processes): (Vec<(PaneId, Foreground)>, Vec<Lease>, Vec<ProcessObservation>) = cx
             .background_executor()
             .spawn(async move {
+                // One process-table scan at most per poll, shared by every pane that needs a tree search.
+                let mut table = None;
                 let panes = pids.into_iter()
-                    .map(|(pane, pid)| (pane, pid.map_or(Foreground::Unknown, |pid| process::foreground_of(pid, &claude, &codex))))
+                    .map(|(pane, pid)| {
+                        (pane, pid.map_or(Foreground::Unknown, |pid| process::foreground_of_with(pid, &claude, &codex, &mut table)))
+                    })
                     .collect();
                 let leases = lease_state.as_deref().map(|state| LeaseStore::open(state).read_all()).unwrap_or_default();
                 (panes, leases, scan_agent_processes())
