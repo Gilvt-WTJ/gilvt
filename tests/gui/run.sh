@@ -128,10 +128,13 @@ done
 remote_sh="${GILVT_GUI_REMOTE:-$here/remote.sh}"   # selftest stubs it
 remote_up="" started_remote=""
 remote_mac_sh="${GILVT_GUI_REMOTE_MAC:-$here/remote-mac.sh}"   # selftest stubs it
-remote_mac_up=""
+remote_mac_up="" started_remote_mac=""
 [ -z "$list" ] || remote_up=1   # --list shows what would run
 [ -z "$list" ] || remote_mac_up=1
-stop_remote() { [ -z "$started_remote" ] || { started_remote=""; "$remote_sh" down >/dev/null 2>&1 || true; }; }
+stop_remote() {
+  [ -z "$started_remote" ] || { started_remote=""; "$remote_sh" down >/dev/null 2>&1 || true; }
+  [ -z "$started_remote_mac" ] || { started_remote_mac=""; "$remote_mac_sh" down >/dev/null 2>&1 || true; }
+}
 
 # The reason a case is skipped (empty: it runs), from its requires and foreground step count.
 skip_reason() {
@@ -199,12 +202,12 @@ elif [ -z "$list" ] && printf '%s\n' "${kinds[@]}" | grep -q '^remote '; then
     "$remote_sh" down >/dev/null 2>&1 || true   # a partial up: remove what it left
   fi
 fi
-# remote-mac.sh starts no service (up only checks and writes its state dir), so nothing to take down at the end.
+# remote-mac.sh starts no service, but its state dir and the test user's helpers are cleaned by `down` at the end.
 if [ -n "${GILVT_GUI_PARALLEL_WORKER:-}" ]; then
   remote_mac_up=1
 elif [ -z "$list" ] && printf '%s\n' "${kinds[@]}" | grep -q '^remote-mac '; then
   if "$remote_mac_sh" status >/dev/null 2>&1 || "$remote_mac_sh" up >/dev/null 2>&1; then
-    remote_mac_up=1
+    remote_mac_up=1; started_remote_mac=1
     export GILVT_GUI_REMOTE_MAC_STATE="${GILVT_GUI_REMOTE_MAC_STATE:-$("$remote_mac_sh" status 2>/dev/null | sed -n 's/^up //p')}"
     [ -n "$GILVT_GUI_REMOTE_MAC_STATE" ] || unset GILVT_GUI_REMOTE_MAC_STATE
   fi

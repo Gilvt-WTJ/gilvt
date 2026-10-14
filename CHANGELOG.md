@@ -11,6 +11,12 @@ breaking changes; they are called out under **Changed**.
 
 - `gilvt ssh` works with Apple Silicon Macs as remote hosts, with the same features as Linux hosts: the remote helper installs (and asks before updating), agents in the remote shell show up in the sidebar, and `gilvt view` / `gilvt diff`, ⌘-click and editing work on the Mac's files. Intel Macs log in the plain way with a note.
 
+### Changed
+
+- The question to install or update the remote helper shows its real size instead of "about 4 MB".
+- For an unsupported host the note names its system ("the remote host runs <os>, not supported yet") instead of "not Linux".
+- On a host whose git cannot run (a Mac without the Command Line Tools), `gilvt diff` says so and suggests `xcode-select --install`.
+
 ## [0.3.0] - 2026-10-13
 
 ### Added

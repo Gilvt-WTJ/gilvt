@@ -169,8 +169,9 @@ cargo test --workspace                                # 单元测试 + PTY / 真
 | `packaging/entitlements.plist` | 硬化运行时的 entitlements（Apple Events，供「跳到外部终端」） |
 | `site/` | 官网 gilvt.com（中英双语）：`build.sh` 构建到 `dist-site/`，`wrangler.jsonc` 部署到 Cloudflare Worker `gilvt`，`_redirects` 管 `/download` |
 | `tests/gui/remote.sh` | 测试远端：colima/docker 里的两个 sshd 容器（`devbox-test` 直连、`devbox-zsh` 登录 shell 为 zsh、`devbox-jump` 经跳板）；`up` / `down` / `status` / `reset` / `exec`，`requires: remote` 的用例由 `run.sh` 自动起停 |
+| `tests/gui/remote-mac.sh` | macOS 测试远端：本机经 localhost sshd 以测试用户 `gilvttest` 登录（节 AD）；`keygen` / `up` / `down` / `status` / `reset` / `exec`，`requires: remote-mac` 的用例由 `run.sh` 自动 up/down；先要做一次性准备（`remote-mac.sh keygen` 会打印步骤） |
 | `scripts/remote-test.sh` | 在 docker（musl，rust:alpine）里对 `gilvt-remote` / `gilvt-client` / `gilvt-agent` / `gilvt-ipc` 跑 `cargo test`（`SO_PEERCRED`、`run/gilvt.sock`、transcript 跟随、`crates/gilvt-remote/tests/hook_bridge.rs`）：`scripts/remote-test.sh [-p <crate>]… [-- <测试参数>]` |
-| `scripts/build-remote.sh --fake` | 在构建远端组件之外，把 Linux 版 fake agent 构建到 `<out>/fake/<平台>/`（不进 `remote/`，不随 Gilvt.app 发布）；测试远端 `remote.sh up` 把它装成 `claude` / `codex`（AC20–AC26、AC28 用；AC27 不用） |
+| `scripts/build-remote.sh --fake` | 在构建远端组件之外，按所要求的平台构建 fake agent（`remote.sh` 的容器用 Linux 版，`remote-mac.sh` 用 darwin 版）到 `<out>/fake/<平台>/`（不进 `remote/`，不随 Gilvt.app 发布）；测试远端 `remote.sh up` 把它装成 `claude` / `codex`（AC20–AC26、AC28 用；AC27 不用） |
 | `scripts/remote-smoke.sh` | `gilvt-remote` 与 `gilvt ssh` 对测试远端的端到端冒烟（不启动 GUI） |
 | `tests/gui/` | GUI 验收：沙盒、驱动脚本、用例、剧本（见下文「GUI 验收测试」） |
 | `.claude/skills/gilvt-acceptance/` | 让 Claude 执行 GUI 验收并写报告的 skill |
@@ -715,3 +716,5 @@ tests/gui/sandbox.sh down --keep ~/gilvt-lab/reports/s0
 跑过 `requires: remote` 的用例（节 AC）后，除了 `sandbox.sh down`，还要清理测试远端：`tests/gui/remote.sh down`（删容器、网络、镜像），再
 `docker volume rm gilvt-remote-target gilvt-remote-cargo gilvt-remote-rustup-x86_64 gilvt-remote-rustup-aarch64`（`scripts/build-remote.sh` 的编译缓存卷）；
 colima 是这一轮启动的话 `colima stop`。
+
+跑过 `requires: remote-mac` 的用例（节 AD）后，也要 `tests/gui/remote-mac.sh down`（结束测试用户的 helper 进程、删状态目录；`run.sh` 正常结束时会做，被中断或手动 `up` 的要自己做）。

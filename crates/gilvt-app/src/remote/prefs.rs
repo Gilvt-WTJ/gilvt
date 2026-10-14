@@ -30,13 +30,6 @@ pub struct HostPrefs {
     pub last_seen: u64,
 }
 
-impl HostPrefs {
-    #[allow(dead_code)] // the bridge/daemon side picks the remote helper by it from the next task on
-    pub fn os_or_linux(&self) -> &str {
-        self.os.as_deref().unwrap_or("Linux")
-    }
-}
-
 fn path(dir: &Path) -> PathBuf {
     dir.join("remote.json")
 }
@@ -86,13 +79,13 @@ mod tests {
     }
 
     #[test]
-    fn old_record_without_os_is_linux() {
+    fn old_record_without_os_has_none() {
         // Review Focus 1: a host recorded by 0.3.0 has no "os".
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("remote.json"), r#"{"hosts":{"dev@h:22":{"install":"allowed","installed":"0.3.0-aaaaaaaa","arch":"x86_64","hostname":"h","last_seen":5}}}"#).unwrap();
         let p = RemotePrefs::load(d.path());
         let h = &p.hosts["dev@h:22"];
-        assert_eq!((h.os.as_deref(), h.os_or_linux()), (None, "Linux"));
+        assert_eq!(h.os, None, "the Linux default lives in the CLI");
         assert_eq!(h.installed.as_deref(), Some("0.3.0-aaaaaaaa"));
     }
 

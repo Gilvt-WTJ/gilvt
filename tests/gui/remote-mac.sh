@@ -5,7 +5,8 @@
 #   keygen  create the test key (~/.config/gilvt-test/remote-mac/id_ed25519, kept across runs) and print the one-time setup
 #   up      check Remote Login, the user and the key; write $state/{ssh_config,ssh_config.local,id_ed25519,known_hosts};
 #           install the macOS fake agent as ~/bin/claude and ~/bin/codex of the test user
-#   down    remove $state (the test user's files stay; reset clears what the cases leave)
+#   down    stop the test user's gilvt-remote processes (best effort, when up), then remove $state (the test user's
+#           files stay; reset clears what the cases leave). run.sh calls it at the end of a run that used remote-mac cases
 #   status  "up <state dir>" (exit 0) or "down" (exit 2)
 #   reset   stop the test user's gilvt-remote processes; remove its ~/.gilvt-server and the cases' ~/ad<N> directories
 #   exec    run a command as the test user (zsh -c through ssh)
@@ -27,7 +28,7 @@ case "/$state/" in */../*) echo "remote-mac.sh: refusing state dir $state" >&2; 
 _s="${state%/}"; [ "${_s##*/}" = gilvt-gui-remote-mac ] || { echo "remote-mac.sh: refusing state dir $state" >&2; exit 2; }
 # Run by the test user's shell (zsh or sh): nonomatch keeps zsh from aborting on an empty glob; ad + 1-2 digits only.
 reset_files_script='setopt nonomatch 2>/dev/null; rm -rf ~/.gilvt-server ~/ad7.pid; for d in ~/ad[0-9] ~/ad[0-9][0-9]; do [ -e "$d" ] && rm -rf "$d"; done; true'
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 is_up() { [ -f "$state/ssh_config" ] && [ -f "$state/ssh_config.local" ]; }
 rssh() { /usr/bin/ssh -F "$state/ssh_config.local" -o BatchMode=yes mac-test "$@"; }
 
@@ -100,7 +101,11 @@ cmd_up() {
   echo "remote-mac.sh: up ($state)"
 }
 
-cmd_down() { rm -rf "$state"; }
+cmd_down() {
+  # Best effort: the helpers a run leaves behind keep running after the state dir (and so the way in) is gone.
+  if is_up; then rssh 'pkill -u "$(id -u)" -f "[.]gilvt-server/" || true' >/dev/null 2>&1 || true; fi
+  rm -rf "$state"
+}
 
 cmd_status() {
   if is_up; then echo "up $state"; return 0; fi

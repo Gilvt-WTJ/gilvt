@@ -105,7 +105,7 @@ tests/gui/run.sh --list all                                              # 只�
   也会放回。保存失败的用例不运行（`FAIL(clipboard save)`）。`run.sh` 自己编译 `tools/keys.swift`（与 `up` 共用缓存）。
 - `requires: remote`：用例需要测试远端（`remote.sh`，见下）。`run.sh` 在跑这类用例之前 `remote.sh up`（已经是 up 就沿用，也不会在结束时拆掉；自己启动的，结束或中断时 `remote.sh down`），每个用例前 `remote.sh reset`，并用 `sandbox.sh up --remote`。起不来（没有 docker / colima）时 `SKIP(remote-unavailable)`。`remote` 用例不并行。
   R2a 起 `remote.sh up` 还会把 Linux 版 fake agent 装成 devbox 上的 `claude` / `codex`：先 `scripts/build-remote.sh --fake`（或用 `GILVT_REMOTE_FAKE` 指定）；没有它时 `up` 只警告，用到远端 agent 的 AC 用例会失败。
-- `requires: remote-mac`：用例需要 macOS 测试远端（`remote-mac.sh`，见下）。`run.sh` 在跑这类用例前执行 `remote-mac.sh up`（只检查和写状态目录，不起服务，所以结束时不 down），每个用例前 `remote-mac.sh reset`，并用 `sandbox.sh up --remote-mac`。环境没准备好时 `SKIP(remote-mac-unavailable)`。
+- `requires: remote-mac`：用例需要 macOS 测试远端（`remote-mac.sh`，见下）。`run.sh` 在跑这类用例前执行 `remote-mac.sh up`（只检查和写状态目录，不起服务；本次运行起的状态目录和测试用户的 helper 进程由 `run.sh` 结束时 `remote-mac.sh down` 清掉），每个用例前 `remote-mac.sh reset`，并用 `sandbox.sh up --remote-mac`。环境没准备好时 `SKIP(remote-mac-unavailable)`。
 - `requires: real-claude` / `real-codex` 没有 `--real` 时 `SKIP(real-…)`；`manual` 总是 `SKIP(manual)`（要人来做）。
 - `--out DIR`：evidence bundle 的目录，必须不存在或为空；默认 `~/gilvt-lab/reports/run-<UTC 时间>-<提交>-<pid>`。
 - `--jobs N`：按 case 并行运行隔离安全的沙盒用例。每个 worker 有自己的 `TMPDIR`、session、HOME 和 app 进程；S0（若在选择中）
@@ -320,7 +320,7 @@ finalize 为 `interrupted` / `not_run`，留下可检查的部分报告。
 |---|---|
 | `keygen` | 生成测试密钥（`~/.config/gilvt-test/remote-mac/id_ed25519`，跨次保留），打印一次性准备步骤 |
 | `up` | 检查远程登录、测试用户和密钥，写状态目录，把 macOS 版 fake agent 装成测试用户的 `~/bin/claude`、`~/bin/codex` |
-| `down` | 删除状态目录（测试用户的文件保留，由 `reset` 清理） |
+| `down` | 先尽力结束测试用户的 `gilvt-remote` 进程（仅在 up 时），再删除状态目录（测试用户的文件保留，由 `reset` 清理）；用过 remote-mac 用例的 `run.sh` 在结束时自动执行 |
 | `status` | up 时打印 `up <状态目录>` 退出 0，否则打印 `down` 退出 2 |
 | `reset` | 结束测试用户的 `gilvt-remote` 进程，删除其 `~/.gilvt-server` 与用例留下的 `~/ad<N>` 目录 |
 | `exec <命令>` | 以测试用户执行（经 ssh 的 `zsh -c`） |

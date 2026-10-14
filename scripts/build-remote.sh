@@ -6,7 +6,8 @@
 #   default: --platform all, --out "$CARGO_TARGET_DIR or target"/remote-dist, docker (rust:alpine) for Linux unless --zig.
 #   --arch A is --platform linux-A (--arch all: both Linux platforms).
 #   darwin-aarch64 is built natively with MACOSX_DEPLOYMENT_TARGET=11.0 and signed before hashing: with
-#   $GILVT_SIGN_IDENTITY (Developer ID, hardened runtime, timestamp) when set, else ad-hoc.
+#   $GILVT_SIGN_IDENTITY when set (plain signature; with GILVT_HARDENED=1 also hardened runtime + secure timestamp,
+#   for notarization), else ad-hoc.
 #   --fake also builds gilvt-fake-agent for the test remotes into <out>/fake/<platform>/ (never into remote/, which bundle.sh ships).
 #   --zig uses cargo-zigbuild for Linux (release CI). Docker uses named volumes gilvt-remote-{target,cargo,rustup-<arch>} (rustup is per arch: the image's toolchain is copied into the volume);
 #   remove them with: docker volume rm gilvt-remote-target gilvt-remote-cargo gilvt-remote-rustup-x86_64 gilvt-remote-rustup-aarch64
@@ -20,7 +21,7 @@ while [ $# -gt 0 ]; do
     --out) out="$2"; shift 2 ;;
     --zig) zig=1; shift ;;
     --fake) fake=1; shift ;;
-    *) sed -n '2,13p' "$0" >&2; exit 2 ;;
+    *) sed -n '2,14p' "$0" >&2; exit 2 ;;
   esac
 done
 target="${CARGO_TARGET_DIR:-$root/target}"
@@ -32,34 +33,34 @@ done
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)"
 for p in $platforms; do
   case "$p" in
-  linux-*)
-  a="${p#linux-}"
-  triple="$a-unknown-linux-musl"
-  if [ -n "$zig" ]; then
-    cargo zigbuild --manifest-path "$root/Cargo.toml" --locked --profile release-remote --target "$triple" -p gilvt-remote
-    bin="$target/$triple/release-remote/gilvt-remote"
-    if [ -n "$fake" ]; then
-      cargo zigbuild --manifest-path "$root/Cargo.toml" --locked --profile release-remote --target "$triple" -p gilvt-fake-agent
-      mkdir -p "$out/fake/$p"
-      cp "$target/$triple/release-remote/gilvt-fake-agent" "$out/fake/$p/gilvt-fake-agent"
-    fi
-  else
-    platform=linux/amd64; [ "$a" = aarch64 ] && platform=linux/arm64
-    pkgs="-p gilvt-remote"; [ -n "$fake" ] && pkgs="$pkgs -p gilvt-fake-agent"
-    docker run --rm --platform "$platform" -v "$root":/src:ro \
-      -v gilvt-remote-target:/target -v gilvt-remote-cargo:/usr/local/cargo/registry -v gilvt-remote-rustup-$a:/usr/local/rustup \
-      -e CARGO_TARGET_DIR=/target/$a -w /src rust:1.95-alpine \
-      sh -c 'apk add -q musl-dev >/dev/null && cargo build --locked --profile release-remote '"$pkgs"' && cp /target/'"$a"'/release-remote/gilvt-remote /target/'"$a"'/out && { [ ! -f /target/'"$a"'/release-remote/gilvt-fake-agent ] || cp /target/'"$a"'/release-remote/gilvt-fake-agent /target/'"$a"'/fake; }'
-    mkdir -p "$out/remote/$p"
-    docker run --rm -v gilvt-remote-target:/target alpine cat "/target/$a/out" > "$out/remote/$p/gilvt-remote"
-    if [ -n "$fake" ]; then
-      mkdir -p "$out/fake/$p"
-      docker run --rm -v gilvt-remote-target:/target alpine cat "/target/$a/fake" > "$out/fake/$p/gilvt-fake-agent"
-      chmod 755 "$out/fake/$p/gilvt-fake-agent"
-    fi
-    bin="$out/remote/$p/gilvt-remote"
-  fi
-  ;;
+    linux-*)
+      a="${p#linux-}"
+      triple="$a-unknown-linux-musl"
+      if [ -n "$zig" ]; then
+        cargo zigbuild --manifest-path "$root/Cargo.toml" --locked --profile release-remote --target "$triple" -p gilvt-remote
+        bin="$target/$triple/release-remote/gilvt-remote"
+        if [ -n "$fake" ]; then
+          cargo zigbuild --manifest-path "$root/Cargo.toml" --locked --profile release-remote --target "$triple" -p gilvt-fake-agent
+          mkdir -p "$out/fake/$p"
+          cp "$target/$triple/release-remote/gilvt-fake-agent" "$out/fake/$p/gilvt-fake-agent"
+        fi
+      else
+        platform=linux/amd64; [ "$a" = aarch64 ] && platform=linux/arm64
+        pkgs="-p gilvt-remote"; [ -n "$fake" ] && pkgs="$pkgs -p gilvt-fake-agent"
+        docker run --rm --platform "$platform" -v "$root":/src:ro \
+          -v gilvt-remote-target:/target -v gilvt-remote-cargo:/usr/local/cargo/registry -v gilvt-remote-rustup-$a:/usr/local/rustup \
+          -e CARGO_TARGET_DIR=/target/$a -w /src rust:1.95-alpine \
+          sh -c 'apk add -q musl-dev >/dev/null && cargo build --locked --profile release-remote '"$pkgs"' && cp /target/'"$a"'/release-remote/gilvt-remote /target/'"$a"'/out && { [ ! -f /target/'"$a"'/release-remote/gilvt-fake-agent ] || cp /target/'"$a"'/release-remote/gilvt-fake-agent /target/'"$a"'/fake; }'
+        mkdir -p "$out/remote/$p"
+        docker run --rm -v gilvt-remote-target:/target alpine cat "/target/$a/out" > "$out/remote/$p/gilvt-remote"
+        if [ -n "$fake" ]; then
+          mkdir -p "$out/fake/$p"
+          docker run --rm -v gilvt-remote-target:/target alpine cat "/target/$a/fake" > "$out/fake/$p/gilvt-fake-agent"
+          chmod 755 "$out/fake/$p/gilvt-fake-agent"
+        fi
+        bin="$out/remote/$p/gilvt-remote"
+      fi
+      ;;
     darwin-aarch64)
       [ "$(uname -s)" = Darwin ] || { echo "build-remote: darwin-aarch64 builds only on macOS" >&2; exit 2; }
       triple=aarch64-apple-darwin
@@ -70,8 +71,11 @@ for p in $platforms; do
       bin="$out/remote/$p/gilvt-remote"
       cp "$target/$triple/release-remote/gilvt-remote" "$bin"
       # arm64 macOS kills unsigned code: sign before hashing, so the build id names the signed binary.
-      if [ -n "${GILVT_SIGN_IDENTITY:-}" ]; then
+      # GILVT_HARDENED=1 (package.sh in notarize mode): hardened runtime + secure timestamp, as bundle.sh does.
+      if [ -n "${GILVT_SIGN_IDENTITY:-}" ] && [ "${GILVT_HARDENED:-0}" = 1 ]; then
         codesign --force --options runtime --timestamp --sign "$GILVT_SIGN_IDENTITY" "$bin"
+      elif [ -n "${GILVT_SIGN_IDENTITY:-}" ]; then
+        codesign --force --sign "$GILVT_SIGN_IDENTITY" "$bin"
       else
         codesign --force --sign - "$bin"
       fi

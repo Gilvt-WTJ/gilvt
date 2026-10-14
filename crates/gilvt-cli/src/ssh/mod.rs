@@ -147,13 +147,7 @@ pub fn run(argv: &[String]) -> ExitCode {
 
     let rdir = bundle::remote_dir();
     // A host recorded before macOS remotes has no os: it was Linux.
-    let cached = match (&installed, &arch, &rdir) {
-        (Some(i), Some(ar), Some(d)) => {
-            let o = os.clone().unwrap_or_else(|| "Linux".into());
-            plan::platform(&o, ar).ok().filter(|p| bundle::build_id(d, &p.key()).as_deref() == Some(i.as_str())).map(|_| (i.clone(), o, ar.clone()))
-        }
-        _ => None,
-    };
+    let cached = rdir.as_deref().and_then(|d| bundle::cached(installed.as_deref(), os.as_deref(), arch.as_deref(), d));
     let (probe, hostname) = match cached {
         Some((i, o, ar)) => {
             let h = hostname.clone().unwrap_or_default();

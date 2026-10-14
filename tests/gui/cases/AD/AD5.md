@@ -3,7 +3,7 @@ requires: remote-mac
 checklist: AD5
 scenarios: []
 
-点击会抢前台。测试用户的 home 对本机用户不可读，所以能打开就说明经由远端读取。
+点击会抢前台。决定性的检查是 `overlay.host` 为远端主机：文件经远端 helper 读取，不是从本机自己的文件系统读的。
 
 ## steps
 ```gilvt-steps

@@ -22,6 +22,15 @@ pub fn gz(dir: &Path, key: &str) -> PathBuf {
     dir.join(key).join("gilvt-remote.gz")
 }
 
+/// The recorded install `installed` on a host of `os`/`arch` (os None: recorded before macOS remotes, so Linux) is
+/// still the bundled build for that platform: returns (build id, os, arch) to skip the probe, else None.
+pub fn cached(installed: Option<&str>, os: Option<&str>, arch: Option<&str>, dir: &Path) -> Option<(String, String, String)> {
+    let (i, ar) = (installed?, arch?);
+    let o = os.unwrap_or("Linux");
+    let p = crate::ssh::plan::platform(o, ar).ok()?;
+    (build_id(dir, &p.key()).as_deref() == Some(i)).then(|| (i.to_string(), o.to_string(), ar.to_string()))
+}
+
 /// The helper's unpacked size in whole MB (rounded up, at least 1): the gzip trailer's ISIZE.
 pub fn unpacked_mb(dir: &Path, key: &str) -> Option<u64> {
     let mut f = std::fs::File::open(gz(dir, key)).ok()?;
@@ -65,6 +74,24 @@ mod tests {
         let key = |os, arch| crate::ssh::plan::platform(os, arch).unwrap().key();
         assert_eq!(key("Linux", "x86_64"), "linux-x86_64");
         assert_eq!(key("Linux", "aarch64"), "linux-aarch64");
+    }
+
+    #[test]
+    fn cached_needs_the_bundled_build_of_that_platform() {
+        let d = tempfile::tempdir().unwrap();
+        for (key, id) in [("linux-x86_64", "0.3.1-11111111"), ("darwin-aarch64", "0.3.1-22222222")] {
+            std::fs::create_dir_all(d.path().join(key)).unwrap();
+            std::fs::write(d.path().join(key).join("build-id"), format!("{id}\n")).unwrap();
+            std::fs::write(d.path().join(key).join("gilvt-remote.gz"), b"x").unwrap();
+        }
+        let s = |a: &str, b: &str, c: &str| (a.to_string(), b.to_string(), c.to_string());
+        let p = d.path();
+        assert_eq!(cached(Some("0.3.1-11111111"), None, Some("x86_64"), p), Some(s("0.3.1-11111111", "Linux", "x86_64")));
+        assert_eq!(cached(Some("0.3.1-22222222"), Some("Darwin"), Some("aarch64"), p), Some(s("0.3.1-22222222", "Darwin", "aarch64")));
+        assert_eq!(cached(Some("0.3.1-22222222"), Some("Darwin"), Some("x86_64"), p), None);
+        assert_eq!(cached(Some("0.3.1-99999999"), None, Some("x86_64"), p), None);
+        assert_eq!(cached(None, None, Some("x86_64"), p), None);
+        assert_eq!(cached(Some("0.3.1-11111111"), None, None, p), None);
     }
 
     #[test]
