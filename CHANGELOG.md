@@ -7,6 +7,10 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- ⌘-clicking a file name in the inspector timeline of a session running on an ssh host opens that host's file in Quick Look (it used to say "Not available for remote panes yet").
+
 ## [0.4.1] - 2026-10-14
 
 ### Fixed

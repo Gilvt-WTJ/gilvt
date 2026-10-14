@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use gilvt_agent::host::HostPath;
 use gilvt_agent::Anchor;
 use gilvt_term::ScrollOutcome;
 use gpui::{AnyWindowHandle, ClipboardItem, Context, Window};
@@ -74,18 +75,20 @@ impl Workspace {
     }
 
     /// ⌘+click on a row's file name (`raw`, relative to the session's `cwd`): Quick Look over the focused pane.
-    /// A remote session's paths name files on its host: only the not-yet-remote note (R2a §9).
+    /// A remote session's paths name files on its host: they open from there (`~/…` against that host's home).
     pub fn timeline_quick_look(&mut self, raw: &str, cwd: Option<&Path>, window: &mut Window, cx: &mut Context<Self>) {
-        let remote = self.focused_session_is_remote(cx);
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        match quick_look_target(raw, cwd, home.as_deref(), remote) {
-            QuickLook::Open(path) => {
-                let origin = self.focused_pane();
-                self.open_preview(OpenRequest::file(path, None, None), false, origin, window, cx);
-            }
-            QuickLook::NotYetRemote => self.inspector_note(crate::remote::not_yet_remote(), cx),
-            QuickLook::Nothing => {}
-        }
+        let remote = self.focused_session_host(cx);
+        let home = match remote.as_deref() {
+            Some(host) => cx.try_global::<crate::remote::RemoteHosts>().and_then(|h| h.hosts.get(host)).and_then(|h| h.home.clone()),
+            None => std::env::var_os("HOME").map(PathBuf::from),
+        };
+        let req = match quick_look_target(raw, cwd, home.as_deref(), remote.as_deref()) {
+            QuickLook::Open(path) => OpenRequest::file(path, None, None),
+            QuickLook::OpenRemote { host, path } => OpenRequest::at(HostPath::remote(host, path), None, None),
+            QuickLook::Nothing => return,
+        };
+        let origin = self.focused_pane();
+        self.open_preview(req, false, origin, window, cx);
     }
 
     /// The copy button of an expanded detail.

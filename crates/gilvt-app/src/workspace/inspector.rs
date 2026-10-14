@@ -102,9 +102,16 @@ impl Workspace {
 
     /// Is the session the inspector follows (the focused pane's) on an ssh host?
     pub(crate) fn focused_session_is_remote(&self, cx: &App) -> bool {
-        self.focused_pane()
-            .and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p))
-            .is_some_and(|s| s.key.2.is_remote())
+        self.focused_session_host(cx).is_some()
+    }
+
+    /// The ssh host (HostId) of the session the inspector follows; None for a local one or none.
+    pub(crate) fn focused_session_host(&self, cx: &App) -> Option<String> {
+        let session = self.focused_pane().and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p))?;
+        match &session.key.2 {
+            gilvt_agent::host::Host::Remote(h) => Some(h.0.clone()),
+            gilvt_agent::host::Host::Local => None,
+        }
     }
 
     /// The followed session is remote: only 「过程」 applies (called at the top of `inspector::view::render`).
