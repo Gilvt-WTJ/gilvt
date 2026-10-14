@@ -802,7 +802,7 @@ def config_set(path, assignments):
 # ---------------------------------------------------------------------------------------------
 # Case files (tests/gui/cases/<section>/<ID>.md, spec §6.1)
 
-REQUIRES = ("sandbox", "remote", "real-claude", "real-codex", "manual")
+REQUIRES = ("sandbox", "remote", "remote-mac", "real-claude", "real-codex", "manual")
 
 
 def case_steps(path):

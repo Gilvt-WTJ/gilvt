@@ -2,9 +2,10 @@
 # gilvt GUI test sandbox: starts one Gilvt.app with a throwaway HOME whose PATH resolves `claude` /
 # `codex` to copies of gilvt-fake-agent, records it in session.env for drive.sh, and tears it down.
 #
-#   tests/gui/sandbox.sh up [--label X] [--app PATH] [--fake PATH] [--keep DIR] [--remote]
+#   tests/gui/sandbox.sh up [--label X] [--app PATH] [--fake PATH] [--keep DIR] [--remote | --remote-mac]
 #                                                             DIR: where failures/ goes when the pane check fails;
 #                                                             --remote: ssh config + key for remote.sh's containers
+#                                                             --remote-mac: the same for remote-mac.sh (this Mac over localhost)
 #   tests/gui/sandbox.sh real-up [--label X] [--app PATH] [--record DIR]   real HOME, real claude / codex;
 #                                                             DIR (absolute): GILVT_MONITOR_RECORD for the 监控官
 #   tests/gui/sandbox.sh down [--keep DIR]                    DIR: copy shots/ and failures/ there first
@@ -426,12 +427,16 @@ verify_pane_paths() {
 # REMOTE_CONTROL_DIR / REMOTE_DIST_DIR for the caller). Panes inherit the app's environment, so
 # `gilvt ssh` in a pane sees both. Exits 2 when remote.sh is not up.
 install_remote_home() {
-  local dir="$1" home="$2" bin="$3" app="${4:-}" rstate
-  rstate="${GILVT_GUI_REMOTE_STATE:-${TMPDIR:-/tmp}/gilvt-gui-remote}"
+  local dir="$1" home="$2" bin="$3" app="${4:-}" kind="${5:-remote}" rstate script sname
+  case "$kind" in
+    remote) script="$here/remote.sh" sname=gilvt-gui-remote; rstate="${GILVT_GUI_REMOTE_STATE:-${TMPDIR:-/tmp}/gilvt-gui-remote}" ;;
+    remote-mac) script="$here/remote-mac.sh" sname=gilvt-gui-remote-mac; rstate="${GILVT_GUI_REMOTE_MAC_STATE:-${TMPDIR:-/tmp}/gilvt-gui-remote-mac}" ;;
+    *) echo "sandbox: unknown remote kind $kind" >&2; exit 2 ;;
+  esac
   case "$rstate" in /*) ;; *) echo "sandbox: refusing remote state dir $rstate" >&2; exit 2 ;; esac
   case "/$rstate/" in */../*) echo "sandbox: refusing remote state dir $rstate" >&2; exit 2 ;; esac
-  rs_="${rstate%/}"; [ "${rs_##*/}" = gilvt-gui-remote ] || { echo "sandbox: refusing remote state dir $rstate" >&2; exit 2; }
-  "$here/remote.sh" status >/dev/null 2>&1 || { echo "sandbox: --remote needs tests/gui/remote.sh up" >&2; exit 2; }
+  rs_="${rstate%/}"; [ "${rs_##*/}" = "$sname" ] || { echo "sandbox: refusing remote state dir $rstate" >&2; exit 2; }
+  "$script" status >/dev/null 2>&1 || { echo "sandbox: --$kind needs tests/gui/$(basename "$script") up" >&2; exit 2; }
   install -d -m 700 "$home/.ssh"
   install -m 600 "$rstate/id_ed25519" "$home/.ssh/id_ed25519"
   # ssh finds ~ through the passwd entry (the real home), not $HOME: the config names the sandbox paths
@@ -446,13 +451,16 @@ install_remote_home() {
   ddir="$(dirname "$(command -v docker 2>/dev/null || echo /usr/bin/docker)")"
   dhost="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
   [ -n "$dhost" ] || dhost="${DOCKER_HOST:-}"
-  case "$ddir$dhost$rstate$here" in *"'"*) echo "sandbox: remote-test: a path contains a quote" >&2; exit 2 ;; esac
+  case "$ddir$dhost$rstate$here$script" in *"'"*) echo "sandbox: remote-test: a path contains a quote" >&2; exit 2 ;; esac
   {
     printf '#!/bin/sh\n'
     printf "export PATH='%s':\"\$PATH\"\n" "$ddir"
     [ -z "$dhost" ] || printf "export DOCKER_HOST='%s'\n" "$dhost"
-    printf "export GILVT_GUI_REMOTE_STATE='%s'\n" "$rstate"
-    printf 'exec /bin/bash %s "$@"\n' "$here/remote.sh"
+    case "$kind" in
+      remote) printf "export GILVT_GUI_REMOTE_STATE='%s'\n" "$rstate" ;;
+      remote-mac) printf "export GILVT_GUI_REMOTE_MAC_STATE='%s'\n" "$rstate" ;;
+    esac
+    printf 'exec /bin/bash %s "$@"\n' "$script"
   } >"$bin/remote-test"
   chmod +x "$bin/remote-test"
   # ssh's control sockets live here: the path must stay short (sun_path), so not under $tmp.
@@ -471,7 +479,8 @@ cmd_up() {
       --app) [ $# -ge 2 ] || usage; app="$2"; shift 2 ;;
       --keep) [ $# -ge 2 ] || usage; keep="$2"; shift 2 ;;
       --fake) [ "$mode" = sandbox ] && [ $# -ge 2 ] || usage; fake="$2"; shift 2 ;;
-      --remote) [ "$mode" = sandbox ] || usage; remote=1; shift ;;
+      --remote) [ "$mode" = sandbox ] || usage; remote=remote; shift ;;
+      --remote-mac) [ "$mode" = sandbox ] || usage; remote=remote-mac; shift ;;
       --record) [ "$mode" = real ] && [ $# -ge 2 ] || usage; record="$2"; shift 2 ;;
       *) usage ;;
     esac
@@ -507,7 +516,7 @@ cmd_up() {
     cp -L "$here"/scenarios/*.toml "$dir/scenarios/" 2>/dev/null
     write_home "$dir"
     if [ -n "$remote" ]; then
-      install_remote_home "$dir" "$home" "$bin" "$app"
+      install_remote_home "$dir" "$home" "$bin" "$app" "$remote"
       remote_env=("SSH_AUTH_SOCK=" "GILVT_SSH_CONTROL_DIR=$REMOTE_CONTROL_DIR" "GILVT_REMOTE_DIR=$REMOTE_DIST_DIR")
     fi
     warm_codex_trust "$app" "$home" "$bin"

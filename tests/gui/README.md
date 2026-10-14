@@ -42,6 +42,7 @@ Claude 仍可从 `.claude/skills/gilvt-acceptance/SKILL.md` 进入同一份流�
 |---|---|
 | `up [--label X] [--app PATH] [--fake PATH] [--keep DIR]` | 创建 `$TMPDIR/gilvt-gui-<yyyymmdd-HHMMSS>/`，启动沙盒 gilvt，写 `session.env`，把 `$TMPDIR/gilvt-gui-current` 指向它。安全检查失败时自己 `down`，`--keep` 把 `failures/` 先复制到 DIR（`run.sh` 传 `<out>/<ID>`） |
 | `up --remote` | 在 `up` 之外：要求 `remote.sh status` 是 up（否则退出 2）；把测试远端的 `ssh_config`、密钥、`known_hosts` 放进沙盒 `$HOME/.ssh/`（配置里的 `~` 改成沙盒路径，因为 ssh 按 passwd 而不是 `$HOME` 找 `~`），`$bin/ssh` 包装脚本给 ssh 加 `-F <沙盒>/.ssh/config`（gilvt 用 PATH 上第一个 ssh），`$bin/remote-test` 是 `remote.sh` 的别名（用例里 `remote-test exec …`、`remote-test reset`）；启动时给 app 传 `GILVT_SSH_CONTROL_DIR=/tmp/gilvt-gui-cm-<时间戳>`（ssh 的 ControlPath 套接字，路径要短）和 `GILVT_REMOTE_DIR`（包里的 `Contents/Resources/remote`，没有则 `<target>/remote-dist/remote`）；pane 继承 app 的环境，所以 pane 里的 `gilvt ssh` 能看到它们。两个值写进 `session.env`（`CONTROL_DIR`、`REMOTE_DIR`），`restart` 沿用；`down` 对控制目录里每个 `cm-*` 套接字执行 `ssh -O exit`，再删除目录 |
+| `up --remote-mac` | 同 `--remote`，但用 `remote-mac.sh`（本机 localhost 上的测试用户），`remote-test` 指向 `remote-mac.sh`（状态目录 `gilvt-gui-remote-mac`，环境变量 `GILVT_GUI_REMOTE_MAC_STATE`） |
 | `real-up [--label X] [--app PATH] [--record DIR]` | 真实 HOME、真实 claude / codex（`real-*` 用例），`DISABLE_AUTOUPDATER=1`，`MODE=real`。`--record`（绝对路径）以 `GILVT_MONITOR_RECORD=DIR` 启动：监控官对话进程把写入（`> `）与读到（`< `）的每一行追加到 `DIR/<claude\|codex>-<pid>.jsonl` |
 | `down [--keep DIR]` | 只结束 `session.env` 里的 pid，删除沙盒目录和链接；列出 `trashed.txt` 里记下的废纸篓条目（不清空） |
 | `restart [--set KEY=VALUE]… [--env GILVT_TEST_<NAME>=<值>]…` | 同一个沙盒（HOME、seed、`ui.json`、`trashed.txt` 都保留）里重启 gilvt：`--env` 只接受 `GILVT_TEST_` 开头的测试开关，原样传给这次启动的 gilvt（如 `GILVT_TEST_INSTALL_LOCATION=disk_image`）；先按 `--set` 改 `config.toml`（`name` 或 `table.name`，值是 TOML 字面量，如 `--set 'agent.codex_launch="codex w"'`），再启动、重做 pane 安全检查，更新 `session.env`。gilvt 会热重载 config.toml，但 `shell`、`[agent]` 等仍只在启动时读；改配置的用例照旧用 `restart --set`；也用来清零 `dock_bounces`、让「已结束」回到只有本次运行的会话。只用于 `up` 的沙盒 |
@@ -104,6 +105,7 @@ tests/gui/run.sh --list all                                              # 只�
   也会放回。保存失败的用例不运行（`FAIL(clipboard save)`）。`run.sh` 自己编译 `tools/keys.swift`（与 `up` 共用缓存）。
 - `requires: remote`：用例需要测试远端（`remote.sh`，见下）。`run.sh` 在跑这类用例之前 `remote.sh up`（已经是 up 就沿用，也不会在结束时拆掉；自己启动的，结束或中断时 `remote.sh down`），每个用例前 `remote.sh reset`，并用 `sandbox.sh up --remote`。起不来（没有 docker / colima）时 `SKIP(remote-unavailable)`。`remote` 用例不并行。
   R2a 起 `remote.sh up` 还会把 Linux 版 fake agent 装成 devbox 上的 `claude` / `codex`：先 `scripts/build-remote.sh --fake`（或用 `GILVT_REMOTE_FAKE` 指定）；没有它时 `up` 只警告，用到远端 agent 的 AC 用例会失败。
+- `requires: remote-mac`：用例需要 macOS 测试远端（`remote-mac.sh`，见下）。`run.sh` 在跑这类用例前执行 `remote-mac.sh up`（只检查和写状态目录，不起服务，所以结束时不 down），每个用例前 `remote-mac.sh reset`，并用 `sandbox.sh up --remote-mac`。环境没准备好时 `SKIP(remote-mac-unavailable)`。
 - `requires: real-claude` / `real-codex` 没有 `--real` 时 `SKIP(real-…)`；`manual` 总是 `SKIP(manual)`（要人来做）。
 - `--out DIR`：evidence bundle 的目录，必须不存在或为空；默认 `~/gilvt-lab/reports/run-<UTC 时间>-<提交>-<pid>`。
 - `--jobs N`：按 case 并行运行隔离安全的沙盒用例。每个 worker 有自己的 `TMPDIR`、session、HOME 和 app 进程；S0（若在选择中）
@@ -309,6 +311,21 @@ finalize 为 `interrupted` / `not_run`，留下可检查的部分报告。
 | `exec [--user dev\|devz] <命令>` | 在 devbox 里以该用户执行（默认 `dev`；`$SHELL` 取自 passwd） |
 
 它只碰自己的状态目录、命名的容器 / 网络 / 镜像和本机 2201、2202 端口。用例里通过沙盒的 `remote-test` 调用它。用完 `remote.sh down`。
+
+## `remote-mac.sh`：macOS 测试远端
+
+本机打开「远程登录」后，以测试用户 `gilvttest`（`GILVT_GUI_REMOTE_MAC_USER`）经 `ssh mac-test`（`127.0.0.1:22`）登录。一次性准备见 `remote-mac.sh keygen` 的输出（脚本不会替你改系统设置、建用户或用 sudo）。状态目录 `$TMPDIR/gilvt-gui-remote-mac/`（`GILVT_GUI_REMOTE_MAC_STATE`）里有 `ssh_config`（`~/.ssh/…` 形式，给沙盒改写）、`ssh_config.local`（指向状态目录，给 `exec` 用）、密钥和 `known_hosts`。
+
+| 子命令 | 作用 |
+|---|---|
+| `keygen` | 生成测试密钥（`~/.config/gilvt-test/remote-mac/id_ed25519`，跨次保留），打印一次性准备步骤 |
+| `up` | 检查远程登录、测试用户和密钥，写状态目录，把 macOS 版 fake agent 装成测试用户的 `~/bin/claude`、`~/bin/codex` |
+| `down` | 删除状态目录（测试用户的文件保留，由 `reset` 清理） |
+| `status` | up 时打印 `up <状态目录>` 退出 0，否则打印 `down` 退出 2 |
+| `reset` | 结束测试用户的 `gilvt-remote` 进程，删除其 `~/.gilvt-server` 与用例留下的 `~/ad<N>` 目录 |
+| `exec <命令>` | 以测试用户执行（经 ssh 的 `zsh -c`） |
+
+fake agent 来自 `scripts/build-remote.sh --platform darwin-aarch64 --fake`（`GILVT_REMOTE_FAKE_MAC` 可指定），装到测试用户的 `~/bin`（并在其 `~/.zshenv` 加 `path=(~/bin $path)`）。它只碰自己的状态目录、`~/.config/gilvt-test/remote-mac/` 和测试用户的 home。
 
 ## 剧本
 
