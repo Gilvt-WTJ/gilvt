@@ -618,3 +618,44 @@ fn bash_user_ssh_alias_wins() {
     assert!(g.is_empty() && p.is_empty());
     assert_eq!(u, vec!["mine".to_string()]);
 }
+
+// ---- Terminal modes a crashed program left on --------------------------------------------------
+
+/// A full-screen program that dies without cleaning up (an ssh connection that drops under Claude Code)
+/// leaves mouse / focus reporting and the kitty keyboard protocol on; every mouse move then types escape
+/// codes into the shell. The prompt hook turns them off: only the shell reaches it, so no program needs them.
+fn check_modes_reset_at_prompt(shell: &str, rc_file: &str, all: bool) {
+    use gilvt_term::TermMode;
+    let mut sh = start(shell, rc_file, "");
+    sh.wait("first prompt", |ev, _| has(ev, PromptMark::InputStart));
+    let left_on = if all { r"printf '\033[?1000h\033[?1002h\033[?1006h\033[?1004h\033[>1u'" } else { r"printf '\033[?1000h\033[?1002h\033[?1006h'" };
+    sh.run(left_on);
+    sh.wait("next prompt", |ev, _| has(ev, PromptMark::InputStart));
+    let mode = *sh.session.term().lock().mode();
+    let mouse = TermMode::MOUSE_REPORT_CLICK | TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION | TermMode::SGR_MOUSE;
+    assert!(!mode.intersects(mouse), "{shell}: mouse reporting still on at the prompt: {mode:?}");
+    if all {
+        assert!(!mode.contains(TermMode::FOCUS_IN_OUT), "{shell}: focus reporting still on: {mode:?}");
+        assert!(!mode.contains(TermMode::DISAMBIGUATE_ESC_CODES), "{shell}: kitty keyboard flags still on: {mode:?}");
+    }
+}
+
+#[test]
+fn zsh_prompt_turns_off_modes_a_crashed_program_left_on() {
+    check_modes_reset_at_prompt("/bin/zsh", ".zshrc", true);
+}
+
+#[test]
+fn bash_prompt_turns_off_modes_a_crashed_program_left_on() {
+    check_modes_reset_at_prompt("/bin/bash", ".bash_profile", true);
+}
+
+#[test]
+fn fish_prompt_turns_off_mouse_reporting_a_crashed_program_left_on() {
+    let Some(fish) = find_fish() else {
+        eprintln!("fish not installed; skipping");
+        return;
+    };
+    // fish 4 manages focus reporting and the kitty keyboard protocol itself: only the mouse modes are ours.
+    check_modes_reset_at_prompt(fish.to_str().unwrap(), ".config/fish/config.fish", false);
+}

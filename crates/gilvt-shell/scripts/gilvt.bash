@@ -101,6 +101,10 @@ __gilvt_prompt() {
     esac
   fi
   printf '\033]7;file://%s%s\033\\' "$HOSTNAME" "$(__gilvt_urlencode "$PWD")"
+  # Only the shell reaches its prompt: turn off what a program that died without cleaning up (an ssh that
+  # dropped under a full-screen app) left on, or every mouse move types escape codes here. Mouse reporting
+  # (and its encodings), focus reporting, kitty keyboard flags.
+  printf '\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1004l\033[=0;1u'
   printf '\033]133;A\033\\'
   [ -n "$__gilvt_agents_checked" ] || __gilvt_define_agents
   [ -n "$__gilvt_ssh_checked" ] || __gilvt_define_ssh
