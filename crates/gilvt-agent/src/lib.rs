@@ -16,7 +16,7 @@ mod git;
 pub mod host;
 #[cfg(target_os = "macos")]
 pub mod install_location;
-mod launch;
+pub mod launch;
 mod registry;
 mod review;
 mod runtime;
@@ -45,7 +45,7 @@ pub use git::{
     StatusSummary,
 };
 pub use launch::{
-    new_agent_command, resume_command, shell_quote, ClaudePermission, CodexPermission, NewAgent, Permission,
+    new_agent_command, resume_command, shell_quote, split_command, ClaudePermission, CodexPermission, NewAgent, Permission,
 };
 pub use registry::{Change, Registry};
 pub use review::{

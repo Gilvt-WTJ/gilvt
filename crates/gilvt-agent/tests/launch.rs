@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use gilvt_agent::{
-    new_agent_command, resume_command, shell_quote, AgentKind, ClaudePermission, CodexPermission, NewAgent, Permission,
+    new_agent_command, resume_command, shell_quote, split_command, AgentKind, ClaudePermission, CodexPermission, NewAgent, Permission,
 };
 
 fn agent(agent: AgentKind, dir: &str) -> NewAgent {
@@ -200,4 +200,36 @@ fn permissions_round_trip_through_json() {
     assert_eq!(Permission::Claude(ClaudePermission::Plan).agent(), AgentKind::Claude);
     assert_eq!(Permission::Codex(CodexPermission::ReadOnly).agent(), AgentKind::Codex);
     assert_eq!(Permission::Codex(CodexPermission::ReadOnly).label(), "只读");
+}
+
+#[test]
+fn launch_commands_may_be_several_words() {
+    assert_eq!(
+        new_agent_command("ttadk claude", &agent(AgentKind::Claude, "/r")),
+        "cd /r && ttadk claude"
+    );
+    assert_eq!(
+        resume_command("ttadk codex", AgentKind::Codex, "abc", Path::new("/r")),
+        "cd /r && ttadk codex resume abc"
+    );
+    assert_eq!(
+        resume_command("ttadk claude --model 'x y'", AgentKind::Claude, "id1", Path::new("/r")),
+        "cd /r && ttadk claude --model 'x y' --resume id1"
+    );
+    assert_eq!(
+        new_agent_command("/Applications/My Tools/claude", &agent(AgentKind::Claude, "/r")),
+        "cd /r && /Applications/My Tools/claude",
+        "an unquoted path with a space is two words: the user quotes it in config.toml"
+    );
+}
+
+#[test]
+fn split_command_follows_shell_quoting() {
+    assert_eq!(split_command("ttadk  claude"), Some(vec!["ttadk".into(), "claude".into()]));
+    assert_eq!(
+        split_command(r#"a 'b c' "d e" f\ g"#),
+        Some(vec!["a".into(), "b c".into(), "d e".into(), "f g".into()])
+    );
+    assert_eq!(split_command("a 'b"), None);
+    assert_eq!(split_command("   "), Some(vec![]));
 }

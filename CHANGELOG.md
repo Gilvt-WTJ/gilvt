@@ -11,6 +11,10 @@ breaking changes; they are called out under **Changed**.
 
 - Claude Code / Codex started by another program in a gilvt pane — `ttadk claude`, `ttadk codex`, a script, a Makefile — is recognized like one you type: gilvt puts small shims for the agent commands first on the pane's PATH (only inside gilvt; no global config is changed). Calls whose input or output is not the terminal (`claude -p … | cat`) are left alone.
 
+### Changed
+
+- `[agent] claude_launch` / `codex_launch` may now include arguments, e.g. `claude_launch = "ttadk claude"`: new and resumed sessions (⌘⇧N, ⌘⇧R) are typed as `ttadk claude …`. Only the first word must be a plain command name; a value with a space used to fall back to the default.
+
 ## [0.4.1] - 2026-10-14
 
 ### Fixed
