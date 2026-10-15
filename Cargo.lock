@@ -2195,7 +2195,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "toml 0.8.23",
+ "toml 1.1.6+spec-1.1.0",
  "toml_edit 0.22.27",
  "unicode-segmentation",
  "unicode-width",
@@ -2217,7 +2217,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "toml 0.8.23",
+ "toml 1.1.6+spec-1.1.0",
  "toml_edit 0.22.27",
 ]
 
@@ -2231,7 +2231,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "toml 0.8.23",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
@@ -2242,7 +2242,7 @@ dependencies = [
  "gilvt-i18n",
  "serde_json",
  "tempfile",
- "toml 0.8.23",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
@@ -2268,7 +2268,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "toml 0.8.23",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
@@ -2285,7 +2285,7 @@ name = "gilvt-i18n"
 version = "0.5.0"
 dependencies = [
  "serde",
- "toml 0.8.23",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
@@ -2334,7 +2334,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "toml 0.8.23",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
