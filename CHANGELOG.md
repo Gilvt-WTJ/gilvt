@@ -7,6 +7,8 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-14
+
 ### Added
 
 - Claude Code / Codex started by another program in a gilvt pane — `ttadk claude`, `ttadk codex`, a script, a Makefile — is recognized like one you type: gilvt puts small shims for the agent commands first on the pane's PATH (only inside gilvt; no global config is changed). Calls whose input or output is not the terminal (`claude -p … | cat`) are left alone.
@@ -123,7 +125,8 @@ First public release.
   downloads, and installs when you quit gilvt, so running agents are never interrupted; "Check for
   Updates…" in the app menu, and `[update] mode = "download" | "check" | "off"` in `config.toml`.
 
-[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.1...main
+[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.5.0...main
+[0.5.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.2.1...v0.3.0
