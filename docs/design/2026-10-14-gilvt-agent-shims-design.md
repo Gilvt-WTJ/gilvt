@@ -105,7 +105,7 @@
 
 | 原因 | 判定 | 提示 | 按钮 |
 |---|---|---|---|
-| `bypassed`（被包装器绕过） | 找到方式是 `descendant`（能走到精简绑定，就说明没有收到 hook，也就是没有经过垫片） | 父进程是 ttadk 时：「ttadk 启动的 claude 没有经过 gilvt（它用的是 `<实际路径>`），只能用精简模式。」其他父进程使用通用说法：「`<父进程>` 直接启动了 `<实际路径>`，没有经过 gilvt。」 | 「复制配置」：父进程是 ttadk 时，复制 `"claude": "<垫片路径>"`，并说明写进 `~/.ttadk/setting.json` 的 `ai_tool_commands`；其他父进程时复制垫片路径。「Agent 设置…」 |
+| `bypassed`（被包装器绕过） | 找到方式是 `descendant`（能走到精简绑定，就说明没有收到 hook，也就是没有经过垫片） | 父进程是 ttadk 时：「ttadk 启动的 claude 没有经过 gilvt（它用的是 `<实际路径>`），只能用精简模式。」其他父进程使用通用说法：「`<父进程>` 直接启动了 `<实际路径>`，没有经过 gilvt。」 | 「复制配置」：父进程是 ttadk 时，复制 `"claude": "'<垫片路径>'"`（ttadk 用 `splitCommandLine` 按空白拆分这个值，而垫片目录 `Application Support` 里有空格，所以路径要加单引号，路径里的 `'` 写成 `'\''`，JSON 里是 `'\\''`），并说明写进 `~/.ttadk/setting.json` 的 `ai_tool_commands`；其他父进程时复制垫片路径。「Agent 设置…」 |
 | `unlisted`（agent 改了名字） | 找到方式是 `leader`，并且这条命令的首词（OSC 133 的 cmdline）不在识别列表里。首词是 `env`、`time`、`nice`、`nohup`、`command`、`exec`、`sudo` 这类前缀命令时无法判断，归入「其他」 | 「`<首词>` 启动了 codex，但不在 Codex 命令名里。」 | 「加入」：用 `config_file/edit.rs` 把这个名字写进对应列表，新开的 pane 生效。「Agent 设置…」 |
 | 其他 | 设置了 `GILVT_NO_AGENT_WRAPPERS`，或者无法判断 | 不提示 | — |
 

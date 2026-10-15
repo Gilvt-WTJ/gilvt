@@ -82,15 +82,20 @@ fn label(k: AgentKind) -> &'static str {
     }
 }
 
-/// ttadk's `ai_tool_commands` line pointing `agent` at `shim`.
+/// ttadk's `ai_tool_commands` line pointing `agent` at `shim`. ttadk splits the value into words
+/// (`splitCommandLine`: whitespace separates, quotes group, a backslash escapes outside quotes), and the shims
+/// directory has a space in it (`Application Support`), so the path goes in single quotes, a `'` in it as
+/// `'\''`; the whole value is then a JSON string.
 pub fn ttadk_line(agent: AgentKind, shim: &Path) -> String {
-    format!("\"{}\": \"{}\"", agent.name(), shim.display())
+    let word = format!("'{}'", shim.to_string_lossy().replace('\'', r"'\''"));
+    format!("\"{}\": {}", agent.name(), serde_json::Value::String(word))
 }
 
-/// `names` is the agent's command list: only those names have a shim, so 「复制配置」 points at the first of them
-/// (no copy without a name or a shims directory).
+/// `names` is the agent's command list: only those names have a shim, so 「复制配置」 points at the one named
+/// after the agent (`claude` / `codex`) when listed, else the first (no copy without a name or a shims directory).
 pub fn hint(cause: &Cause, agent: AgentKind, shims_dir: Option<&Path>, names: &[String]) -> Hint {
-    let shim = shims_dir.zip(names.first()).map(|(d, n)| d.join(n));
+    let name = names.iter().find(|n| n.as_str() == agent.name()).or(names.first());
+    let shim = shims_dir.zip(name).map(|(d, n)| d.join(n));
     match cause {
         Cause::Bypassed { parent } if parent == "ttadk" => Hint {
             cause: cause.clone(),

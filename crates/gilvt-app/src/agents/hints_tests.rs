@@ -41,7 +41,7 @@ fn no_hint_when_wrappers_are_off_or_unknown() {
 fn ttadk_hint_copies_its_config_line() {
     let shims = Some(Path::new("/L/gilvt/shims"));
     let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, shims, &l(&["claude", "cc"]));
-    assert_eq!(h.copy.as_deref(), Some(r#""claude": "/L/gilvt/shims/claude""#));
+    assert_eq!(h.copy.as_deref(), Some(r#""claude": "'/L/gilvt/shims/claude'""#));
     assert!(h.text.contains("ttadk"));
     let g = hint(&Cause::Bypassed { parent: "perl".into() }, Codex, shims, &l(&["codex"]));
     assert_eq!(g.copy.as_deref(), Some("/L/gilvt/shims/codex"));
@@ -54,11 +54,34 @@ fn the_copied_shim_is_one_that_is_installed() {
     let shims = Some(Path::new("/L/gilvt/shims"));
     // Only names in the list have a shim: `claude_commands = ["cc"]` leaves no `<shims>/claude`.
     let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, shims, &l(&["cc"]));
-    assert_eq!(h.copy.as_deref(), Some(r#""claude": "/L/gilvt/shims/cc""#));
+    assert_eq!(h.copy.as_deref(), Some(r#""claude": "'/L/gilvt/shims/cc'""#));
     assert_eq!(hint(&Cause::Bypassed { parent: "perl".into() }, Codex, shims, &l(&["cw"])).copy.as_deref(), Some("/L/gilvt/shims/cw"));
     assert_eq!(hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, shims, &[]).copy, None, "no names: no shim to point at");
     assert_eq!(hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, None, &l(&["claude"])).copy, None, "no shims directory");
-    assert_eq!(ttadk_line(Codex, Path::new("/L/s/cw")), r#""codex": "/L/s/cw""#);
+    assert_eq!(ttadk_line(Codex, Path::new("/L/s/cw")), r#""codex": "'/L/s/cw'""#);
+}
+
+#[test]
+fn the_copied_shim_prefers_the_agents_own_name() {
+    let shims = Some(Path::new("/L/s"));
+    let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, Claude, shims, &l(&["cc", "claude"]));
+    assert_eq!(h.copy.as_deref(), Some(r#""claude": "'/L/s/claude'""#));
+    let g = hint(&Cause::Bypassed { parent: "perl".into() }, Codex, shims, &l(&["cw", "codex"]));
+    assert_eq!(g.copy.as_deref(), Some("/L/s/codex"));
+}
+
+#[test]
+fn the_ttadk_line_survives_ttadks_word_splitting() {
+    // ttadk's splitCommandLine (dist/core/utils/string-utils.js) splits on whitespace outside quotes, takes
+    // everything up to the closing quote literally, and a backslash outside quotes escapes the next char.
+    let p = Path::new("/Users/x/Library/Application Support/gilvt/shims/claude");
+    assert_eq!(ttadk_line(Claude, p), r#""claude": "'/Users/x/Library/Application Support/gilvt/shims/claude'""#);
+    // JSON `'\\''` decodes to `'\''`: `'` closes the quote, `\'` is a literal quote, `'` reopens.
+    let q = Path::new("/Users/o'neil/App Support/shims/codex");
+    assert_eq!(ttadk_line(Codex, q), r#""codex": "'/Users/o'\\''neil/App Support/shims/codex'""#);
+    // A `"` or `\` in the path is JSON-escaped; inside the single quotes ttadk takes it literally.
+    let r = Path::new(r#"/a "b"\c/claude"#);
+    assert_eq!(ttadk_line(Claude, r), r#""claude": "'/a \"b\"\\c/claude'""#);
 }
 
 #[test]

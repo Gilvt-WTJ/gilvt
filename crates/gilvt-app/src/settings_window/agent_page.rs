@@ -185,7 +185,7 @@ mod tests {
     fn copy_config_names_the_rows_own_shim() {
         let row = StatusRow { name: "cc".into(), kind: Claude, real_path: None, shim_ok: true, problem: Some(Problem::BypassedByTtadk) };
         let shims = Path::new("/L/shims");
-        assert_eq!(copy_config(&row, Some(shims)).as_deref(), Some(r#""claude": "/L/shims/cc""#));
+        assert_eq!(copy_config(&row, Some(shims)).as_deref(), Some(r#""claude": "'/L/shims/cc'""#));
         assert_eq!(copy_config(&row, None), None);
         let missing = StatusRow { shim_ok: false, ..row };
         assert_eq!(copy_config(&missing, Some(shims)), None, "never point ttadk at a shim that is not there");

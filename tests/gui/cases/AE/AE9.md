@@ -5,7 +5,7 @@ scenarios: []
 
 需要本机安装 ttadk 并已登录 SSO（`ttadk claude` 能正常进入 Claude Code）。在 `real-up` 的 gilvt（真实 HOME、真实配置）的 pane 里执行：ttadk 是 node 脚本，留在前台当组长，`foreground_via` 取脚本名 `ttadk`。
 
-前提：`~/.ttadk/setting.json` 的 `ai_tool_commands.claude` 是 `"claude"`（按名字调用），而且 `~/.local/bin`、`~/.claude/local` 里没有 claude（ttadk 会把 `~/.local/bin` 插到 PATH 最前，那里的 claude 会绕过垫片）。不满足时预期结果是精简模式加 ttadk 版的提示（「ttadk 启动的 claude 没有经过 gilvt…」，「复制配置」复制 `"claude": "<垫片目录>/claude"`），按提示改好 `ai_tool_commands` 后再跑一次。
+前提：`~/.ttadk/setting.json` 的 `ai_tool_commands.claude` 是 `"claude"`（按名字调用），而且 `~/.local/bin`、`~/.claude/local` 里没有 claude（ttadk 会把 `~/.local/bin` 插到 PATH 最前，那里的 claude 会绕过垫片）。不满足时预期结果是精简模式加 ttadk 版的提示（「ttadk 启动的 claude 没有经过 gilvt…」，「复制配置」复制 `"claude": "'<垫片目录>/claude'"`），按提示改好 `ai_tool_commands` 后再跑一次。
 
 ## setup
 ```sh
