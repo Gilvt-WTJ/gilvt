@@ -23,9 +23,9 @@ assert settings.agent.status[?name=="claude"].real_path contains "/bin/claude"
 assert settings.agent.status[?name=="codex"].shim_ok == true
 # 添加 cw 到 Codex
 click  'rect(settings.agent.commands.input[1])'
-wait   settings.agent.commands.input_text == "" timeout=3s
+wait   settings.agent.commands.input_text[1] == "" timeout=3s
 type   --window key "cw"
-wait   settings.agent.commands.input_text == "cw" timeout=3s
+wait   settings.agent.commands.input_text[1] == "cw" timeout=3s
 key    enter
 wait   settings.agent.commands.codex[?name=="cw"] exists timeout=3s
 sleep  1s

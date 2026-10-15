@@ -570,17 +570,17 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `commands` | 对象 | `{ claude, codex, add, input, input_text }`：`claude` / `codex` 是命令名标签 `[{ name, rect, remove_rect }]`（`remove_rect` 是标签上的 ×，点了删除这个名字）；`add` 是两组末尾「+」的 rect `[Claude, Codex]`；`input` 是「+」前面输入框的 rect（点它打开输入框，输入后 ⏎ 或点「+」添加）；`input_text` 是打开的输入框里的文字，关着时为 `null` |
+| `commands` | 对象 | `{ claude, codex, add, input, input_text }`：`claude` / `codex` 是命令名标签 `[{ name, rect, remove_rect }]`（`remove_rect` 是标签上的 ×，点了删除这个名字）；`add`、`input`、`input_text` 都是两个元素的数组 `[Claude, Codex]`，按下标取（如 `input[1]`、`input_text[1]` 是 Codex 组的）：`add` 是两组末尾「+」的 rect；`input` 是「+」前面输入框的 rect（点它打开输入框，输入后 ⏎ 或点「+」添加）；`input_text` 是打开的输入框里的文字，关着时为 `null` |
 | `launch` | 对象 | `{ claude, codex }`，每个 `{ text, editing, preview, error, rect }`：`text` 是启动命令（输入框打开时是正在输入的文字），`editing` 表示输入框开着，`preview` 是 `[新建, 恢复]` 两行预览（如 `ttadk claude`、`ttadk claude --resume <会话 ID>`；Codex 的恢复是 `… resume <会话 ID>`，英文界面是 `<session ID>`），`error` 是上次输入被拒绝的原因（第一个词不是合法命令名、引号没闭合），`rect` 是输入框（点它打开，⏎ 保存） |
 | `status` | 数组 | 每个命令名一行，Claude 的在前：`{ name, kind, real_path, shim_ok, problem, button }`；`kind` 为 `claude` / `codex`；`real_path` 是 PATH 里第一个不是垫片的同名程序，找不到为 `null`；`shim_ok` 是垫片目录里有这个名字的垫片；`problem` 为 `null`、`not_found`（找不到命令）或 `bypassed_by_ttadk`（真正的程序在 `~/.local/bin` 或 `~/.claude/local`，ttadk 会绕过垫片）；`button` 是这一行「复制配置」在 `buttons` 里的下标（只有 `bypassed_by_ttadk` 行有） |
 | `status_loading` | 布尔 | 正在计算 `status`（页面显示「正在检查…」）；这期间 `status` 是上一次的结果（第一次为空数组）。计算用的是登录 shell 的 PATH（与 pane 里一致；第一次读取可能要几秒），读不到时用 gilvt 自己的 PATH。用例应先 `wait 'settings.agent.status_loading == false'` 再断言 `status` |
 | `shims_dir` | 字符串或 `null` | 垫片目录 |
 | `shims_error` | 字符串或 `null` | 垫片目录建不起来的原因（页面顶部的黄色横幅） |
-| `buttons` | 数组 | `{ label, enabled, rect }`，顺序固定：0「↻ 刷新」（重新计算 `status`）、1「复制」（复制垫片目录；没有目录时 `enabled` 为假）、2「恢复所有已关闭的提示」（没有关闭过的提示时 `enabled` 为假），3 起每个 `bypassed_by_ttadk` 行一个「复制配置」（复制 `"<kind>": "<垫片目录>/<name>"`，即这一行自己的垫片；`shim_ok` 为假或没有垫片目录时 `enabled` 为假） |
+| `buttons` | 数组 | `{ label, enabled, rect }`，顺序固定：0「↻ 刷新」（重新计算 `status`）、1「复制」（复制垫片目录；没有目录时 `enabled` 为假）、2「恢复所有已关闭的提示」（没有关闭过的提示时 `enabled` 为假），3 起每个 `bypassed_by_ttadk` 行一个「复制配置」（复制 `"<kind>": "'<垫片目录>/<name>'"`，即这一行自己的垫片，路径带单引号；`shim_ok` 为假或没有垫片目录时 `enabled` 为假） |
 
 `status` 在打开这一页、点「刷新」和改动命令名之后计算。添加、删除命令名和保存启动命令立即生效（重建垫片，对新开的 pane 生效）并写入 `config.toml` 的 `[agent]` 表；被拒绝时（名字不合法、已在另一组里、`config.toml` 有语法错误）原因在顶层 `notice`（`notice_error` 为真），启动命令的拒绝原因在 `launch.*.error`。复制、恢复提示成功时 `notice` 是一行说明（`notice_error` 为假）。
 
-例：`click 'rect(settings.pages[?id=="agent"])'`、`click 'rect(settings.agent.commands.input[1])'`、`click 'rect(settings.agent.commands.codex[?name=="cw"].remove_rect)'`、`click 'rect(settings.agent.buttons[0])'`、`gilvt debug wait 'settings.agent.commands.codex[?name=="cw"] exists'`、`gilvt debug wait 'settings.agent.status[?name=="claude"].problem == "bypassed_by_ttadk"'`。
+例：`click 'rect(settings.pages[?id=="agent"])'`、`click 'rect(settings.agent.commands.input[1])'`、`gilvt debug wait 'settings.agent.commands.input_text[1] == "cw"'`、`click 'rect(settings.agent.commands.codex[?name=="cw"].remove_rect)'`、`click 'rect(settings.agent.buttons[0])'`、`gilvt debug wait 'settings.agent.commands.codex[?name=="cw"] exists'`、`gilvt debug wait 'settings.agent.status[?name=="claude"].problem == "bypassed_by_ttadk"'`。
 
 在「外观」页点一行、`↑` / `↓` 或 `⏎`（选中高亮行）、切换「固定 / 跟随系统」，主题立即在所有窗口生效（顶层 `theme` 随之变化），约 300 ms 内选择不再变化后写入 `config.toml` 的 `theme` 键。写回失败（例如文件只读）时主题仍然生效，原因在 `write_error`（以「config.toml 是只读的…」这类短句开头）。`config.toml` 有语法错误时 `readonly` 为真，选择被拒绝，页面回到正在使用的主题。
 
