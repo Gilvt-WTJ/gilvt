@@ -327,7 +327,6 @@ impl Workspace {
         .on_action(cx.listener(|ws, _: &CopyAgentHint, _, cx| ws.copy_agent_hint(cx)))
         .on_action(cx.listener(|ws, _: &AddAgentHintCommand, _, cx| ws.add_agent_hint_command(cx)))
         .on_action(cx.listener(|ws, _: &DismissAgentHint, _, cx| ws.dismiss_agent_hint(cx)))
-        // Task 8 lands this on the Agent page; until then it opens the settings window.
         .on_action(cx.listener(|_, _: &OpenAgentSettings, _, cx| cx.defer(|cx| crate::settings_window::open_page(crate::settings_window::Page::Agent, cx))))
         .on_mouse_move(cx.listener(Self::on_inspector_drag))
         .on_mouse_up(MouseButton::Left, cx.listener(|ws, _, _, cx| ws.end_inspector_drag(cx)))
