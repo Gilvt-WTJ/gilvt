@@ -38,6 +38,10 @@ impl Global for ShellEnv {}
 /// must not inherit them: an agent started in a pane would take itself for that session's child
 /// (Claude then keeps no transcript and no prompt history). Claude's are dropped only when
 /// `CLAUDECODE` shows gilvt really runs inside a Claude session.
+///
+/// gilvt's own per-pane markers go too, always: `GILVT_AGENT_HOOKED` / `GILVT_AGENT_SHIM` from a hooked agent
+/// that started this gilvt would make every pane's shims skip hooks, and a stale `GILVT_SHIMS_DIR` would name a
+/// shims directory this app does not keep (panes get the current one from [`session_options`], or none).
 pub fn inherited_agent_vars(names: impl IntoIterator<Item = String>) -> Vec<String> {
     let names: Vec<String> = names.into_iter().collect();
     let in_claude = names.iter().any(|n| n == "CLAUDECODE");
@@ -48,7 +52,9 @@ pub fn inherited_agent_vars(names: impl IntoIterator<Item = String>) -> Vec<Stri
             || matches!(n, "CLAUDE_PID" | "CLAUDE_AGENT_SDK_VERSION" | "CLAUDE_EFFORT")
     };
     let codex = |n: &str| n.starts_with("CODEX_SANDBOX") || n == "CODEX_THREAD_ID";
-    names.into_iter().filter(|n| (in_claude && claude(n)) || codex(n)).collect()
+    use gilvt_client::shim::{ENV_HOOKED, ENV_SHIMMED, ENV_SHIMS_DIR};
+    let gilvt = |n: &str| [ENV_HOOKED, ENV_SHIMMED, ENV_SHIMS_DIR].contains(&n);
+    names.into_iter().filter(|n| (in_claude && claude(n)) || codex(n) || gilvt(n)).collect()
 }
 
 /// Removes [`inherited_agent_vars`] from this process's environment, so no pane or helper inherits
@@ -130,7 +136,8 @@ pub fn session_options(settings: &Settings, env: &ShellEnv, pane: PaneId, cwd: O
     opts.env.remove(crate::debug_state::ENV_DEBUG_STATE);
     if let Some(bin) = &env.bin_dir {
         let bin = bin.display().to_string();
-        // Profile scripts may reorder PATH; the prompt hooks move GILVT_BIN_DIR back to the front.
+        // Profile scripts may reorder PATH; the prompt hooks move GILVT_SHIMS_DIR, then GILVT_BIN_DIR, back to
+        // the front (so the shims come first, then the gilvt CLI).
         opts.env.insert("GILVT_BIN_DIR".into(), bin.clone());
         let path = getenv("PATH").unwrap_or_else(|| "/usr/bin:/bin:/usr/sbin:/sbin".into());
         let front = match &env.shims_dir {
@@ -139,7 +146,12 @@ pub fn session_options(settings: &Settings, env: &ShellEnv, pane: PaneId, cwd: O
                 opts.env.insert(gilvt_client::shim::ENV_SHIMS_DIR.into(), s.clone());
                 format!("{s}:{bin}")
             }
-            None => bin,
+            // `scrub_inherited_agent_env` already removed any GILVT_SHIMS_DIR this app inherited, and the map
+            // only adds to that environment: the pane gets none.
+            None => {
+                opts.env.remove(gilvt_client::shim::ENV_SHIMS_DIR);
+                bin
+            }
         };
         opts.env.insert("PATH".into(), format!("{front}:{path}"));
     }
@@ -189,6 +201,16 @@ mod tests {
         let o = session_options(&Settings::default(), &e, 1, None, getenv);
         assert_eq!(o.env.get("PATH").map(String::as_str), Some("/Apps/gilvt/bin:/usr/bin:/bin"));
         assert!(!o.env.contains_key("GILVT_SHIMS_DIR"));
+    }
+
+    #[test]
+    fn gilvts_own_agent_markers_are_never_inherited() {
+        let names = |vars: &[&str]| inherited_agent_vars(vars.iter().map(|s| s.to_string()));
+        assert_eq!(
+            names(&["HOME", "GILVT_AGENT_HOOKED", "GILVT_AGENT_SHIM", "GILVT_SHIMS_DIR", "GILVT_BIN_DIR", "GILVT_NO_AGENT_WRAPPERS"]),
+            ["GILVT_AGENT_HOOKED", "GILVT_AGENT_SHIM", "GILVT_SHIMS_DIR"],
+            "dropped even outside an agent session; the user's own switches stay"
+        );
     }
 
     #[test]
