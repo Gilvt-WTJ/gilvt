@@ -95,6 +95,11 @@ fn main() -> ExitCode {
     if let Some(language) = gilvt_i18n::language_from_env() {
         gilvt_i18n::set_current(language);
     }
+    // `gilvt shim` passes the agent's arguments through untouched, so it must not need them to be UTF-8.
+    if std::env::args_os().nth(1).is_some_and(|a| a == "shim") {
+        let rest: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+        return shim::run(&rest);
+    }
     let argv: Vec<String> = std::env::args().skip(1).collect();
     // Before any other parsing: hooks must stay silent whatever their arguments.
     if argv.first().is_some_and(|a| a == "hook") {
@@ -108,9 +113,6 @@ fn main() -> ExitCode {
     }
     if argv.first().is_some_and(|a| a == "mcp") {
         return mcp::run(&argv[1..]);
-    }
-    if argv.first().is_some_and(|a| a == "shim") {
-        return shim::run(&argv[1..]);
     }
     if argv.first().is_some_and(|a| a == "ssh") {
         return ssh::run(&argv[1..]);

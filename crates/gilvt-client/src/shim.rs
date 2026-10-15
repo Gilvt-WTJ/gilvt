@@ -8,6 +8,9 @@ use std::path::{Path, PathBuf};
 pub const MARKER: &str = "# gilvt agent shim (generated; do not edit)";
 pub const ENV_SHIMS_DIR: &str = "GILVT_SHIMS_DIR";
 pub const ENV_HOOKED: &str = "GILVT_AGENT_HOOKED";
+/// Set by `gilvt shim` on every program it execs, hooked or not: an agent found below a wrapper with this but not
+/// [`ENV_HOOKED`] went through the shim and was left alone on purpose (not interactive), so it was not bypassed.
+pub const ENV_SHIMMED: &str = "GILVT_AGENT_SHIM";
 pub const ENV_NO_WRAPPERS: &str = "GILVT_NO_AGENT_WRAPPERS";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
