@@ -17,6 +17,64 @@ pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Splits a launch command like a POSIX shell: whitespace separates words; '...' is literal; "..." and \ escape.
+/// None when a quote is left open.
+pub fn split_command(s: &str) -> Option<Vec<String>> {
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    let mut in_word = false;
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_whitespace() => {
+                if in_word {
+                    words.push(std::mem::take(&mut cur));
+                    in_word = false;
+                }
+            }
+            '\'' => {
+                in_word = true;
+                loop {
+                    match chars.next()? {
+                        '\'' => break,
+                        c => cur.push(c),
+                    }
+                }
+            }
+            '"' => {
+                in_word = true;
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => cur.push(chars.next()?),
+                        c => cur.push(c),
+                    }
+                }
+            }
+            '\\' => {
+                in_word = true;
+                cur.push(chars.next()?);
+            }
+            c => {
+                in_word = true;
+                cur.push(c);
+            }
+        }
+    }
+    if in_word {
+        words.push(cur);
+    }
+    Some(words)
+}
+
+/// `launch` as shell words, each quoted; a launch that does not split is used as one word (as before).
+fn launch_words(launch: &str) -> Vec<String> {
+    match split_command(launch) {
+        Some(w) if !w.is_empty() => w.iter().map(|w| shell_quote(w)).collect(),
+        _ => vec![shell_quote(launch)],
+    }
+}
+
 /// Claude Code's `--permission-mode` values (CLI 2.1.284).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -130,7 +188,7 @@ pub struct NewAgent {
 /// omitted; the prompt (trimmed, newlines kept) is one argument, after `--` when it starts with `-` so
 /// the CLI cannot take it for an option.
 pub fn new_agent_command(launch: &str, a: &NewAgent) -> String {
-    let mut args = vec![shell_quote(launch)];
+    let mut args = launch_words(launch);
     if let Some(model) = non_blank(a.model.as_deref()) {
         let flag = match a.agent {
             AgentKind::Claude => "--model",
@@ -161,7 +219,9 @@ pub fn resume_command(launch: &str, agent: AgentKind, session_id: &str, cwd: &Pa
         AgentKind::Claude => "--resume",
         AgentKind::Codex => "resume",
     };
-    in_dir(cwd, &format!("{} {resume} {}", shell_quote(launch), shell_quote(session_id)))
+    let mut words = launch_words(launch);
+    words.extend([resume.to_string(), shell_quote(session_id)]);
+    in_dir(cwd, &words.join(" "))
 }
 
 fn in_dir(dir: &Path, command: &str) -> String {

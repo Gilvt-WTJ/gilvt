@@ -144,6 +144,8 @@ pub struct Card {
     pub tags: Vec<&'static str>,
     /// The turn is running: the elapsed time must be redrawn every second.
     pub running: bool,
+    /// Why a lite session runs without hooks, and how to fix it (agent-shims spec §4.2); set by the caller.
+    pub hint: Option<crate::agents::hints::Hint>,
 }
 
 fn with_detail(head: &str, detail: &str) -> String {
@@ -288,7 +290,40 @@ pub fn card(s: &Session, view: Option<&TimelineView>, permission_mode: Option<&s
         tokens,
         tags,
         running,
+        hint: None,
     }
+}
+
+/// The hint a card shows (`Card.hint`): its pane's, while the session is live and in lite mode.
+pub fn card_hint(s: &Session, by_pane: &std::collections::HashMap<PaneId, crate::agents::hints::Hint>) -> Option<crate::agents::hints::Hint> {
+    if !(s.lite && s.is_live()) {
+        return None;
+    }
+    by_pane.get(&s.pane?).cloned()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What a hint button does.
+pub enum HintButton {
+    Copy,
+    Add,
+    Settings,
+    Dismiss,
+}
+
+/// The hint's buttons, in drawing order: 复制配置 (when there is something to copy), 加入 (an unlisted command),
+/// Agent 设置…, 不再提示.
+pub fn hint_buttons(h: &crate::agents::hints::Hint) -> Vec<(&'static str, HintButton)> {
+    let mut out = Vec::new();
+    if h.copy.is_some() {
+        out.push((crate::i18n::text("复制配置", "Copy config"), HintButton::Copy));
+    }
+    if matches!(h.cause, crate::agents::hints::Cause::Unlisted { .. }) {
+        out.push((crate::i18n::text("加入", "Add"), HintButton::Add));
+    }
+    out.push((crate::i18n::text("Agent 设置…", "Agent Settings…"), HintButton::Settings));
+    out.push((crate::i18n::text("不再提示", "Don't show again"), HintButton::Dismiss));
+    out
 }
 
 /// The waiting banner (spec §3.1): another session waits for you.

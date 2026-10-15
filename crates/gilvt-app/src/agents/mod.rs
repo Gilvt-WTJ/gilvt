@@ -3,7 +3,8 @@
 //! file IO run off the main thread; changes are applied on it and repaint the windows. The same inputs
 //! feed one timeline per session on the tail thread (M3b); the global holds their latest snapshots.
 
-mod foreground;
+pub(crate) mod foreground;
+pub mod hints;
 mod pending;
 mod process;
 mod project;
@@ -12,6 +13,7 @@ mod recorder;
 mod state;
 mod tails;
 mod timelines;
+mod tree;
 mod worker;
 
 use std::collections::{HashMap, HashSet};
@@ -28,7 +30,7 @@ use self::recorder::{batch_signals, signals as hook_signals, Recorder, Source};
 use self::state::{parse_hook_request, Core, Discovery};
 pub use self::foreground::is_shell;
 pub use self::pending::{resume_allowed, PendingResume};
-pub use self::process::describe as describe_process;
+pub use self::process::describe_via;
 pub use self::project::{fallback_name, project_root, remote_project};
 pub use self::state::PaneKey;
 use self::foreground::Foreground;
@@ -95,6 +97,69 @@ pub struct Agents {
 }
 
 impl Global for Agents {}
+
+/// Why each lite session runs without hooks (agent-shims spec §4.2), keyed by its pane; and the causes the user
+/// chose not to see again.
+pub struct AgentHints {
+    pub by_pane: HashMap<PaneId, hints::Hint>,
+    pub dismissed: hints::Dismissed,
+}
+
+impl Global for AgentHints {}
+
+impl AgentHints {
+    /// The hint shown for `pane`, if any.
+    pub fn of(pane: PaneId, cx: &App) -> Option<&hints::Hint> {
+        cx.try_global::<AgentHints>()?.by_pane.get(&pane)
+    }
+
+    /// Drops `pane`'s hint and repaints.
+    pub fn remove(pane: PaneId, cx: &mut App) {
+        if cx.try_global::<AgentHints>().is_some_and(|h| h.by_pane.contains_key(&pane)) {
+            cx.global_mut::<AgentHints>().by_pane.remove(&pane);
+            cx.defer(workspace::notify_all);
+        }
+    }
+}
+
+/// Whether the user turned the shims off (`GILVT_NO_AGENT_WRAPPERS`, inherited by every pane): no hints then.
+fn wrappers_disabled() -> bool {
+    std::env::var_os(gilvt_client::shim::ENV_NO_WRAPPERS).is_some_and(|v| !v.is_empty())
+}
+
+/// A lite binding just happened for `d`: work out why and keep the hint (unless dismissed).
+fn note_lite_binding(d: &Discovery, cx: &mut App) {
+    let cmdline = workspace::running_command(d.pane, cx);
+    let agent = &cx.global::<AppSettings>().0.agent;
+    let Some(cause) = hints::cause(&d.via, d.agent, cmdline.as_deref(), &agent.claude_commands, &agent.codex_commands, wrappers_disabled()) else {
+        return;
+    };
+    let shims = cx.try_global::<crate::launch::ShellEnv>().and_then(|e| e.shims_dir.clone());
+    let Some(h) = cx.try_global::<AgentHints>() else { return };
+    if h.dismissed.contains(&cause) {
+        return;
+    }
+    let agent = &cx.global::<AppSettings>().0.agent;
+    let names = match d.agent {
+        gilvt_agent::AgentKind::Claude => &agent.claude_commands,
+        gilvt_agent::AgentKind::Codex => &agent.codex_commands,
+    };
+    let hint = hints::hint(&cause, d.agent, shims.as_deref(), names);
+    cx.global_mut::<AgentHints>().by_pane.insert(d.pane, hint);
+}
+
+/// Hints only stay while their pane holds a live lite session.
+fn prune_hints(cx: &mut App) {
+    let Some(h) = cx.try_global::<AgentHints>() else { return };
+    let registry = &cx.global::<Agents>().core.registry;
+    let gone: Vec<PaneId> = h.by_pane.keys().copied().filter(|p| !registry.by_pane(*p).is_some_and(|s| s.lite)).collect();
+    if !gone.is_empty() {
+        let hints = cx.global_mut::<AgentHints>();
+        gone.iter().for_each(|p| {
+            hints.by_pane.remove(p);
+        });
+    }
+}
 
 impl Agents {
     /// A hook from an ssh host's bridge, already attributed to `pane` (R2a §5.2): the same pipeline as local ones.
@@ -508,6 +573,7 @@ pub fn init(cx: &mut App) -> async_channel::Sender<HookIn> {
         pending: Default::default(),
         runtimes: HashMap::new(),
     });
+    cx.set_global(AgentHints { by_pane: HashMap::new(), dismissed: state_dir().map(|d| hints::Dismissed::load(&d)).unwrap_or_default() });
     cx.spawn(async move |cx| {
         while wake_rx.recv().await.is_ok() {
             while wake_rx.try_recv().is_ok() {}
@@ -653,8 +719,12 @@ async fn poll_loop(cx: &mut AsyncApp) {
         let (panes, leases, processes): (Vec<(PaneId, Foreground)>, Vec<Lease>, Vec<ProcessObservation>) = cx
             .background_executor()
             .spawn(async move {
+                // One process-table scan at most per poll, shared by every pane that needs a tree search.
+                let mut table = None;
                 let panes = pids.into_iter()
-                    .map(|(pane, pid)| (pane, pid.map_or(Foreground::Unknown, |pid| process::foreground_of(pid, &claude, &codex))))
+                    .map(|(pane, pid)| {
+                        (pane, pid.map_or(Foreground::Unknown, |pid| process::foreground_of_with(pid, &claude, &codex, &mut table)))
+                    })
                     .collect();
                 let leases = lease_state.as_deref().map(|state| LeaseStore::open(state).read_all()).unwrap_or_default();
                 (panes, leases, scan_agent_processes())
@@ -688,6 +758,9 @@ async fn poll_loop(cx: &mut AsyncApp) {
             let found = cx.background_executor().spawn(async move { discover(&home, &search) }).await;
             if cx.update(|cx| {
                 let changes = cx.global_mut::<Agents>().core.bind_found(&d, found, Instant::now());
+                if !changes.is_empty() {
+                    note_lite_binding(&d, cx);
+                }
                 after_changes(changes, cx);
             })
             .is_err()
@@ -828,6 +901,7 @@ fn after_changes(changes: Vec<Change>, cx: &mut App) {
     if changes.iter().any(|c| matches!(c, Change::Added(_))) {
         Agents::refresh_git(cx);
     }
+    prune_hints(cx);
     let agents = cx.global_mut::<Agents>();
     // A live session now carries the key: started by hand or resumed, no longer waiting.
     // Any other agent started by hand in that pane clears its marks too (resuming would type into it).

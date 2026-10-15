@@ -465,8 +465,17 @@ fn session_hint(agent: AgentKind, args: &[String]) -> Option<String> {
     }
 }
 
+/// One process of the current user, for walking a process tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcRow {
+    pub pid: u32,
+    pub ppid: u32,
+    pub pgid: u32,
+    pub name: String,
+}
+
 #[cfg(target_os = "macos")]
-pub fn scan_agent_processes() -> Vec<ProcessObservation> {
+fn all_pids() -> Vec<u32> {
     let count = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
     if count <= 0 {
         return Vec::new();
@@ -477,10 +486,38 @@ pub fn scan_agent_processes() -> Vec<ProcessObservation> {
     if got <= 0 {
         return Vec::new();
     }
-    let uid = unsafe { libc::getuid() };
     pids.truncate(got as usize);
-    pids.into_iter()
-        .filter_map(|pid| u32::try_from(pid).ok())
+    pids.into_iter().filter_map(|pid| u32::try_from(pid).ok()).collect()
+}
+
+/// Every process of the current user (pid, parent, group, name).
+#[cfg(target_os = "macos")]
+pub fn process_table() -> Vec<ProcRow> {
+    let uid = unsafe { libc::getuid() };
+    all_pids()
+        .into_iter()
+        .filter_map(|pid| {
+            let info = bsd_info(pid)?;
+            (info.pbi_uid == uid).then(|| ProcRow {
+                pid,
+                ppid: info.pbi_ppid,
+                pgid: info.pbi_pgid,
+                name: process_name(pid).unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn process_table() -> Vec<ProcRow> {
+    Vec::new()
+}
+
+#[cfg(target_os = "macos")]
+pub fn scan_agent_processes() -> Vec<ProcessObservation> {
+    let uid = unsafe { libc::getuid() };
+    all_pids()
+        .into_iter()
         .filter(|&pid| bsd_info(pid).is_some_and(|info| info.pbi_uid == uid))
         .filter_map(|pid| {
             let agent = process_kind(pid)?;

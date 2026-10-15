@@ -9,7 +9,7 @@ use gilvt_agent::{
     host::Host, hook_meta, parse_hook, AgentKind, Change, Event, HookInput, HookMeta, PaneId, Registry, Session, SessionKey, Status, Store,
 };
 
-use super::foreground::{Action, Foreground, Tracker};
+use super::foreground::{Action, Foreground, Tracker, Via};
 use super::tails::Batch;
 
 /// A `gilvt hook` request, parsed (off the main thread).
@@ -85,6 +85,7 @@ pub struct Discovery {
     pub agent: AgentKind,
     pub cwd: PathBuf,
     pub since: SystemTime,
+    pub via: Via,
 }
 
 pub struct Core {
@@ -164,7 +165,7 @@ impl Core {
         for action in actions {
             match action {
                 Action::Exited(pane) => changes.extend(self.registry.pane_exited(pane, now)),
-                Action::Discover { pane, agent, cwd, since } => searches.push(Discovery { pane, agent, cwd, since }),
+                Action::Discover { pane, agent, cwd, since, via } => searches.push(Discovery { pane, agent, cwd, since, via }),
             }
         }
         (changes, searches)
@@ -380,7 +381,7 @@ mod tests {
     fn transcript_history_never_leaves_unseen_done() {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
-        let d = Discovery { pane: 2, agent: AgentKind::Claude, cwd: "/r".into(), since: SystemTime::UNIX_EPOCH };
+        let d = Discovery { pane: 2, agent: AgentKind::Claude, cwd: "/r".into(), since: SystemTime::UNIX_EPOCH, via: Via::Leader };
         let key: SessionKey = gilvt_agent::local_key(AgentKind::Claude, "lite");
         assert_eq!(core.bind_found(&d, Some(("lite".into(), "/t/lite.jsonl".into())), t0), vec![Change::Added(key.clone())]);
         let turn = vec![Event::PromptSubmit { text: "x".into() }, Event::TurnEnd { background_tasks: 0 }];
@@ -395,7 +396,7 @@ mod tests {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
         hook(&mut core, 1, "SessionStart", payload("a"), true, t0);
-        let d = Discovery { pane: 2, agent: AgentKind::Claude, cwd: "/r".into(), since: SystemTime::UNIX_EPOCH };
+        let d = Discovery { pane: 2, agent: AgentKind::Claude, cwd: "/r".into(), since: SystemTime::UNIX_EPOCH, via: Via::Leader };
         assert!(core.bind_found(&d, Some(("a".into(), "/t/a.jsonl".into())), t0).is_empty());
         assert!(core.bind_found(&d, None, t0).is_empty());
         // A hook bound pane 1 already: its own search result is dropped.
@@ -409,7 +410,7 @@ mod tests {
         let wall = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
         let mut core = Core::new(Store::in_memory());
         hook(&mut core, 1, "SessionStart", payload("a"), true, t0);
-        let agent = |pid| Foreground::Agent { kind: AgentKind::Codex, pid, cwd: Some("/w".into()) };
+        let agent = |pid| Foreground::Agent { kind: AgentKind::Codex, pid, cwd: Some("/w".into()), via: Via::Leader };
         let (c, s) = core.poll(&[(1, Foreground::Shell), (2, agent(9))], t0, wall);
         assert!(c.is_empty() && s.is_empty());
         let (c, s) = core.poll(&[(1, Foreground::Shell), (2, agent(9))], t0 + Duration::from_secs(3), wall);
@@ -435,7 +436,7 @@ mod tests {
     fn codex_osc_approval_marks_lite_sessions_waiting() {
         let t0 = Instant::now();
         let mut core = Core::new(Store::in_memory());
-        let d = Discovery { pane: 4, agent: AgentKind::Codex, cwd: "/r".into(), since: SystemTime::UNIX_EPOCH };
+        let d = Discovery { pane: 4, agent: AgentKind::Codex, cwd: "/r".into(), since: SystemTime::UNIX_EPOCH, via: Via::Leader };
         let key: SessionKey = gilvt_agent::local_key(AgentKind::Codex, "x");
         core.bind_found(&d, Some(("x".into(), "/t/x.jsonl".into())), t0);
         // The text codex 0.145 prints (its command is cut with "...").

@@ -80,6 +80,11 @@ actions!(
         OpenExternalEditor,
         OpenSettings,
         CheckForUpdates,
+        // The inspector card's agent hint (agent-shims §4.2): they act on the focused pane's hint.
+        CopyAgentHint,
+        AddAgentHintCommand,
+        DismissAgentHint,
+        OpenAgentSettings,
     ]
 );
 

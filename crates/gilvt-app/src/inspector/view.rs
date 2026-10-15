@@ -82,7 +82,7 @@ impl Head {
 fn layout_key(head: &Head) -> String {
     let c = &head.card;
     format!(
-        "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
+        "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
         head.banner.is_some(),
         c.tone,
         c.turn.is_some(),
@@ -90,6 +90,7 @@ fn layout_key(head: &Head) -> String {
         c.model.is_some(),
         c.tokens.is_some(),
         c.tags,
+        c.hint.as_ref().map(|h| h.text.clone()),
         head.plan,
         head.failed,
     )
@@ -109,7 +110,11 @@ pub fn render(ws: &mut Workspace, window: &mut Window, cx: &mut Context<Workspac
     let focused = ws.focused_pane();
     let session = focused.and_then(|p| model::follow(agents.registry().sessions(), p));
     let view = session.and_then(|s| agents.timeline(&s.key));
-    let card = session.map(|s| model::card(s, view.as_deref(), agents.permission_mode(&s.key), clock));
+    let card = session.map(|s| {
+        let mut card = model::card(s, view.as_deref(), agents.permission_mode(&s.key), clock);
+        card.hint = cx.try_global::<crate::agents::AgentHints>().and_then(|h| model::card_hint(s, &h.by_pane));
+        card
+    });
     let banner = model::banner(agents.registry().sessions(), session, reachable(ws, window.window_handle(), cx), |s| agents.project(s, cx), clock.now);
     let mut tick = model::needs_tick(card.as_ref(), banner.as_ref());
     let plain = focused.map_or(Plain::Shell, |p| ws.plain_kind(p));
@@ -329,6 +334,37 @@ fn render_card(c: &Card, k: &Colors) -> impl IntoElement {
                 div().px(px(6.)).rounded(px(8.)).bg(k.tag).text_color(k.tag_text).text_size(px(10.5)).child(*t)
             })))
         })
+        .when_some(c.hint.as_ref(), |d, h| d.child(render_hint(h, k)))
+}
+
+/// The agent hint under the card's tags: why the session runs in lite mode, then its buttons (agent-shims §4.2).
+/// The button order is fixed and DebugState lists them the same way ([`model::hint_buttons`]).
+fn render_hint(h: &crate::agents::hints::Hint, k: &Colors) -> impl IntoElement {
+    use crate::actions::{AddAgentHintCommand, CopyAgentHint, DismissAgentHint, OpenAgentSettings};
+    use model::{hint_buttons, HintButton};
+    let row = hint_buttons(h).into_iter().enumerate().fold(div().flex().flex_wrap().gap(px(4.)).mt(px(4.)), |row, (ix, (label, button))| {
+        let action: Box<dyn gpui::Action> = match button {
+            HintButton::Copy => Box::new(CopyAgentHint),
+            HintButton::Add => Box::new(AddAgentHintCommand),
+            HintButton::Settings => Box::new(OpenAgentSettings),
+            HintButton::Dismiss => Box::new(DismissAgentHint),
+        };
+        row.child(
+            div()
+                .id(("agent-hint-btn", ix))
+                .relative()
+                .children(rects::recorder(RectId::AgentHintButton(ix)))
+                .px(px(6.))
+                .rounded(px(4.))
+                .bg(k.chip)
+                .text_color(k.chip_text)
+                .text_size(px(10.5))
+                .cursor_pointer()
+                .child(label)
+                .on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx)),
+        )
+    });
+    div().child(div().mt(px(4.)).text_size(px(11.)).text_color(k.yellow).child(h.text.clone())).child(row)
 }
 
 /// 「TODO · 3/5」: ☑ done (struck through), ◐ active (bold), ☐ to do.
@@ -390,7 +426,7 @@ mod tests {
     use super::*;
 
     fn card(tone: Tone, turn: Option<&str>, tokens: Option<&str>, tags: Vec<&'static str>) -> Card {
-        Card { tone, status: "status".into(), turn: turn.map(String::from), context: None, model: None, tokens: tokens.map(String::from), tags, running: true }
+        Card { tone, status: "status".into(), turn: turn.map(String::from), context: None, model: None, tokens: tokens.map(String::from), tags, running: true, hint: None }
     }
 
     fn banner(waited_secs: u64) -> Banner {
@@ -425,5 +461,10 @@ mod tests {
 
         let failed = Head { banner: None, card: card(Tone::Running, None, None, vec![]), plan: None, failed: true };
         assert_ne!(failed.signature(), base_sig);
+
+        let mut hinted = card(Tone::Running, None, None, vec![]);
+        let cause = crate::agents::hints::Cause::Bypassed { parent: "ttadk".into() };
+        hinted.hint = Some(crate::agents::hints::hint(&cause, gilvt_agent::AgentKind::Claude, None, &[]));
+        assert_ne!(Head { banner: None, card: hinted, plan: None, failed: false }.signature(), base_sig);
     }
 }

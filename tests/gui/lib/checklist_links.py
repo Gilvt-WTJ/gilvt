@@ -8,8 +8,8 @@ Every section of docs/compat-checklist.md (`## X. …`, one capital letter) that
 「用例」 column, and each of its rows must, in that column:
   - link to a case file ([ID](../tests/gui/cases/<sec>/<ID>.md), relative to the checklist) that exists and
     whose `checklist:` header names the row, or
-  - say 手动 / 真实 claude / 真实 codex followed by the reason in parentheses: 手动（访达「放回原处」）.
-    真实 … still needs a linked case file, with `requires: real-claude` / `real-codex`; a linked case that
+  - say 手动 / 真实 claude / 真实 codex / 真实 ttadk followed by the reason in parentheses: 手动（访达「放回原处」）.
+    真实 … still needs a linked case file, with `requires: real-claude` / `real-codex` / `real-ttadk`; a linked case that
     requires real-* or manual must carry the matching marker (the reader sees why it is not automatic).
 And every case file's `checklist:` ID (other than —) must be a row of the checklist.
 """
@@ -22,9 +22,9 @@ import sys
 # 用例 column and cases) removes it from this list.
 LEGACY = ("A", "B", "C", "D", "E", "F", "G")
 
-MARKERS = {"手动": "manual", "真实 claude": "real-claude", "真实 codex": "real-codex"}
+MARKERS = {"手动": "manual", "真实 claude": "real-claude", "真实 codex": "real-codex", "真实 ttadk": "real-ttadk"}
 LINK = re.compile(r"\[[^\]]*\]\(([^)]+\.md)\)")
-MARKER = re.compile(r"(手动|真实 claude|真实 codex)\s*(（([^）]*)）|\(([^)]*)\))?")
+MARKER = re.compile(r"(手动|真实 claude|真实 codex|真实 ttadk)\s*(（([^）]*)）|\(([^)]*)\))?")
 
 
 def cells(line):
@@ -65,11 +65,11 @@ def check_cell(rid, cell, doc_dir):
     said = [MARKERS[w] for w, _, _, _ in markers]
     if not links and not said:
         errors.append("%s: no case (link one under tests/gui/cases/, or say 手动（原因）)" % rid)
-    for kind in ("real-claude", "real-codex"):
+    for kind in ("real-claude", "real-codex", "real-ttadk"):
         word = [w for w, k in MARKERS.items() if k == kind][0]
         if kind in said and requires != kind:
             errors.append("%s: 「%s」 needs a linked case file with requires: %s" % (rid, word, kind))
-    if requires in ("real-claude", "real-codex", "manual") and requires not in said:
+    if requires in ("real-claude", "real-codex", "real-ttadk", "manual") and requires not in said:
         word = [w for w, k in MARKERS.items() if k == requires][0]
         errors.append("%s: the linked case requires %s; say %s（原因） in the 用例 column" % (rid, requires, word))
     return errors

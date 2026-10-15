@@ -12,7 +12,7 @@ use gpui::{prelude::*, App, ClipboardItem, Context, Div, KeyDownEvent, MouseButt
 
 use super::{PaneView, Workspace};
 use crate::actions::*;
-use crate::agents::Agents;
+use crate::agents::{AgentHints, Agents};
 use crate::inspector::artifacts_model::{self as am, Sel};
 use crate::preview_view::{OpenRequest, Source};
 use crate::inspector::model::{drag_width, Plain};
@@ -102,9 +102,16 @@ impl Workspace {
 
     /// Is the session the inspector follows (the focused pane's) on an ssh host?
     pub(crate) fn focused_session_is_remote(&self, cx: &App) -> bool {
-        self.focused_pane()
-            .and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p))
-            .is_some_and(|s| s.key.2.is_remote())
+        self.focused_session_host(cx).is_some()
+    }
+
+    /// The ssh host (HostId) of the session the inspector follows; None for a local one or none.
+    pub(crate) fn focused_session_host(&self, cx: &App) -> Option<String> {
+        let session = self.focused_pane().and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p))?;
+        match &session.key.2 {
+            gilvt_agent::host::Host::Remote(h) => Some(h.0.clone()),
+            gilvt_agent::host::Host::Local => None,
+        }
     }
 
     /// The followed session is remote: only 「过程」 applies (called at the top of `inspector::view::render`).
@@ -324,8 +331,62 @@ impl Workspace {
         .on_action(cx.listener(|ws, _: &InspectorProcess, window, cx| ws.choose_inspector_tab(InspectorTab::Process, window, cx)))
         .on_action(cx.listener(|ws, _: &InspectorArtifacts, window, cx| ws.choose_inspector_tab(InspectorTab::Artifacts, window, cx)))
         .on_action(cx.listener(|ws, _: &InspectorConfig, window, cx| ws.choose_inspector_tab(InspectorTab::Config, window, cx)))
+        .on_action(cx.listener(|ws, _: &CopyAgentHint, _, cx| ws.copy_agent_hint(cx)))
+        .on_action(cx.listener(|ws, _: &AddAgentHintCommand, _, cx| ws.add_agent_hint_command(cx)))
+        .on_action(cx.listener(|ws, _: &DismissAgentHint, _, cx| ws.dismiss_agent_hint(cx)))
+        .on_action(cx.listener(|_, _: &OpenAgentSettings, _, cx| cx.defer(|cx| crate::settings_window::open_page(crate::settings_window::Page::Agent, cx))))
         .on_mouse_move(cx.listener(Self::on_inspector_drag))
         .on_mouse_up(MouseButton::Left, cx.listener(|ws, _, _, cx| ws.end_inspector_drag(cx)))
+    }
+
+    /// The agent hint the inspector card shows now: the focused pane's session's, with its pane.
+    pub(super) fn focused_agent_hint(&self, cx: &App) -> Option<(PaneId, crate::agents::hints::Hint)> {
+        let session = self.focused_pane().and_then(|p| crate::inspector::model::follow(cx.global::<Agents>().registry().sessions(), p))?;
+        let hint = crate::inspector::model::card_hint(session, &cx.try_global::<AgentHints>()?.by_pane)?;
+        Some((session.pane?, hint))
+    }
+
+    /// 「复制配置」: the line for the wrapper's config (or the shim's path) goes to the clipboard.
+    fn copy_agent_hint(&mut self, cx: &mut Context<Self>) {
+        let Some(text) = self.focused_agent_hint(cx).and_then(|(_, h)| h.copy) else { return };
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+        self.inspector_note(crate::i18n::text("已复制", "Copied"), cx);
+    }
+
+    /// 「加入」: the unlisted command word joins its agent's command list (new panes recognize it).
+    fn add_agent_hint_command(&mut self, cx: &mut Context<Self>) {
+        let Some((pane, hint)) = self.focused_agent_hint(cx) else { return };
+        let crate::agents::hints::Cause::Unlisted { word, kind } = hint.cause else { return };
+        let agent = &cx.global::<crate::theme::AppSettings>().0.agent;
+        let mut names = match kind {
+            gilvt_agent::AgentKind::Claude => agent.claude_commands.clone(),
+            gilvt_agent::AgentKind::Codex => agent.codex_commands.clone(),
+        };
+        if !names.contains(&word) {
+            names.push(word);
+        }
+        match crate::config_file::set_agent_commands(kind, names, cx) {
+            Ok(()) => {
+                AgentHints::remove(pane, cx);
+                self.inspector_note(crate::i18n::text("已加入，新开的 pane 生效", "Added; applies to new panes"), cx);
+            }
+            Err(e) => self.show_error(e, cx),
+        }
+    }
+
+    /// 「不再提示」: this cause (and command) is not hinted again, in any pane, until the Agent page restores it.
+    fn dismiss_agent_hint(&mut self, cx: &mut Context<Self>) {
+        let Some((pane, hint)) = self.focused_agent_hint(cx) else { return };
+        let hints = cx.global_mut::<AgentHints>();
+        hints.dismissed.insert(&hint.cause);
+        let saved = crate::agents::state_dir().map_or(Ok(()), |dir| hints.dismissed.save(&dir));
+        // Other panes with the same cause stop showing it too.
+        hints.by_pane.retain(|p, h| *p != pane && h.cause != hint.cause);
+        cx.defer(crate::workspace::notify_all);
+        if let Err(e) = saved {
+            // Dismissed for this run all the same.
+            self.show_error(format!("agent-hints.json: {e}"), cx);
+        }
     }
 
     /// The artifacts of the focused pane's session, as drawn now (None: the pane has no session). The tab and

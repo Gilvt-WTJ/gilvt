@@ -715,10 +715,12 @@ def check_paths(win, bin_dir, home):
         raise Fail("no CHK line on screen (tail: %s)" % json.dumps(pane.get("screen_tail"), ensure_ascii=False))
     claude, codex, got_home = found[-1].groups()
     problems = []
-    if claude != bin_dir + "/claude":
-        problems.append("claude resolves to %r, not %s/claude" % (claude, bin_dir))
-    if codex != bin_dir + "/codex":
-        problems.append("codex resolves to %r, not %s/codex" % (codex, bin_dir))
+    # gilvt puts its agent shims first on the pane's PATH (agent-shims spec §3.2); inside the sandbox they live
+    # under the sandbox HOME and hand over to the next claude / codex on PATH, the sandbox's own.
+    shims = home + "/Library/Application Support/gilvt/shims"
+    for name, got in (("claude", claude), ("codex", codex)):
+        if got not in (bin_dir + "/" + name, shims + "/" + name):
+            problems.append("%s resolves to %r, not %s/%s (or the sandbox's shim %s/%s)" % (name, got, bin_dir, name, shims, name))
     if got_home != home:
         problems.append("HOME in the pane is %r, not %s" % (got_home, home))
     if problems:
@@ -802,7 +804,7 @@ def config_set(path, assignments):
 # ---------------------------------------------------------------------------------------------
 # Case files (tests/gui/cases/<section>/<ID>.md, spec §6.1)
 
-REQUIRES = ("sandbox", "remote", "remote-mac", "real-claude", "real-codex", "manual")
+REQUIRES = ("sandbox", "remote", "remote-mac", "real-claude", "real-codex", "real-ttadk", "manual")
 
 
 def case_steps(path):

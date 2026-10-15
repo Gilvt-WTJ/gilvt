@@ -369,6 +369,10 @@ pub fn apply_settings(new: Settings, cx: &mut App) -> Vec<String> {
         crate::i18n::set_current(cx.global::<AppSettings>().0.language);
         cx.set_menus(crate::actions::menus(cx.global::<AppSettings>().0.language));
     }
+    if cx.has_global::<crate::launch::ShellEnv>() {
+        let settings = cx.global::<AppSettings>().0.clone();
+        cx.update_global::<crate::launch::ShellEnv, _>(|env, _| crate::launch::refresh_shims(&settings, env));
+    }
     let mut theme_errors = Vec::new();
     if theme_changed && cx.has_global::<crate::theme::ThemeState>() {
         cx.update_global::<crate::theme::ThemeState, _>(|t, _| t.reconfigure(selection, overrides));
@@ -402,6 +406,86 @@ pub fn set_language(language: crate::i18n::Language, cx: &mut App) -> Result<(),
     apply_settings(settings, cx);
     let change = Changes {
         language: Some(language),
+        ..Changes::default()
+    };
+    let pending = cx.global::<ConfigFile>().unsaved.then(&change);
+    write(pending, cx);
+    Ok(())
+}
+
+/// Replaces `[agent]`'s `claude_commands` / `codex_commands` (the inspector's 「加入」, the Agent page): applies at
+/// once (the shims are rebuilt; new panes recognize the names) and writes the key.
+pub fn set_agent_commands(kind: gilvt_agent::AgentKind, names: Vec<String>, cx: &mut App) -> Result<(), String> {
+    if readonly(cx) {
+        return Err(crate::i18n::text(
+            "config.toml 有语法错误，修好之前不能修改",
+            "config.toml has a syntax error and cannot be changed until it is fixed",
+        )
+        .into());
+    }
+    if let Some(bad) = names.iter().find(|n| !gilvt_client::shim::name_ok(n)) {
+        return Err(if crate::i18n::english() {
+            format!("\"{bad}\" is not a valid command name")
+        } else {
+            format!("「{bad}」不是有效的命令名")
+        });
+    }
+    let mut settings = cx.global::<AppSettings>().0.clone();
+    let key = match kind {
+        gilvt_agent::AgentKind::Claude => {
+            settings.agent.claude_commands = names.clone();
+            "claude_commands"
+        }
+        gilvt_agent::AgentKind::Codex => {
+            settings.agent.codex_commands = names.clone();
+            "codex_commands"
+        }
+    };
+    apply_settings(settings, cx);
+    let change = Changes {
+        agent: vec![(key, edit::TomlValue::List(names))],
+        ..Changes::default()
+    };
+    let pending = cx.global::<ConfigFile>().unsaved.then(&change);
+    write(pending, cx);
+    Ok(())
+}
+
+/// Replaces `[agent]`'s `claude_launch` / `codex_launch` (the Agent page): what ⌘⇧N / ⌘⇧R type. Only the first
+/// word must be a plain command name (spec §5.2); the rest are arguments.
+pub fn set_agent_launch(kind: gilvt_agent::AgentKind, launch: String, cx: &mut App) -> Result<(), String> {
+    if readonly(cx) {
+        return Err(crate::i18n::text(
+            "config.toml 有语法错误，修好之前不能修改",
+            "config.toml has a syntax error and cannot be changed until it is fixed",
+        )
+        .into());
+    }
+    let launch = launch.trim().to_string();
+    let first_ok = gilvt_agent::launch::split_command(&launch)
+        .and_then(|w| w.into_iter().next())
+        .is_some_and(|w| gilvt_client::shim::name_ok(&w));
+    if !first_ok {
+        return Err(if crate::i18n::english() {
+            format!("\"{launch}\": the first word must be a command name (letters, digits, . _ + -), with any quotes closed")
+        } else {
+            format!("「{launch}」的第一个词必须是命令名（字母、数字、. _ + -），引号要成对")
+        });
+    }
+    let mut settings = cx.global::<AppSettings>().0.clone();
+    let key = match kind {
+        gilvt_agent::AgentKind::Claude => {
+            settings.agent.claude_launch = launch.clone();
+            "claude_launch"
+        }
+        gilvt_agent::AgentKind::Codex => {
+            settings.agent.codex_launch = launch.clone();
+            "codex_launch"
+        }
+    };
+    apply_settings(settings, cx);
+    let change = Changes {
+        agent: vec![(key, edit::TomlValue::Str(launch))],
         ..Changes::default()
     };
     let pending = cx.global::<ConfigFile>().unsaved.then(&change);
@@ -783,6 +867,23 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("theme = \"Nord\"") && text.contains("enabled = true"), "{text}");
         assert_eq!(cx.update(|cx| cx.global::<ConfigFile>().write_error.clone()), None);
+    }
+
+    #[gpui::test]
+    fn agent_commands_apply_at_once_and_go_into_the_agent_table(cx: &mut TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, COMMENTED).unwrap();
+        app_with(cx, &path);
+        let names = vec!["codex".to_string(), "cw".to_string()];
+        cx.update(|cx| set_agent_commands(gilvt_agent::AgentKind::Codex, names.clone(), cx)).unwrap();
+        assert_eq!(cx.update(|cx| cx.global::<AppSettings>().0.agent.codex_commands.clone()), names);
+        cx.run_until_parked();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[agent]\nclaude_launch = \"claude\"\ncodex_commands = [\"codex\", \"cw\"]\n"), "{text}");
+        let bad = cx.update(|cx| set_agent_commands(gilvt_agent::AgentKind::Claude, vec!["claude".into(), "-x".into()], cx)).unwrap_err();
+        assert!(bad.contains("-x"), "{bad}");
+        assert_eq!(cx.update(|cx| cx.global::<AppSettings>().0.agent.claude_commands.clone()), vec!["claude"], "unchanged");
     }
 
     fn set_monitor_in(cx: &mut TestAppContext, edits: Vec<Edit>) {

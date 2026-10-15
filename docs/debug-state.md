@@ -118,6 +118,8 @@ pane（`panes[]`）：
 | `cursor` | 对象或 `null` | 终端 pane：上一帧终端光标所在的格子 `{ "row", "col", "rect" }`，`row` / `col` 是可见区里的行列（从 0 起），`rect` 是这一格；TUI（Claude Code）隐藏光标时仍是它的位置。预览 / 编辑器 pane、第一帧之前为 `null` |
 | `commands` | 数组 | 终端 pane：shell 集成（OSC 133）记下的最近 10 条命令块，**最新在前**：`[{ "id", "command", "exit", "running", "has_output", "error_line" }]`。`id` 在 pane 内递增；`command` 是输入的命令原文（shell 没发来时为 `null`，超长截断并以 `…` 结尾）；`exit` 是退出码（还在运行、或没看到结束时为 `null`）；`running` 表示还在运行；`has_output` 表示抓到了输出尾部（备用屏或读不到时为 `false`）；`error_line` 是命令失败时输出的最后一个非空行（S2 起来自 PTY 精确捕获），否则为 `null`。只在内存里，不含输出文字。其他 pane 为 `[]` |
 | `running_command` | 字符串或 `null` | 终端 pane：正在运行的命令（shell 没发原文时为 `""`）；没有在运行的命令、其他 pane 为 `null` |
+| `foreground_via` | 字符串、对象或 `null` | 终端 pane 前台是 agent 时，它是怎么找到的：`"leader"`（前台进程组组长就是 agent），或 `{ "descendant": "<父进程名>" }`（包装器启动的，如 `{ "descendant": "ttadk" }`；node / bun 脚本取脚本文件名）。不是 agent、其他 pane 为 `null` |
+| `agent_hint` | 对象或 `null` | 这个 pane 的精简会话为什么没有 hooks（agent-shims §4.2）：`{ cause, text, buttons: [{ label, rect }] }`。`cause` 为 `"bypassed"`（包装器绕过了垫片）或 `"unlisted"`（输入的命令不在识别列表里）；`text` 是提示原文；`buttons` 按显示顺序：「复制配置」（有可复制内容时：复制的路径是这类 agent 识别列表里与它同名（`claude` / `codex`）的垫片，列表里没有这个名字时是第一个名字的垫片，例如 `claude_commands = ["cc"]` 时 ttadk 版复制 `"claude": "'<垫片目录>/cc'"`（路径带单引号，ttadk 按空白拆分命令，`Application Support` 里有空格）；列表为空或没有垫片目录时没有这个按钮）→「加入」（`unlisted`）→「Agent 设置…」→「不再提示」，`rect` 只在检查器正显示这个 pane 的提示时有值，否则为 `null`。会话结束、点「不再提示」或「加入」成功后变回 `null`；设置了 `GILVT_NO_AGENT_WRAPPERS` 时总是 `null` |
 | `host` | 字符串或 `null` | 终端：所在的主机；预览、编辑器：所显示文件的主机（`local` 或 `user@hostname:port`；stdin 预览为 `null`）；监控官为 `null` |
 | `remote` | 对象或 `null` | 终端 pane 处在 ssh 里时：`{ link, host, display, hostname, enhanced, cwd }`。`display` 是用户输入的主机名；`hostname` 是远端 `uname -n`；`enhanced`：经由 gilvt-remote 登录（装了远端组件）；`cwd`：远端 shell 上报的目录（OSC 7），未知为 `null`。此时上面的 `cwd` 为 `null` |
 | `loading` | 布尔 | 预览、编辑器在等远端主机的回应（R2a §8）；终端为 false |
@@ -389,7 +391,7 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 |---|---|---|
 | `visible` | 布尔 | 是否显示（`⌘I`）；隐藏时下面的字段为 `null` / `0` / `[]`（`width`、`filter` 除外） |
 | `tab` | 字符串 | 当前标签：`process` / `artifacts` / `config` |
-| `card` | 对象或 `null` | 状态卡片 `{ "status", "turn" }`：`status` 同 `rows[].status`；`turn` 是第几轮，还没有轮次时为 `null`。当前 pane 没有会话时整个为 `null` |
+| `card` | 对象或 `null` | 状态卡片 `{ "status", "turn", "hint" }`：`status` 同 `rows[].status`；`turn` 是第几轮，还没有轮次时为 `null`；`hint` 是卡片上的 agent 提示，结构同 `panes[].agent_hint`，`rect` 在检查器里（「过程」页之外为 `null`），没有提示时为 `null`。当前 pane 没有会话时整个为 `null` |
 | `banner` | 字符串或 `null` | 顶部等待横幅的标题，去掉 ⏳，如 `claude · gilvt-lab 在问你` |
 | `timeline_rows` | 数字 | 时间线上列出的条目数（含轮次标题、历史轮次），上一帧的结果 |
 | `banner_rect` | rect 或 `null` | 等待横幅（点击 = `⌘⇧J`） |
@@ -513,13 +515,13 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 
 ## `settings`
 
-`⌘,` 设置窗口（左栏三页：「◐ 外观」、「文A 语言」、「◎ 监控官」；打开时停在上次看的那一页，第一次是「外观」），在根上，不在 `windows[]` 里：GUI 用例读 `settings.…`。窗口关着时整个键不存在。所有 `rect` 与 `windows[]` 同一坐标系（窗口外框左上角为原点），上一帧没画出来的元素为 `null`。查询时设置窗口也会被立即重绘一帧。
+`⌘,` 设置窗口（左栏四页：「◐ 外观」、「文A 语言」、「◎ 监控官」、「⌘ Agent」；打开时停在上次看的那一页，第一次是「外观」），在根上，不在 `windows[]` 里：GUI 用例读 `settings.…`。窗口关着时整个键不存在。所有 `rect` 与 `windows[]` 同一坐标系（窗口外框左上角为原点），上一帧没画出来的元素为 `null`。查询时设置窗口也会被立即重绘一帧。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | 数字或 `null` | CGWindowID |
 | `key` | 布尔 | 是否是 key window |
-| `page` | 字符串 | 当前页：`appearance`（外观）、`language`（语言）或 `monitor`（监控官） |
+| `page` | 字符串 | 当前页：`appearance`（外观）、`language`（语言）、`monitor`（监控官）或 `agent`（Agent） |
 | `language` | 字符串 | 当前界面语言：`zh-CN` 或 `en` |
 | `language_source` | 字符串 | `language` 从哪来：`config`（`config.toml` 写了 `language`）或 `system`（没写，跟随 macOS 首选语言；`GILVT_TEST_SYSTEM_LANGUAGE` 可以假装） |
 | `languages` | 数组 | 语言项：`{ id, label, selected, rect }`；`id` 是 `zh-CN` / `en`，只在语言页显示时 `rect` 非空 |
@@ -532,8 +534,9 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 | `notice` | 字符串或 `null` | 控件区下方的提示行（正在试跑、模型不存在或无权使用、设置已改变而作废、无法打开编辑器、写回失败…）；没有时为 `null` |
 | `notice_error` | 布尔 | `notice` 是错误（红）还是进行中（黄）；`notice` 为 `null` 时为 `false` |
 | `test` | 对象 | 「测试连接」结果：`{ state, text }`，`state` 为 `idle` / `running` / `ok` / `failed`；`text` 是结果行（`✓ …` / `✗ …`），`idle` / `running` 时为空串 |
-| `pages` | 数组 | 左栏的页，按顺序：`{ id, label, selected, rect }`，`id` 为 `appearance` / `language` / `monitor`，`label` 随当前语言变化，`selected` 是当前页；点 `rect` 切换页 |
+| `pages` | 数组 | 左栏的页，按顺序：`{ id, label, selected, rect }`，`id` 为 `appearance` / `language` / `monitor` / `agent`，`label` 随当前语言变化，`selected` 是当前页；点 `rect` 切换页 |
 | `appearance` | 对象 | 「外观」页，见下；不在这一页时字段照常给出，但 `rect` 都是 `null` |
+| `agent` | 对象或 `null` | 「⌘ Agent」页，见下；不在这一页时为 `null` |
 
 `fields[]`：`{ id, label, value, hint, open, options, rect }`。
 
@@ -562,6 +565,22 @@ Gilvt.app 从临时位置运行时，所有窗口的 pane 区域上方都有这�
 | `chips` | 数组 | 分段控件的每一项 `{ id, on, rect }`：`filter-all`、`filter-dark`、`filter-light`、`mode-fixed`、`mode-system`；跟随系统时另有 `slot-light`、`slot-dark` |
 | `search_rect` | rect 或 `null` | 搜索框 |
 | `colors_overrides` | 数字 | `[colors]` 生效项数（大于 0 时页面上有一行说明） |
+
+`agent`（「⌘ Agent」页：命令名、启动命令、各命令名的状态；agent-shims 设计 §5）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `commands` | 对象 | `{ claude, codex, add, input, input_text }`：`claude` / `codex` 是命令名标签 `[{ name, rect, remove_rect }]`（`remove_rect` 是标签上的 ×，点了删除这个名字）；`add`、`input`、`input_text` 都是两个元素的数组 `[Claude, Codex]`，按下标取（如 `input[1]`、`input_text[1]` 是 Codex 组的）：`add` 是两组末尾「+」的 rect；`input` 是「+」前面输入框的 rect（点它打开输入框，输入后 ⏎ 或点「+」添加）；`input_text` 是打开的输入框里的文字，关着时为 `null` |
+| `launch` | 对象 | `{ claude, codex }`，每个 `{ text, editing, preview, error, rect }`：`text` 是启动命令（输入框打开时是正在输入的文字），`editing` 表示输入框开着，`preview` 是 `[新建, 恢复]` 两行预览（如 `ttadk claude`、`ttadk claude --resume <会话 ID>`；Codex 的恢复是 `… resume <会话 ID>`，英文界面是 `<session ID>`），`error` 是上次输入被拒绝的原因（第一个词不是合法命令名、引号没闭合），`rect` 是输入框（点它打开，⏎ 保存） |
+| `status` | 数组 | 每个命令名一行，Claude 的在前：`{ name, kind, real_path, shim_ok, problem, button }`；`kind` 为 `claude` / `codex`；`real_path` 是 PATH 里第一个不是垫片的同名程序，找不到为 `null`；`shim_ok` 是垫片目录里有这个名字的垫片；`problem` 为 `null`、`not_found`（找不到命令）或 `bypassed_by_ttadk`（真正的程序在 `~/.local/bin` 或 `~/.claude/local`，ttadk 会绕过垫片）；`button` 是这一行「复制配置」在 `buttons` 里的下标（只有 `bypassed_by_ttadk` 行有） |
+| `status_loading` | 布尔 | 正在计算 `status`（页面显示「正在检查…」）；这期间 `status` 是上一次的结果（第一次为空数组）。计算用的是登录 shell 的 PATH（与 pane 里一致；第一次读取可能要几秒），读不到时用 gilvt 自己的 PATH。用例应先 `wait 'settings.agent.status_loading == false'` 再断言 `status` |
+| `shims_dir` | 字符串或 `null` | 垫片目录 |
+| `shims_error` | 字符串或 `null` | 垫片目录建不起来的原因（页面顶部的黄色横幅） |
+| `buttons` | 数组 | `{ label, enabled, rect }`，顺序固定：0「↻ 刷新」（重新计算 `status`）、1「复制」（复制垫片目录；没有目录时 `enabled` 为假）、2「恢复所有已关闭的提示」（没有关闭过的提示时 `enabled` 为假），3 起每个 `bypassed_by_ttadk` 行一个「复制配置」（复制 `"<kind>": "'<垫片目录>/<name>'"`，即这一行自己的垫片，路径带单引号；`shim_ok` 为假或没有垫片目录时 `enabled` 为假） |
+
+`status` 在打开这一页、点「刷新」和改动命令名之后计算。添加、删除命令名和保存启动命令立即生效（重建垫片，对新开的 pane 生效）并写入 `config.toml` 的 `[agent]` 表；被拒绝时（名字不合法、已在另一组里、`config.toml` 有语法错误）原因在顶层 `notice`（`notice_error` 为真），启动命令的拒绝原因在 `launch.*.error`。复制、恢复提示成功时 `notice` 是一行说明（`notice_error` 为假）。
+
+例：`click 'rect(settings.pages[?id=="agent"])'`、`click 'rect(settings.agent.commands.input[1])'`、`gilvt debug wait 'settings.agent.commands.input_text[1] == "cw"'`、`click 'rect(settings.agent.commands.codex[?name=="cw"].remove_rect)'`、`click 'rect(settings.agent.buttons[0])'`、`gilvt debug wait 'settings.agent.commands.codex[?name=="cw"] exists'`、`gilvt debug wait 'settings.agent.status[?name=="claude"].problem == "bypassed_by_ttadk"'`。
 
 在「外观」页点一行、`↑` / `↓` 或 `⏎`（选中高亮行）、切换「固定 / 跟随系统」，主题立即在所有窗口生效（顶层 `theme` 随之变化），约 300 ms 内选择不再变化后写入 `config.toml` 的 `theme` 键。写回失败（例如文件只读）时主题仍然生效，原因在 `write_error`（以「config.toml 是只读的…」这类短句开头）。`config.toml` 有语法错误时 `readonly` 为真，选择被拒绝，页面回到正在使用的主题。
 

@@ -779,6 +779,11 @@ pub struct Pane {
     pub commands: Vec<CommandRow>,
     /// Terminals: the command running now ("" when the shell did not send its text); null otherwise.
     pub running_command: Option<String>,
+    /// Terminals with an agent in the foreground: how it was found — "leader", or `{"descendant": "<parent>"}` (a
+    /// wrapper such as ttadk started it); null otherwise.
+    pub foreground_via: serde_json::Value,
+    /// Why the pane's lite session runs without hooks, and its fix buttons (agent-shims §4.2); null without one.
+    pub agent_hint: Option<AgentHint>,
     /// Terminals, previews and editors: "local" or the ssh host id (`user@hostname:port`); null for the monitor.
     pub host: Option<String>,
     /// Terminals in an ssh link; null otherwise.
@@ -1475,6 +1480,25 @@ pub struct Card {
     pub status: &'static str,
     /// 第 N 轮; null before the first turn.
     pub turn: Option<u32>,
+    /// The card's agent hint (as `panes[].agent_hint`, rects in the inspector); null without one.
+    pub hint: Option<AgentHint>,
+}
+
+/// `panes[].agent_hint` / `inspector.card.hint`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentHint {
+    /// "bypassed" | "unlisted".
+    pub cause: &'static str,
+    pub text: String,
+    /// In drawing order: 复制配置 (when there is something to copy), 加入 (unlisted), Agent 设置…, 不再提示.
+    pub buttons: Vec<HintButton>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HintButton {
+    pub label: &'static str,
+    /// Null unless the inspector shows this hint now.
+    pub rect: Option<Rect4>,
 }
 
 /// The ⌘, settings window (top level; absent while it is closed).
@@ -1484,7 +1508,7 @@ pub struct SettingsState {
     pub id: Option<u64>,
     /// Is it the key window?
     pub key: bool,
-    /// The page shown: "appearance", "language", or "monitor".
+    /// The page shown: "appearance", "language", "monitor", or "agent".
     pub page: &'static str,
     /// The active application language: "zh-CN" or "en".
     pub language: &'static str,
@@ -1510,12 +1534,90 @@ pub struct SettingsState {
     pub pages: Vec<SettingsPage>,
     /// The 「外观」 page (its rects only while it is the page shown).
     pub appearance: AppearanceState,
+    /// The 「⌘ Agent」 page; null unless it is the page shown.
+    pub agent: Option<SettingsAgent>,
+}
+
+/// The settings window's 「⌘ Agent」 page (agent-shims spec §5).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SettingsAgent {
+    pub commands: AgentCommands,
+    pub launch: AgentLaunch,
+    /// One row per command name, Claude's first.
+    pub status: Vec<AgentStatus>,
+    /// The status is being worked out (the page shows 「正在检查…」); `status` is the previous one meanwhile.
+    pub status_loading: bool,
+    pub shims_dir: Option<String>,
+    /// Why the shims directory could not be set up.
+    pub shims_error: Option<String>,
+    /// 0 刷新, 1 复制 (the shims directory), 2 恢复所有已关闭的提示, 3.. 复制配置 of each ttadk row.
+    pub buttons: Vec<SettingsButton>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentCommands {
+    pub claude: Vec<AgentChip>,
+    pub codex: Vec<AgentChip>,
+    /// The 「+」 of Claude's and Codex's list.
+    pub add: [Option<Rect4>; 2],
+    /// The text box before each 「+」.
+    pub input: [Option<Rect4>; 2],
+    /// The text typed in an open add box (null while closed).
+    pub input_text: [Option<String>; 2],
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentChip {
+    pub name: String,
+    pub rect: Option<Rect4>,
+    /// Its ×.
+    pub remove_rect: Option<Rect4>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentLaunch {
+    pub claude: LaunchField,
+    pub codex: LaunchField,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LaunchField {
+    /// The launch command; while the box is open, the text typed.
+    pub text: String,
+    /// The box is open.
+    pub editing: bool,
+    /// What ⌘⇧N and ⌘⇧R would type for `text`.
+    pub preview: [String; 2],
+    /// Why the last value typed was refused.
+    pub error: Option<String>,
+    pub rect: Option<Rect4>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AgentStatus {
+    pub name: String,
+    /// "claude" | "codex".
+    pub kind: &'static str,
+    /// The real program (the first on PATH that is not a shim); null when not found.
+    pub real_path: Option<String>,
+    pub shim_ok: bool,
+    /// null | "not_found" | "bypassed_by_ttadk".
+    pub problem: Option<&'static str>,
+    /// Index into `buttons` of its 「复制配置」.
+    pub button: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SettingsButton {
+    pub label: &'static str,
+    pub enabled: bool,
+    pub rect: Option<Rect4>,
 }
 
 /// A page in the settings window's nav column.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsPage {
-    /// "appearance" | "language" | "monitor".
+    /// "appearance" | "language" | "monitor" | "agent".
     pub id: &'static str,
     pub label: &'static str,
     /// The page shown.

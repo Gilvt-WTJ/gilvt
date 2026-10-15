@@ -143,6 +143,26 @@ pub fn foreground(name: Option<&str>, agent: Option<AgentKind>) -> String {
     }
 }
 
+/// `panes[].foreground_via`: null, "leader" or `{"descendant": "<parent>"}`.
+pub fn foreground_via(v: Option<&crate::agents::foreground::Via>) -> serde_json::Value {
+    use crate::agents::foreground::Via;
+    match v {
+        None => serde_json::Value::Null,
+        Some(Via::Leader) => serde_json::json!("leader"),
+        Some(Via::Descendant { parent }) => serde_json::json!({ "descendant": parent }),
+    }
+}
+
+/// `agent_hint`: the hint and its buttons, button `i`'s rect from `rect(i)`.
+pub fn agent_hint(h: &crate::agents::hints::Hint, rect: impl Fn(usize) -> Option<Rect4>) -> super::AgentHint {
+    let buttons = crate::inspector::model::hint_buttons(h)
+        .into_iter()
+        .enumerate()
+        .map(|(i, (label, _))| super::HintButton { label, rect: rect(i) })
+        .collect();
+    super::AgentHint { cause: h.cause.id(), text: h.text.clone(), buttons }
+}
+
 /// "needs_you", "project:<name>", "status:<group>" (等你处理 …) or "ended".
 pub fn section_name(section: &model::Section) -> String {
     match section.kind {

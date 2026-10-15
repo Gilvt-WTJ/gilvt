@@ -431,3 +431,23 @@ fn the_bar_message_is_the_save_error_text_only() {
     assert_eq!(editor_bar_message(&Bar::Modified { closing: false }), None);
     assert_eq!(editor_bar_message(&Bar::None), None);
 }
+
+#[test]
+fn foreground_via_maps_to_debug_values() {
+    use crate::agents::foreground::Via;
+    use crate::debug_state::map;
+    assert_eq!(map::foreground_via(None), serde_json::Value::Null);
+    assert_eq!(map::foreground_via(Some(&Via::Leader)), serde_json::json!("leader"));
+    assert_eq!(map::foreground_via(Some(&Via::Descendant { parent: "ttadk".into() })), serde_json::json!({ "descendant": "ttadk" }));
+}
+
+#[test]
+fn agent_hint_lists_its_buttons_in_drawing_order() {
+    use crate::agents::hints::{hint, Cause};
+    let h = hint(&Cause::Bypassed { parent: "ttadk".into() }, AgentKind::Claude, Some(std::path::Path::new("/L/shims")), &["claude".to_string()]);
+    let ds = super::agent_hint(&h, |i| (i == 0).then_some([1.0, 2.0, 3.0, 4.0]));
+    assert_eq!(ds.cause, "bypassed");
+    assert_eq!(ds.text, h.text);
+    assert_eq!(ds.buttons.iter().map(|b| b.label).collect::<Vec<_>>(), ["复制配置", "Agent 设置…", "不再提示"]);
+    assert_eq!(ds.buttons.iter().map(|b| b.rect).collect::<Vec<_>>(), [Some([1.0, 2.0, 3.0, 4.0]), None, None]);
+}

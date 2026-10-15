@@ -12,7 +12,7 @@
 #   --foreground     also run cases with steps that may click, drag or scroll (they take the mouse and the
 #                    front; only with the user's consent). Without it they are SKIP(foreground).
 #                    --no-foreground is still accepted and changes nothing (the default)
-#   --real           run requires: real-claude / real-codex cases too, with `sandbox.sh real-up`
+#   --real           run requires: real-claude / real-codex / real-ttadk cases too, with `sandbox.sh real-up`
 #   --list           print each case's classification and what would happen; run nothing
 #
 # Every non-list run also writes a reviewable evidence bundle under --out: result.json is the canonical
@@ -25,7 +25,7 @@
 # Per case it prints `ID PASS`, `ID PASS (N skipped)` (steps that exited 5: screen locked, visual check
 # skipped), `ID FAIL(step N: <line>)` (the first step that failed; `drive.sh state` is saved to
 # <out>/<ID>.state.json, drive.sh's screenshot of the window lands in <out>/<ID>/failures/, and the case
-# stops) or `ID SKIP(reason)`: foreground (without --foreground), real-claude / real-codex
+# stops) or `ID SKIP(reason)`: foreground (without --foreground), real-claude / real-codex / real-ttadk
 # (without --real), manual (always: a person does those steps). Then a summary line.
 # The judge items of a case are not checked here: look at <out>/<ID>/shots, or run it through the skill.
 # Exit codes: 0 no failure, 1 a case failed, 2 usage (or no keys tool to guard the pasteboard). bash 3.2

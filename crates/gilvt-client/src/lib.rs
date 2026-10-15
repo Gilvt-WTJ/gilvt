@@ -5,4 +5,5 @@
 
 pub mod git;
 pub mod hook;
+pub mod shim;
 pub mod view;

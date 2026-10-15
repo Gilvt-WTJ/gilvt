@@ -194,17 +194,19 @@ pub fn resolve_path(raw: &str, cwd: Option<&Path>, home: Option<&Path>) -> Optio
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QuickLook {
     Open(PathBuf),
-    /// The session runs on an ssh host: its paths name files there, never on this Mac (R2a §9).
-    NotYetRemote,
+    /// The session runs on ssh host `host`: its paths name files there, never on this Mac.
+    OpenRemote { host: String, path: PathBuf },
     Nothing,
 }
 
-/// ⌘+click on `raw` in the timeline of a session whose cwd is `cwd`; `remote`: that session is on an ssh host.
-pub fn quick_look_target(raw: &str, cwd: Option<&Path>, home: Option<&Path>, remote: bool) -> QuickLook {
-    if remote {
-        return QuickLook::NotYetRemote;
+/// ⌘+click on `raw` in the timeline of a session whose cwd is `cwd`; `remote`: the ssh host that session runs on, and
+/// then `home` must be that host's home (`~/…` never resolves against the Mac's).
+pub fn quick_look_target(raw: &str, cwd: Option<&Path>, home: Option<&Path>, remote: Option<&str>) -> QuickLook {
+    match (resolve_path(raw, cwd, home), remote) {
+        (None, _) => QuickLook::Nothing,
+        (Some(path), None) => QuickLook::Open(path),
+        (Some(path), Some(host)) => QuickLook::OpenRemote { host: host.to_string(), path },
     }
-    resolve_path(raw, cwd, home).map_or(QuickLook::Nothing, QuickLook::Open)
 }
 
 /// One line of an expanded detail.

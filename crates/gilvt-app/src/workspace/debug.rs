@@ -9,7 +9,7 @@ use gilvt_agent::SessionKey;
 use gpui::{AnyWindowHandle, App, Modifiers};
 
 use super::{marks, workspaces, PaneView, Tab, Workspace};
-use crate::agents::{describe_process, Agents};
+use crate::agents::{describe_via, AgentHints, Agents};
 use crate::debug_state::rects::{self, Rect4, RectId};
 use crate::debug_state::{self as ds, map, timeline, Overlay};
 use crate::launcher::Location;
@@ -228,21 +228,27 @@ impl Workspace {
         let session = cx.global::<Agents>().registry().by_pane(id);
         let edge = marks::edge(marks::ring_mark(session), id == tab.focused, multi);
         let view = self.panes.get(&id);
-        let (kind, foreground, screen_tail, marked_text) = match view {
+        let (kind, foreground, foreground_via, screen_tail, marked_text) = match view {
             Some(PaneView::Terminal(t)) => {
                 let t = t.read(cx);
                 let agent = &cx.global::<AppSettings>().0.agent;
                 // A fresh process lookup (proc_pidinfo, argv for node / bun) on the main thread. The foreground
                 // poll keeps no per-pane name to reuse (it tracks only shell / agent transitions), and this runs
                 // only while answering a query, which only a gilvt started with GILVT_DEBUG_STATE=1 accepts.
-                let described = t.session.foreground_pid().and_then(|pid| describe_process(pid, &agent.claude_commands, &agent.codex_commands));
+                let described = t.session.foreground_pid().and_then(|pid| describe_via(pid, &agent.claude_commands, &agent.codex_commands));
                 let foreground = map::foreground(described.as_ref().map(|d| d.0.as_str()), described.as_ref().and_then(|d| d.1));
-                ("terminal", Some(foreground), t.session.screen_tail(tail), t.marked_text.clone())
+                let via = map::foreground_via(described.as_ref().and_then(|d| d.2.as_ref()));
+                ("terminal", Some(foreground), via, t.session.screen_tail(tail), t.marked_text.clone())
             }
-            Some(PaneView::Editor(_)) => ("editor", None, Vec::new(), None),
-            Some(PaneView::Monitor(_)) => ("monitor", None, Vec::new(), None),
-            Some(PaneView::Preview(_)) | None => ("preview", None, Vec::new(), None),
+            Some(PaneView::Editor(_)) => ("editor", None, serde_json::Value::Null, Vec::new(), None),
+            Some(PaneView::Monitor(_)) => ("monitor", None, serde_json::Value::Null, Vec::new(), None),
+            Some(PaneView::Preview(_)) | None => ("preview", None, serde_json::Value::Null, Vec::new(), None),
         };
+        // The buttons have rects only while the inspector shows this pane's hint.
+        let shown = !self.inspector.hidden
+            && self.inspector.tab == crate::inspector::InspectorTab::Process
+            && self.focused_agent_hint(cx).is_some_and(|(p, _)| p == id);
+        let agent_hint = AgentHints::of(id, cx).map(|h| map::agent_hint(h, |i| rect(RectId::AgentHintButton(i)).filter(|_| shown)));
         let (commands, running_command) = match view {
             Some(PaneView::Terminal(t)) => {
                 let log = t.read(cx).commands();
@@ -282,6 +288,8 @@ impl Workspace {
             },
             commands,
             running_command,
+            foreground_via,
+            agent_hint,
             host: match view {
                 Some(PaneView::Terminal(t)) => Some(t.read(cx).remote().map_or("local".to_string(), |r| r.host.clone())),
                 Some(PaneView::Preview(p)) => p.read(cx).debug_host(),
@@ -366,6 +374,7 @@ impl Workspace {
             card: session.map(|s| ds::Card {
                 status: map::status_name(&s.status),
                 turn: agents.timeline(&s.key).and_then(|v| v.current().map(|t| t.index)),
+                hint: self.focused_agent_hint(cx).map(|(_, h)| map::agent_hint(&h, |i| rect(RectId::AgentHintButton(i)).filter(|_| self.inspector.tab == crate::inspector::InspectorTab::Process))),
             }),
             banner_rect: banner.as_ref().and(rect(RectId::InspectorBanner)),
             banner: banner.map(|b| map::banner_text(&b.title)),

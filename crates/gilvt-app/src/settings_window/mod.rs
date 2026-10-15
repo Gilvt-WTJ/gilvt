@@ -1,5 +1,6 @@
-//! The `⌘,` settings window (S2 §5.2): one per app, with the 「外观」 page (themes) and the 「◎ 监控官」 page.
+//! The `⌘,` settings window (S2 §5.2): one per app, with the 「外观」, 「语言」, 「◎ 监控官」 and 「⌘ Agent」 pages.
 
+pub mod agent_page;
 pub mod appearance;
 pub mod appearance_model;
 pub mod debug;
@@ -30,10 +31,12 @@ pub enum Page {
     Appearance,
     Language,
     Monitor,
+    /// Agent command names, launch commands and their status (agent-shims spec §5).
+    Agent,
 }
 
 impl Page {
-    pub const ALL: [Page; 3] = [Page::Appearance, Page::Language, Page::Monitor];
+    pub const ALL: [Page; 4] = [Page::Appearance, Page::Language, Page::Monitor, Page::Agent];
 
     pub fn index(self) -> usize {
         Page::ALL.iter().position(|p| *p == self).expect("in ALL")
@@ -45,6 +48,7 @@ impl Page {
             Page::Appearance => "appearance",
             Page::Language => "language",
             Page::Monitor => "monitor",
+            Page::Agent => "agent",
         }
     }
 
@@ -53,6 +57,7 @@ impl Page {
             Page::Appearance => language.text("◐ 外观", "◐ Appearance"),
             Page::Language => language.text("文A 语言", "文A Language"),
             Page::Monitor => language.text("◎ 监控官", "◎ Monitor"),
+            Page::Agent => "⌘ Agent",
         }
     }
 }
@@ -105,6 +110,18 @@ pub fn open(cx: &mut App) {
         }
         Err(e) => eprintln!("gilvt: failed to open the settings window: {e}"),
     }
+}
+
+/// Opens the window on `page` (the inspector's 「Agent 设置…」): shows it in the open window, else opens the
+/// window there. Must run outside action dispatch, like [`open`].
+pub fn open_page(page: Page, cx: &mut App) {
+    cx.set_global(LastPage(page));
+    if let Some(h) = handle(cx) {
+        if cx.windows().iter().any(|w| w.window_id() == h.window_id()) {
+            let _ = h.update(cx, |view, window, cx| view.show_page(page, window, cx));
+        }
+    }
+    open(cx);
 }
 
 /// Closes the window if it is open (gilvt is quitting).
@@ -231,6 +248,20 @@ mod tests {
         cx.run_until_parked();
         let w = cx.update(|cx| handle(cx)).unwrap();
         assert_eq!(w.read_with(cx, |view, _| view.page()).unwrap(), Page::Monitor, "the page shown last");
+    }
+
+    #[gpui::test]
+    fn open_page_opens_on_the_page_or_switches_the_open_window(cx: &mut TestAppContext) {
+        setup(cx);
+        cx.update(|cx| open_page(Page::Agent, cx));
+        cx.run_until_parked();
+        let w = cx.update(|cx| handle(cx)).unwrap();
+        assert_eq!(w.read_with(cx, |view, _| view.page()).unwrap(), Page::Agent);
+        w.update(cx, |view, window, cx| view.show_page(Page::Language, window, cx)).unwrap();
+        cx.update(|cx| open_page(Page::Agent, cx));
+        cx.run_until_parked();
+        assert_eq!(settings_windows(cx).len(), 1);
+        assert_eq!(w.read_with(cx, |view, _| view.page()).unwrap(), Page::Agent, "the open window switched");
     }
 
     #[gpui::test]

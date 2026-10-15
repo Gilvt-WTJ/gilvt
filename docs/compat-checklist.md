@@ -552,7 +552,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 
 ## AC. SSH 远程（R1、R2a）
 
-在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。R2a 起远端 shell 里运行的 claude / codex 进入侧栏；测试远端上的 `claude` / `codex` 是 Linux 版 fake agent（`remote.sh up` 安装）。R2a 第二份计划起，远端 pane 里的 `gilvt view` / `gilvt diff` / ⌘点击 / 内置编辑器作用于远端文件（AC8、AC30–AC36）。
+在 pane 里 `ssh` 到 Linux 主机：安装远端组件、远端 shell 集成、远端 cwd、bridge、未支持功能的提示。测试远端由 `tests/gui/remote.sh` 提供（`devbox-test` 直连、`devbox-jump` 经跳板、`devbox-zsh` 登录 shell 为 zsh），用例头写 `requires: remote`。R2a 起远端 shell 里运行的 claude / codex 进入侧栏；测试远端上的 `claude` / `codex` 是 Linux 版 fake agent（`remote.sh up` 安装）。R2a 第二份计划起，远端 pane 里的 `gilvt view` / `gilvt diff` / ⌘点击 / 内置编辑器作用于远端文件（AC8、AC30–AC36），检查器时间线里 ⌘+点击远端会话的文件名也是（AC37）。
 
 | # | 操作 | 期望 | 用例 |
 |---|------|------|------|
@@ -592,6 +592,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AC34 | 远端 `gilvt view f.txt` 后按 `E`，在编辑器里行首输入 `x`，`⌘S` | 编辑器的 `host` 为远端、路径是远端路径；保存后 `dirty` 为 false，远端文件内容变为 `xhello` | [AC34](../tests/gui/cases/AC/AC34.md) |
 | AC35 | 远端文件在编辑器里有未保存修改时被远端改动；隐藏提示条后 `⌘S`，再点「仍然覆盖」 | 改动后约 0.5 秒出现「已修改」条；`⌘S` 不写入并再次出现这个条；「仍然覆盖」后远端内容是编辑器里的版本 | [AC35](../tests/gui/cases/AC/AC35.md) |
 | AC36 | 远端编辑器有未保存修改时 bridge 断开（远端组件不可执行，bridge 起不来），`⌘S` | 红色保存失败条「devbox-test 未连接，未保存」，`dirty` 仍为 true，远端文件没变 | [AC36](../tests/gui/cases/AC/AC36.md) |
+| AC37 | 远端会话的检查器时间线里 `⌘`+点击「Update README.md」行的文件名 | Quick Look 打开远端的 `/home/dev/ac37/README.md`（`host` 为远端，`size` 为 12），没有「这项功能暂不支持远端」提示 | [AC37](../tests/gui/cases/AC/AC37.md) |
 
 ## AD. SSH 远程：macOS 主机
 
@@ -609,6 +610,22 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 | AD8 | 远端只装有旧版本 | 先询问再更新；`n` 普通登录，再连 `Y` 后增强 | [AD8](../tests/gui/cases/AD/AD8.md) |
 | AD9 | `GILVT_PROBE_OVERRIDE=Darwin/x86_64 ssh mac-test`（模拟 Intel Mac） | 提示「远端是 Intel Mac（x86_64），暂不支持」并普通登录；远端没有安装任何东西 | [AD9](../tests/gui/cases/AD/AD9.md) |
 | AD10 | 远端仓库里 `gilvt diff` | Quick Look 列出远端仓库的改动（`base` 为「与 HEAD 相比」） | [AD10](../tests/gui/cases/AD/AD10.md) |
+
+## AE. 经包装器启动的 Agent
+
+pane 的 PATH 最前是 gilvt 的垫片目录（`~/Library/Application Support/gilvt/shims/`）：包装器、脚本按名字启动的交互式 claude / codex 经过垫片带上 hooks；被绕过时退回精简模式，并在检查器卡片上说明原因（agent-shims 设计）。沙盒道具（`tests/gui/sandbox.sh` 的 `install_wrapper_props`）：`fakewrap`（perl 包装器，留在前台当组长；`FAKEWRAP_PREPEND` 模拟 ttadk 改 PATH）、`cw`（按名字调用 codex 的脚本）、`cc`（按路径调用 claude 的脚本）、`realbin/claude`（被绕过时找到的另一个 fake claude）。
+
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| AE1 | `fakewrap claude @scenario:remote-approval`（经包装器启动） | 左栏进入等待审批（hooks 生效）；`foreground_via` 为 `{ "descendant": "perl" }`；不是精简模式，没有提示 | [AE1](../tests/gui/cases/AE/AE1.md) |
+| AE2 | `cw @scenario:codex-basic`（脚本里 `exec codex`），不改配置 | 完整识别：不是精简模式；`foreground_via` 为 `leader`；没有提示 | [AE2](../tests/gui/cases/AE/AE2.md) |
+| AE3 | `GILVT_AGENT_HOOKED=1 command claude …`（带标记，同 agent 在 Bash 工具里嵌套调用） | 垫片不加 hooks：精简模式；首词是前缀命令，没有提示 | [AE3](../tests/gui/cases/AE/AE3.md) |
+| AE4 | `command claude … \| cat`（输出不是终端） | 垫片不加 hooks：左栏没有非精简的会话行 | [AE4](../tests/gui/cases/AE/AE4.md) |
+| AE5 | `FAKEWRAP_PREPEND=<realbin> fakewrap claude …`（包装器绕过垫片） | 精简模式；`agent_hint.cause` 为 `bypassed`，黄字说明 perl 直接启动了 claude；「复制配置」复制垫片路径 | [AE5](../tests/gui/cases/AE/AE5.md) |
+| AE6 | `cc …`（改了名字的 agent，按路径调用 claude） | `agent_hint.cause` 为 `unlisted`；「加入」后配置文件和垫片目录多了 `cc`，新开的 pane 里 `cc` 完整识别 | [AE6](../tests/gui/cases/AE/AE6.md) |
+| AE7 | ⌘, →「⌘ Agent」：添加、删除命令名；列表里加一个不存在的命令 | 配置文件与垫片目录同步；状态行显示垫片 ✓ 和真实路径；不存在的命令显示「找不到」 | [AE7](../tests/gui/cases/AE/AE7.md) |
+| AE8 | `claude_launch = "fakewrap claude"` 后 ⌘⇧N | 预览和输入的命令都是 `fakewrap claude …`；会话经过 fakewrap 启动并完整识别 | [AE8](../tests/gui/cases/AE/AE8.md) |
+| AE9 | 真实 `ttadk claude` | 完整识别；`foreground_via` 为 `{ "descendant": "ttadk" }` | [AE9](../tests/gui/cases/AE/AE9.md) 真实 ttadk（需要本机 ttadk 和 SSO 登录态） |
 
 ## 已知限制（M1）
 
@@ -695,7 +712,7 @@ Gilvt.app 被 macOS 放进随机只读路径（下载后在原地打开）或直
 - 未安装全局 hooks 的新会话通常只能从显式 `--session-id` / `resume <id>` 推断，标为 `inferred`；没有可绑定 ID 的进程显示为 `unresolved`。两者都禁止进程控制，建议运行 `gilvt integrate install` 获得 `exact` 绑定。
 - 移到废纸篓：Claude 在 `~/.claude` 下的其他零散数据（`file-history/`、`todos/`、`session-env/` 等）不处理。
 - 左栏的确认条与恢复出错提示：确认条只在窗口根节点自己有键盘焦点时响应单按的 `↩` / `Esc`（带 `⌘` `⌥` `⌃` `⇧` 的不算）；点到终端、打开 `⌘⇧R` / `⌘⇧N` / `⌘P` / 预览、隐藏左栏都会关掉确认条，提示显示在窗口顶部的错误横幅里，点击才关闭。
-- `agent.claude_launch` / `agent.codex_launch` 只能是单个命令名，不能带参数（需要参数时写包装脚本）。
+- `agent.claude_launch` / `agent.codex_launch` 的第一个词必须是合法的命令名；之后可以带参数（如 `ttadk claude`，见 AE8）。
 - Dock 角标不能单独关闭；「gilvt 在前台」以 gilvt 的某个窗口是 key window 为准。
 - 「会话」菜单项的快捷键由系统根据按键绑定显示；gpui 菜单不支持勾选状态。
 

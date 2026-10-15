@@ -385,11 +385,14 @@ impl AgentSettings {
             ("claude_launch", &mut self.claude_launch, defaults.claude_launch),
             ("codex_launch", &mut self.codex_launch, defaults.codex_launch),
         ] {
-            if !command_name_ok(value) {
+            let first_ok = gilvt_agent::launch::split_command(value)
+                .and_then(|w| w.into_iter().next())
+                .is_some_and(|w| command_name_ok(&w));
+            if !first_ok {
                 errors.push(if crate::i18n::english() {
-                    format!("agent.{key} = {value:?} is not a valid command name; using the default {default:?}")
+                    format!("agent.{key} = {value:?}: the first word is not a valid command name; using the default {default:?}")
                 } else {
-                    format!("agent.{key} = {value:?} 不是合法的命令名，改用默认值 {default:?}")
+                    format!("agent.{key} = {value:?} 的第一个词不是合法的命令名，改用默认值 {default:?}")
                 });
                 *value = default;
             }
@@ -599,7 +602,7 @@ mod tests {
 
     #[test]
     fn warnings_are_in_the_language_the_file_asks_for() {
-        let bad = "[agent]\ncodex_launch = \"bad name\"\n[monitor]\nsummary_interval = \"5x\"\n[colors]\nbackground = \"black\"\npalette = { \"16\" = \"#fff\" }\n";
+        let bad = "[agent]\ncodex_launch = \"'bad name'\"\n[monitor]\nsummary_interval = \"5x\"\n[colors]\nbackground = \"black\"\npalette = { \"16\" = \"#fff\" }\n";
         let (_, err) = load_str(&format!("language = \"en\"\n{bad}"));
         let err = err.unwrap();
         assert!(!crate::i18n::has_chinese(&err), "{err}");
@@ -620,15 +623,27 @@ mod tests {
         assert!(err.is_none());
         assert_eq!(s.agent.codex_launch, "codex-w");
         assert_eq!(s.agent.codex_commands, vec!["codex"], "detection is independent of the launch command");
-        let (s, err) = load_str("font_size = 15\n[agent]\nclaude_launch = \"claude --x\"\ncodex_launch = \"-c\"\n");
+        let (s, err) = load_str("font_size = 15\n[agent]\nclaude_launch = \"'bad name' --x\"\ncodex_launch = \"-c\"\n");
         assert_eq!((s.agent.claude_launch.as_str(), s.agent.codex_launch.as_str()), ("claude", "codex"), "invalid → default");
         assert_eq!(s.font_size, 15.0, "the rest of the file still applies");
         let err = err.unwrap();
-        assert!(err.contains(r#"agent.claude_launch = "claude --x""#) && err.contains("agent.codex_launch"), "{err}");
+        assert!(err.contains(r#"agent.claude_launch = "'bad name' --x""#) && err.contains("agent.codex_launch"), "{err}");
         assert!(err.contains("改用默认值"), "{err}");
         let (s, err) = load_str("[agent]\nclaude_launch = \"\"\n");
         assert_eq!(s.agent.claude_launch, "claude");
         assert!(err.is_some(), "an empty name is reported too");
+    }
+
+    #[test]
+    fn launch_commands_take_arguments_but_the_command_must_be_a_name() {
+        let (s, err) = load_str("[agent]\nclaude_launch = \"ttadk claude\"\ncodex_launch = \"ttadk codex --x 'a b'\"\n");
+        assert_eq!(s.agent.claude_launch, "ttadk claude");
+        assert_eq!(s.agent.codex_launch, "ttadk codex --x 'a b'");
+        assert!(err.is_none(), "{err:?}");
+        let (s, err) = load_str("[agent]\nclaude_launch = \"'bad name' x\"\ncodex_launch = \"ttadk 'x\"\n");
+        assert_eq!(s.agent.claude_launch, "claude");
+        assert_eq!(s.agent.codex_launch, "codex");
+        assert!(err.unwrap().contains("agent.claude_launch"));
     }
 
     #[test]
@@ -744,7 +759,7 @@ mod tests {
         let p = Path::new("/c/config.toml");
         let (s, warn) = Settings::parse("font_size = 15\n", p).unwrap();
         assert_eq!((s.font_size, warn), (15.0, None));
-        let (s, warn) = Settings::parse("[agent]\nclaude_launch = \"a b\"\n", p).unwrap();
+        let (s, warn) = Settings::parse("[agent]\nclaude_launch = \"'a b'\"\n", p).unwrap();
         assert_eq!(s.agent.claude_launch, "claude", "an invalid value falls back");
         assert!(warn.unwrap().starts_with("/c/config.toml: agent.claude_launch"));
         let err = Settings::parse("font_size = \n", p).unwrap_err();

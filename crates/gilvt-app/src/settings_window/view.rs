@@ -1,4 +1,4 @@
-//! The settings window's view: a nav column with 「外观」 and 「◎ 监控官」, and the page shown.
+//! The settings window's view: a nav column with the pages (「外观」 … 「⌘ Agent」), and the page shown.
 
 use std::process::Stdio;
 
@@ -7,11 +7,13 @@ use gilvt_monitor::provider::ProviderError;
 use gilvt_term::Rgb;
 use gilvt_theme::color::contrast;
 use gilvt_theme::{ResolvedTheme, Status};
+use gilvt_agent::AgentKind;
 use gpui::{
-    anchored, deferred, div, prelude::*, px, AnyElement, ClickEvent, Context, Div, Entity, FocusHandle, Focusable, Hsla, KeyDownEvent,
+    anchored, deferred, div, prelude::*, px, AnyElement, ClickEvent, ClipboardItem, Context, Div, Entity, FocusHandle, Focusable, Hsla, KeyDownEvent,
     MouseButton, MouseDownEvent, PathPromptOptions, Subscription, Task, Window,
 };
 
+use super::agent_page::{self, AgentField, AgentView, Problem};
 use super::appearance::AppearancePage;
 use super::form::{self, CodexModels, FieldId, FieldModel, Notice, OptValue, TestState, TrialOutcome};
 use super::{probe, Page};
@@ -93,6 +95,14 @@ pub struct OtherInput {
     _events: Subscription,
 }
 
+/// A text box of the 「⌘ Agent」 page while it is open.
+pub struct AgentInput {
+    pub field: AgentField,
+    pub input: Entity<RenameField>,
+    /// Commit / cancel / blur, and a repaint per keystroke (the launch preview follows the typing).
+    _events: [Subscription; 2],
+}
+
 pub struct SettingsWindow {
     focus_handle: FocusHandle,
     /// The page shown.
@@ -108,6 +118,11 @@ pub struct SettingsWindow {
     models_task: Option<Task<()>>,
     test_task: Option<Task<()>>,
     trial_task: Option<Task<()>>,
+    /// The 「⌘ Agent」 page: its status (computed when it opens and on 「刷新」) and refusals.
+    pub(super) agent: AgentView,
+    pub(super) agent_input: Option<AgentInput>,
+    /// The status being worked out (`refresh_agent_status`).
+    agent_task: Option<Task<()>>,
     _observers: [Subscription; 3],
 }
 
@@ -182,6 +197,11 @@ impl SettingsWindow {
             notice: self.notice.clone(),
             codex: self.codex.clone(),
             test: self.test.clone(),
+            agent: AgentView {
+                editing: self.agent_input.as_ref().map(|i| (i.field, i.input.read(cx).text().to_string())),
+                can_restore: can_restore(cx),
+                ..self.agent.clone()
+            },
         };
         let file = cx.global::<ConfigFile>();
         let view = super::debug::FileView {
@@ -207,7 +227,7 @@ impl SettingsWindow {
         // The 外观 page takes typing (its search box); the 监控官 page has the keyboard itself.
         match page {
             Page::Appearance => window.focus(&appearance.focus_handle(cx)),
-            Page::Language | Page::Monitor => window.focus(&focus_handle),
+            Page::Language | Page::Monitor | Page::Agent => window.focus(&focus_handle),
         }
         // Closing the window mid-test voids the test token (the task that would clear it is dropped with the view).
         cx.on_release(|_, cx| crate::monitor::tools::set_test_token(None, cx)).detach();
@@ -233,9 +253,15 @@ impl SettingsWindow {
             models_task: None,
             test_task: None,
             trial_task: None,
+            agent: AgentView::default(),
+            agent_input: None,
+            agent_task: None,
             _observers: observers,
         };
         this.sync_models(cx);
+        if page == Page::Agent {
+            this.refresh_agent_status(cx);
+        }
         this
     }
 
@@ -250,9 +276,13 @@ impl SettingsWindow {
         cx.set_global(super::LastPage(page));
         self.open_menu = None;
         self.close_other();
+        self.agent_input = None;
         match page {
             Page::Appearance => window.focus(&self.appearance.focus_handle(cx)),
-            Page::Language | Page::Monitor => window.focus(&self.focus_handle),
+            Page::Language | Page::Monitor | Page::Agent => window.focus(&self.focus_handle),
+        }
+        if page == Page::Agent {
+            self.refresh_agent_status(cx);
         }
         cx.notify();
     }
@@ -650,10 +680,416 @@ impl SettingsWindow {
         }
     }
 
+    /// Where each command name resolves (spec §5.1 item 3), with the PATH panes get: the login shell's (a
+    /// Finder-launched app's own PATH is only /usr/bin:/bin:…). Reading it can take seconds the first time, so the
+    /// rows are worked out on a thread; a newer refresh replaces (drops) an older one. The login PATH has no shims
+    /// directory in it (it is added per pane), so the first match is the real program.
+    pub(super) fn refresh_agent_status(&mut self, cx: &mut Context<Self>) {
+        let agent = cx.global::<AppSettings>().0.agent.clone();
+        let env = cx.try_global::<crate::launch::ShellEnv>();
+        let (shims_dir, shims_error) = env.map(|e| (e.shims_dir.clone(), e.shims_error.clone())).unwrap_or_default();
+        (self.agent.shims_dir, self.agent.shims_error) = (shims_dir.clone(), shims_error);
+        self.agent.status_loading = true;
+        let rx = probe::spawn(move || {
+            let path = shell_path().map(std::ffi::OsString::from).or_else(|| std::env::var_os("PATH")).unwrap_or_default();
+            let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+            agent_page::status_rows(&agent.claude_commands, &agent.codex_commands, &path, shims_dir.as_deref(), &home)
+        });
+        self.agent_task = Some(cx.spawn(async move |this, cx| {
+            let rows = rx.recv().await.unwrap_or_default();
+            let _ = this.update(cx, |view, cx| {
+                view.agent.status = rows;
+                view.agent.status_loading = false;
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn agent_names(kind: AgentKind, cx: &gpui::App) -> Vec<String> {
+        let agent = &cx.global::<AppSettings>().0.agent;
+        match kind {
+            AgentKind::Claude => agent.claude_commands.clone(),
+            AgentKind::Codex => agent.codex_commands.clone(),
+        }
+    }
+
+    /// The 「+」 of a command list: `name` joins it (already there: nothing to do; in the other list: refused).
+    pub fn add_agent_command(&mut self, kind: AgentKind, name: String, cx: &mut Context<Self>) {
+        let name = name.trim().to_string();
+        let mut names = Self::agent_names(kind, cx);
+        let other = match kind {
+            AgentKind::Claude => AgentKind::Codex,
+            AgentKind::Codex => AgentKind::Claude,
+        };
+        if name.is_empty() || names.contains(&name) {
+            self.agent_input = None;
+            cx.notify();
+            return;
+        }
+        if Self::agent_names(other, cx).contains(&name) {
+            let text = if crate::i18n::english() {
+                format!("\"{name}\" is already a {} command", other.name())
+            } else {
+                format!("「{name}」已经是 {} 的命令名", other.name())
+            };
+            self.notice = Some(Notice { error: true, text });
+            cx.notify();
+            return;
+        }
+        names.push(name);
+        self.set_names(kind, names, cx);
+    }
+
+    /// The × of name `ix` in `kind`'s list.
+    pub fn remove_agent_command(&mut self, kind: AgentKind, ix: usize, cx: &mut Context<Self>) {
+        let mut names = Self::agent_names(kind, cx);
+        if ix < names.len() {
+            names.remove(ix);
+            self.set_names(kind, names, cx);
+        }
+    }
+
+    fn set_names(&mut self, kind: AgentKind, names: Vec<String>, cx: &mut Context<Self>) {
+        match config_file::set_agent_commands(kind, names, cx) {
+            Ok(()) => {
+                self.notice = None;
+                self.agent_input = None;
+                // The shims were rebuilt for the new lists.
+                self.refresh_agent_status(cx);
+            }
+            Err(text) => self.notice = Some(Notice { error: true, text }),
+        }
+        cx.notify();
+    }
+
+    /// Opens a text box of the page: the box before a 「+」, or a launch command.
+    pub(super) fn start_agent_input(&mut self, field: AgentField, window: &mut Window, cx: &mut Context<Self>) {
+        let (current, placeholder) = match field {
+            AgentField::Add(_) => (String::new(), crate::i18n::text("命令名，⏎ 添加", "Command name; press Return to add")),
+            AgentField::Launch(kind) => (
+                cx.global::<AppSettings>().0.agent.launch(kind).to_string(),
+                crate::i18n::text("命令和参数，⏎ 保存", "Command and arguments; press Return to save"),
+            ),
+        };
+        let input = cx.new(|cx| RenameField::with_placeholder(&current, placeholder, window, cx));
+        let events = cx.subscribe_in(&input, window, move |view, _, event: &RenameEvent, window, cx| match (event, field) {
+            (RenameEvent::Commit(text), AgentField::Add(kind)) => {
+                view.add_agent_command(kind, text.clone(), cx);
+                if view.agent_input.is_none() {
+                    window.focus(&view.focus_handle);
+                }
+            }
+            (RenameEvent::Commit(text), AgentField::Launch(kind)) => view.save_launch(kind, text.clone(), window, cx),
+            (RenameEvent::Cancel, _) => {
+                view.agent_input = None;
+                window.focus(&view.focus_handle);
+                cx.notify();
+            }
+            (RenameEvent::Blurred, _) => {
+                if view.agent_input.as_ref().is_some_and(|i| i.field == field) {
+                    view.agent_input = None;
+                    cx.notify();
+                }
+            }
+        });
+        let typing = cx.observe(&input, |_, _, cx| cx.notify());
+        window.focus(&input.focus_handle(cx));
+        if let AgentField::Launch(kind) = field {
+            self.agent.launch_error[agent_page::kind_index(kind)] = None;
+        }
+        self.agent_input = Some(AgentInput { field, input, _events: [events, typing] });
+        self.notice = None;
+        cx.notify();
+    }
+
+    /// ⏎ in a launch command box: saved, or refused under the box (which stays open for a fix).
+    pub(super) fn save_launch(&mut self, kind: AgentKind, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let k = agent_page::kind_index(kind);
+        match config_file::set_agent_launch(kind, text, cx) {
+            Ok(()) => {
+                self.agent.launch_error[k] = None;
+                self.agent_input = None;
+                window.focus(&self.focus_handle);
+            }
+            Err(e) => self.agent.launch_error[k] = Some(e),
+        }
+        cx.notify();
+    }
+
+    fn copy_text(&mut self, text: String, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+        self.notice = Some(Notice { error: false, text: crate::i18n::text("已复制", "Copied").into() });
+        cx.notify();
+    }
+
+    /// 「恢复所有已关闭的提示」: every dismissed agent hint shows again.
+    fn restore_hints(&mut self, cx: &mut Context<Self>) {
+        if !cx.has_global::<crate::agents::AgentHints>() {
+            return;
+        }
+        let hints = cx.global_mut::<crate::agents::AgentHints>();
+        hints.dismissed.clear();
+        let saved = crate::agents::state_dir().map_or(Ok(()), |dir| hints.dismissed.save(&dir));
+        self.notice = Some(match saved {
+            Ok(()) => Notice { error: false, text: crate::i18n::text("已恢复，之后会再次提示", "Restored; hints will show again").into() },
+            // Restored for this run all the same.
+            Err(e) => Notice { error: true, text: format!("agent-hints.json: {e}") },
+        });
+        cx.notify();
+    }
+
+    fn agent_button(&self, i: usize, label: &'static str, enabled: bool, k: &Colors, cx: &Context<Self>, on: impl Fn(&mut Self, &mut Context<Self>) + 'static) -> AnyElement {
+        div()
+            .id(("settings-agent-button", i))
+            .relative()
+            .children(rects::recorder(RectId::SettingsAgentButton(i)))
+            .flex_none()
+            .px(px(10.))
+            .py(px(3.))
+            .rounded(px(5.))
+            .bg(k.seg_on)
+            .child(label)
+            .when(!enabled, |d| d.opacity(0.5))
+            .when(enabled, |d| d.cursor_pointer().on_click(cx.listener(move |view, _: &ClickEvent, _, cx| on(view, cx))))
+            .into_any_element()
+    }
+
+    /// A launch command / add box: the open text box, or a box showing `shown` that opens it on a click.
+    #[allow(clippy::too_many_arguments)]
+    fn agent_box(&self, field: AgentField, rect: RectId, shown: String, muted: bool, width: f32, readonly: bool, k: &Colors, cx: &Context<Self>) -> AnyElement {
+        if let Some(i) = self.agent_input.as_ref().filter(|i| i.field == field) {
+            return div().relative().min_w(px(width)).children(rects::recorder(rect)).child(i.input.clone()).into_any_element();
+        }
+        let id = match field {
+            AgentField::Add(kind) => agent_page::kind_index(kind),
+            AgentField::Launch(kind) => 2 + agent_page::kind_index(kind),
+        };
+        div()
+            .id(("settings-agent-box", id))
+            .relative()
+            .children(rects::recorder(rect))
+            .min_w(px(width))
+            .px(px(7.))
+            .py(px(3.))
+            .rounded(px(5.))
+            .border_1()
+            .border_color(k.field_border)
+            .bg(k.field)
+            .font_family("Menlo")
+            .text_size(px(11.))
+            .when(muted, |d| d.text_color(k.muted))
+            .child(shown)
+            .when(readonly, |d| d.opacity(0.5))
+            .when(!readonly, |d| d.cursor_text().on_click(cx.listener(move |view, _: &ClickEvent, window, cx| view.start_agent_input(field, window, cx))))
+            .into_any_element()
+    }
+
+    fn agent_page(&self, readonly: bool, k: &Colors, cx: &Context<Self>) -> Vec<AnyElement> {
+        let t = crate::i18n::text;
+        let settings = &cx.global::<AppSettings>().0;
+        let kind_label = |kind: AgentKind| match kind {
+            AgentKind::Claude => "Claude Code",
+            AgentKind::Codex => "Codex",
+        };
+        let mut out = Vec::new();
+        if let Some(e) = &self.agent.shims_error {
+            let text = if crate::i18n::english() { format!("The shims folder could not be set up: {e}") } else { format!("垫片目录建不起来：{e}") };
+            out.push(notice_box(k.warn, text).into_any_element());
+        }
+        if let Some(n) = &self.notice {
+            out.push(notice_box(if n.error { k.error } else { k.ok }, n.text.clone()).into_any_element());
+        }
+
+        let mut names = section(k, t("识别的命令名", "Command names"));
+        for kind in agent_page::KINDS {
+            let ki = agent_page::kind_index(kind);
+            let list = match kind {
+                AgentKind::Claude => &settings.agent.claude_commands,
+                AgentKind::Codex => &settings.agent.codex_commands,
+            };
+            let mut wrap = div().flex().flex_wrap().items_center().gap(px(6.));
+            for (j, name) in list.iter().enumerate() {
+                wrap = wrap.child(
+                    div()
+                        .id(("settings-agent-chip", ki * 1000 + j))
+                        .relative()
+                        .children(rects::recorder(RectId::SettingsAgentChip(ki, j)))
+                        .flex()
+                        .gap(px(4.))
+                        .px(px(6.))
+                        .rounded(px(4.))
+                        .bg(k.seg_on)
+                        .font_family("Menlo")
+                        .text_size(px(10.5))
+                        .child(name.clone())
+                        .child(
+                            div()
+                                .id(("settings-agent-chip-x", ki * 1000 + j))
+                                .relative()
+                                .children(rects::recorder(RectId::SettingsAgentChipRemove(ki, j)))
+                                .child("×")
+                                .when(readonly, |d| d.opacity(0.5))
+                                .when(!readonly, |d| d.cursor_pointer().on_click(cx.listener(move |view, _: &ClickEvent, _, cx| view.remove_agent_command(kind, j, cx)))),
+                        ),
+                );
+            }
+            let field = AgentField::Add(kind);
+            wrap = wrap.child(self.agent_box(field, RectId::SettingsAgentInput(ki), t("命令名", "name").into(), true, 110., readonly, k, cx)).child(
+                div()
+                    .id(("settings-agent-add", ki))
+                    .relative()
+                    .children(rects::recorder(RectId::SettingsAgentAdd(ki)))
+                    .flex_none()
+                    .px(px(8.))
+                    .py(px(1.))
+                    .rounded(px(5.))
+                    .bg(k.seg_on)
+                    .child("+")
+                    .when(readonly, |d| d.opacity(0.5))
+                    .when(!readonly, |d| {
+                        // Mouse-down, stopped here: the page's own mouse-down would take the focus, and the box
+                        // would close (losing what was typed) before a click arrived.
+                        d.cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |view, _: &MouseDownEvent, window, cx| {
+                            cx.stop_propagation();
+                            window.prevent_default();
+                            match view.agent_input.as_ref().filter(|i| i.field == field) {
+                                Some(i) => {
+                                    let text = i.input.read(cx).text().to_string();
+                                    view.add_agent_command(kind, text, cx);
+                                    if view.agent_input.is_none() {
+                                        window.focus(&view.focus_handle);
+                                    }
+                                }
+                                None => view.start_agent_input(field, window, cx),
+                            }
+                        }))
+                    }),
+            );
+            names = names.child(row(k, kind_label(kind), wrap, None));
+        }
+        names = names.child(div().mt(px(6.)).text_size(px(10.5)).text_color(k.muted).child(t(
+            "在 gilvt 的 pane 里，这些命令（包括被 ttadk、脚本等调用时）都会被识别为 agent。对新开的 pane 生效；名字只能包含字母、数字和 . _ + -。",
+            "In gilvt panes these commands are recognized as agents, also when ttadk, a script or another program runs them. Applies to new panes; names may contain letters, digits and . _ + -.",
+        )));
+        out.push(names.into_any_element());
+
+        let mut launch = section(k, t("启动命令", "Launch command"));
+        for kind in agent_page::KINDS {
+            let ki = agent_page::kind_index(kind);
+            let field = AgentField::Launch(kind);
+            let saved = settings.agent.launch(kind).to_string();
+            let typed = self.agent_input.as_ref().filter(|i| i.field == field).map(|i| i.input.read(cx).text().to_string());
+            let (new, resume) = agent_page::launch_preview(kind, typed.as_deref().unwrap_or(&saved));
+            let preview = div()
+                .flex()
+                .flex_col()
+                .text_size(px(10.5))
+                .text_color(k.muted)
+                .child(div().font_family("Menlo").child(format!("{} {new}", t("新建：", "New:"))))
+                .child(div().font_family("Menlo").child(format!("{} {resume}", t("恢复：", "Resume:"))))
+                .children(self.agent.launch_error[ki].clone().map(|e| div().text_color(k.error.2).child(e)));
+            let control = div().flex().flex_col().gap(px(4.)).child(self.agent_box(field, RectId::SettingsAgentLaunch(ki), saved, false, 240., readonly, k, cx)).child(preview);
+            launch = launch.child(row(k, kind_label(kind), control, None));
+        }
+        out.push(launch.into_any_element());
+
+        let can_restore = can_restore(cx);
+        let mut status = section(k, t("状态", "Status")).child(
+            div().flex().items_center().gap(px(8.)).mb(px(4.)).child(self.agent_button(0, agent_page::button_labels(&self.agent)[0], true, k, cx, |view, cx| view.refresh_agent_status(cx))).child(
+                div().text_size(px(10.5)).text_color(k.muted).child(if self.agent.status_loading {
+                    t("正在检查…", "Checking…")
+                } else {
+                    t("真正的程序是 PATH 里排在垫片后面的第一个", "The real program is the first one on PATH after the shims")
+                }),
+            ),
+        );
+        let copy_buttons: std::collections::HashMap<usize, usize> = (3..).zip(self.agent.copy_rows()).map(|(b, (i, _))| (i, b)).collect();
+        let shims_dir = self.agent.shims_dir.clone();
+        for (i, r) in self.agent.status.iter().enumerate() {
+            let why = r.problem.map(|p| match p {
+                Problem::NotFound => t("PATH 里找不到这个命令", "Not found on PATH"),
+                Problem::BypassedByTtadk => t(
+                    "装在 ~/.local/bin 或 ~/.claude/local，ttadk 会绕过垫片：把 ~/.ttadk/setting.json 的 ai_tool_commands 指向垫片",
+                    "Installed in ~/.local/bin or ~/.claude/local, so ttadk bypasses the shim: point ai_tool_commands in ~/.ttadk/setting.json at the shim",
+                ),
+            });
+            let path = r.real_path.as_ref().map_or_else(|| t("找不到", "not found").to_string(), |p| p.display().to_string());
+            let shim = if r.shim_ok { t("垫片 ✓", "shim ✓") } else { t("垫片 ✗", "shim ✗") };
+            let copy = copy_buttons.get(&i).map(|&b| {
+                let line = agent_page::copy_config(r, shims_dir.as_deref());
+                self.agent_button(b, t("复制配置", "Copy Config"), line.is_some(), k, cx, move |view, cx| {
+                    if let Some(text) = line.clone() {
+                        view.copy_text(text, cx);
+                    }
+                })
+            });
+            status = status.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .px(px(6.))
+                    .py(px(4.))
+                    .rounded(px(4.))
+                    .when(r.problem.is_some(), |d| d.bg(k.warn.0).text_color(k.warn.2))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(div().w(px(90.)).flex_none().font_family("Menlo").child(r.name.clone()))
+                            .child(div().flex_1().font_family("Menlo").text_size(px(10.5)).child(path))
+                            .child(div().flex_none().child(shim))
+                            .children(copy),
+                    )
+                    .children(why.map(|w| div().text_size(px(10.5)).child(w))),
+            );
+        }
+        out.push(status.into_any_element());
+
+        let dir_text = self.agent.shims_dir.as_ref().map_or_else(|| t("（没有）", "(none)").to_string(), |d| d.display().to_string());
+        out.push(
+            section(k, t("垫片目录", "Shims folder"))
+                .child(
+                    div().flex().items_center().gap(px(8.)).child(div().flex_1().font_family("Menlo").text_size(px(10.5)).child(dir_text)).child(self.agent_button(
+                        1,
+                        t("复制", "Copy"),
+                        self.agent.shims_dir.is_some(),
+                        k,
+                        cx,
+                        |view, cx| {
+                            if let Some(d) = view.agent.shims_dir.clone() {
+                                view.copy_text(d.display().to_string(), cx);
+                            }
+                        },
+                    )),
+                )
+                .into_any_element(),
+        );
+        out.push(
+            section(k, t("提示", "Hints"))
+                .child(div().flex().child(self.agent_button(2, t("恢复所有已关闭的提示", "Restore All Dismissed Hints"), can_restore, k, cx, |view, cx| view.restore_hints(cx))))
+                .into_any_element(),
+        );
+        out.push(
+            div()
+                .text_size(px(10.5))
+                .text_color(k.muted)
+                .child(t(
+                    "这些设置只影响在 gilvt 里运行的 agent，不会修改 ~/.claude、~/.codex 等全局配置。",
+                    "These settings only affect agents run inside gilvt; ~/.claude, ~/.codex and other global config are never changed.",
+                ))
+                .into_any_element(),
+        );
+        out
+    }
+
     fn on_key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if e.keystroke.key == "escape" && (self.open_menu.is_some() || self.other.is_some()) {
+        if e.keystroke.key == "escape" && (self.open_menu.is_some() || self.other.is_some() || self.agent_input.is_some()) {
             self.open_menu = None;
             self.close_other();
+            self.agent_input = None;
             window.focus(&self.focus_handle);
             cx.stop_propagation();
             cx.notify();
@@ -836,6 +1272,20 @@ impl SettingsWindow {
     }
 }
 
+/// The login shell's PATH (what panes get); None: gilvt's own. Tests never start a login shell.
+fn shell_path() -> Option<String> {
+    if cfg!(test) {
+        None
+    } else {
+        crate::monitor::summaries::login_path()
+    }
+}
+
+/// Some agent hint was dismissed: 「恢复所有已关闭的提示」 has something to do.
+fn can_restore(cx: &gpui::App) -> bool {
+    cx.try_global::<crate::agents::AgentHints>().is_some_and(|h| !h.dismissed.is_empty())
+}
+
 fn section(k: &Colors, title: &str) -> Div {
     div().flex().flex_col().child(div().text_size(px(10.5)).text_color(k.muted).mb(px(6.)).child(title.to_string()))
 }
@@ -964,6 +1414,7 @@ impl Render for SettingsWindow {
             );
         let page = match self.page {
             Page::Appearance => page.child(self.appearance.clone()),
+            Page::Agent => page.children(self.agent_page(ro, &k, cx)),
             Page::Language => page
                 .child(self.language_page(language, ro, &k, cx))
                 .children(self.notice.clone().map(|n| notice_box(if n.error { k.error } else { k.warn }, n.text))),
@@ -1069,7 +1520,7 @@ mod tests {
     fn the_chat_test_needs_the_monitor_on() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("gilvt"), "").unwrap();
-        let env = crate::launch::ShellEnv { integration: None, socket: Some(dir.path().join("sock")), bin_dir: Some(dir.path().to_path_buf()), user: None };
+        let env = crate::launch::ShellEnv { integration: None, socket: Some(dir.path().join("sock")), bin_dir: Some(dir.path().to_path_buf()), user: None, shims_dir: None, shims_error: None };
         assert_eq!(chat_launch(true, Some(&env)), Ok((dir.path().join("gilvt"), dir.path().join("sock"))));
         // Off: no token is issued (the switch promises no data leaves), so the chat half is not tried.
         assert_eq!(chat_launch(false, Some(&env)), Err("监控官未开启".to_string()));
@@ -1097,6 +1548,73 @@ mod tests {
         assert_eq!(s.config_path, dir.path().join("config.toml").display().to_string());
         assert_eq!(s.fields.iter().find(|f| f.id == "enabled").unwrap().value, serde_json::json!(true));
         assert_eq!((s.notice.as_deref(), s.notice_error), (None, false), "the switch cleared the notice");
+    }
+
+    /// Waits for the status thread's answer (it runs on an OS thread, outside the test executor).
+    fn settle_agent_status(cx: &mut TestAppContext, w: &WindowHandle<SettingsWindow>) -> crate::debug_state::SettingsState {
+        for _ in 0..500 {
+            cx.run_until_parked();
+            let s = cx.update(|cx| w.read(cx).unwrap().debug_state(None, true, 0.0, &Default::default(), cx));
+            if !s.agent.as_ref().is_some_and(|a| a.status_loading) {
+                return s;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the agent status never arrived");
+    }
+
+    #[gpui::test]
+    fn adding_a_command_writes_the_file_and_rebuilds_nothing_else(cx: &mut gpui::TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let w = open(cx, path.clone(), None);
+        w.update(cx, |view, window, cx| {
+            view.show_page(Page::Agent, window, cx);
+            view.add_agent_command(gilvt_agent::AgentKind::Codex, "cw".into(), cx);
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("codex_commands = [\"codex\", \"cw\"]"), "{text}");
+        w.update(cx, |view, _, cx| view.add_agent_command(gilvt_agent::AgentKind::Codex, "bad name".into(), cx)).unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("bad name"));
+    }
+
+    #[gpui::test]
+    fn the_agent_page_removes_names_saves_launch_commands_and_refuses_bad_ones(cx: &mut gpui::TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let w = open(cx, path.clone(), None);
+        let agent = |cx: &mut TestAppContext| cx.update(|cx| cx.global::<AppSettings>().0.agent.clone());
+        w.update(cx, |view, window, cx| {
+            view.show_page(Page::Agent, window, cx);
+            view.add_agent_command(gilvt_agent::AgentKind::Claude, "cc".into(), cx);
+            // A name already in the other list is refused.
+            view.add_agent_command(gilvt_agent::AgentKind::Codex, "cc".into(), cx);
+            assert!(view.notice.as_ref().is_some_and(|n| n.error), "{:?}", view.notice);
+            view.remove_agent_command(gilvt_agent::AgentKind::Claude, 0, cx);
+        })
+        .unwrap();
+        assert_eq!(agent(cx).claude_commands, vec!["cc"]);
+        assert_eq!(agent(cx).codex_commands, vec!["codex"]);
+        w.update(cx, |view, window, cx| {
+            view.start_agent_input(AgentField::Launch(gilvt_agent::AgentKind::Claude), window, cx);
+            view.save_launch(gilvt_agent::AgentKind::Claude, "ttadk claude".into(), window, cx);
+            view.start_agent_input(AgentField::Launch(gilvt_agent::AgentKind::Codex), window, cx);
+            view.save_launch(gilvt_agent::AgentKind::Codex, "'bad name' x".into(), window, cx);
+            assert!(view.agent.launch_error[1].is_some(), "refused, shown under the box");
+            assert!(view.agent_input.is_some(), "the box stays open for a fix");
+        })
+        .unwrap();
+        assert_eq!((agent(cx).claude_launch.as_str(), agent(cx).codex_launch.as_str()), ("ttadk claude", "codex"));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("claude_launch = \"ttadk claude\"") && text.contains("claude_commands = [\"cc\"]"), "{text}");
+        let s = cx.update(|cx| w.read(cx).unwrap().debug_state(None, true, 0.0, &Default::default(), cx));
+        assert!(s.agent.unwrap().status_loading, "status is worked out off the UI thread");
+        let s = settle_agent_status(cx, &w);
+        let a = s.agent.unwrap();
+        assert!(!a.status_loading);
+        assert_eq!(a.launch.claude.preview[1], "ttadk claude --resume <会话 ID>");
+        assert_eq!(a.status.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["cc", "codex"], "status follows the lists");
     }
 
     fn in_use(cx: &mut TestAppContext) -> gilvt_theme::Selection {

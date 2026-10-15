@@ -198,7 +198,7 @@ shell_integration = true  # 为 zsh / bash / fish 加载 gilvt 的 hook（不修
 [agent]                   # 被包装、被识别为 Agent 的命令名（见「Agent 会话」）
 claude_commands = ["claude"]
 codex_commands = ["codex"]  # 用 codex-w 这类包装脚本时加进来：["codex", "codex-w"]
-claude_launch = "claude"  # 启动 / 恢复 Agent 时输入的命令名（见「会话的恢复、管理与新建」）
+claude_launch = "claude"  # 启动 / 恢复 Agent 时输入的命令，可带参数如 "ttadk claude"（见「会话的恢复、管理与新建」）
 codex_launch = "codex"
 
 [notify]
@@ -559,13 +559,13 @@ Agent 仍以原生 TUI 运行：gilvt 做的只是在一个真实的 shell pane 
 ```toml
 [agent]
 claude_launch = "claude"   # gilvt 启动 / 恢复 Claude 时输入的命令名（默认 claude）
-codex_launch = "codex-w"   # 同上，Codex（默认 codex）；必须是单个命令名，要带参数请写一个包装脚本
+codex_launch = "codex-w"   # 同上，Codex（默认 codex）；可以带参数（按 shell 规则拆词，如 "ttadk codex"），第一个词必须是合法命令名
 
 [notify]
 dock_bounce = true         # 默认开启
 ```
 
-`claude_launch` / `codex_launch` 只决定 gilvt **输入**的命令，识别前台 Agent 仍看 `claude_commands` / `codex_commands`。不合法的命令名（含空格、引号等）回退到默认值，并在顶部横幅中提示；命令不在 `PATH` 中时照常输入，由 shell 报 `command not found`。`codex-w` 这类最终 `exec codex … "$@"` 的脚本可以直接用作 `codex_launch`（`resume` 子命令原样透传）。
+`claude_launch` / `codex_launch` 只决定 gilvt **输入**的命令，识别前台 Agent 仍看 `claude_commands` / `codex_commands`。第一个词不是合法命令名（含引号、斜杠等）或引号不配对时回退到默认值，并在顶部横幅中提示；命令不在 `PATH` 中时照常输入，由 shell 报 `command not found`。`codex-w` 这类最终 `exec codex … "$@"` 的脚本可以直接用作 `codex_launch`（`resume` 子命令原样透传）。
 
 `~/Library/Application Support/gilvt/state/` 新增 `history.json`（会话索引缓存，损坏或版本不符时丢弃重建）与 `launcher.json`（「新建 Agent」记住的选择）。
 
