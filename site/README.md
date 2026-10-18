@@ -6,7 +6,7 @@ The website, English at the root and Chinese under `zh-CN/` (keep both in step):
 | --- | --- |
 | `/` home | `index.html` |
 | `/features/` | `features/index.html`, images in `images/features/` (frames of the demo GIF and crops of the README screenshots) |
-| `/docs/` | generated from `docs/user-guide.html` with the bar in `partials/docs-bar.*.html` on top; edit the guide, not a copy |
+| `/docs/` | generated from `docs/user-guide.html` with the bar in `partials/docs-bar.*.html` on top; edit the guide, not a copy. `docs-split.pl` then gives each Part 2 `<section>` its own page, `/docs/<topic>/` (readable names in its `%slug` table), with its own title and description; `/docs/` keeps the hero and Part 1 and forwards old `#anchors` |
 | `/install/` | `install/index.html` (download page; `/download` itself is the dmg) |
 | `/agent-terminal/` | search guide explaining the Agent-aware terminal model |
 | `/guides/...` | task-oriented Claude Code / Codex workflow guides |

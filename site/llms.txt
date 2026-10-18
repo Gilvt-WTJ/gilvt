@@ -23,7 +23,13 @@ Requirements: macOS 11 or later, Apple silicon or Intel. The app is signed and n
 
 ## Docs
 
-- [User guide](https://gilvt.com/docs/): every feature, keyboard shortcut, setting and troubleshooting step
+- [User guide](https://gilvt.com/docs/): every feature, one page per topic
+- [Agent sessions](https://gilvt.com/docs/agent-sessions/): how gilvt recognizes Claude Code and Codex and shows their state
+- [Resume and manage sessions](https://gilvt.com/docs/sessions/): find, resume, rename and archive past sessions
+- [SSH remote](https://gilvt.com/docs/ssh-remote/): agents on Linux hosts and Apple Silicon Macs over ssh
+- [Keyboard shortcuts](https://gilvt.com/docs/keyboard-shortcuts/)
+- [Configuration](https://gilvt.com/docs/configuration/): `~/.config/gilvt/config.toml`
+- [Troubleshooting](https://gilvt.com/docs/troubleshooting/): known limitations and fixes
 - [Features](https://gilvt.com/features/): an illustrated tour
 - [Changelog](https://gilvt.com/changelog/): what changed in each version
 

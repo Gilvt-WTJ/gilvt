@@ -9,11 +9,16 @@ breaking changes; they are called out under **Changed**.
 
 ### Added
 
+- Website: the user guide has one page per topic (for example gilvt.com/docs/keyboard-shortcuts/), so each can be found and linked on its own; links to the old single page's sections still work.
 - Website: a changelog page in English and Chinese (gilvt.com/changelog/), generated from this file, and an `llms.txt` summary for AI assistants.
 
 ### Changed
 
 - Website: the home page demo is a 1.4 MB video instead of a 5.3 MB GIF, so the page loads faster.
+
+### Fixed
+
+- User guide: “Resume and manage sessions” in the contents went to the Monitor's chat section; the chat and command bar sections now belong to the Monitor. The install section starts with the download and Homebrew instead of building from source.
 
 ## [0.5.0] - 2026-10-14
 

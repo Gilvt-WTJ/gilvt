@@ -75,7 +75,9 @@ Done: M1 core terminal; M2a–M2c preview and file finding; M3a–M3d Agent stat
 
 ### Installation and launch
 
-You need macOS, Rust 1.95 (selected automatically by the repository's `rust-toolchain.toml`) and the Xcode Command Line Tools; the full Xcode is not required.
+Download gilvt from [gilvt.com/download](https://gilvt.com/download) (macOS 11 or later, Apple silicon and Intel; signed and notarized by Apple), open the disk image and drag Gilvt into Applications, or install it with Homebrew: `brew install --cask gilvt-wtj/gilvt/gilvt`. Then run `claude` or `codex` in a pane. The steps below are for building from source.
+
+To build from source you need macOS, Rust 1.95 (selected automatically by the repository's `rust-toolchain.toml`) and the Xcode Command Line Tools; the full Xcode is not required.
 
 1. **Build and bundle `Gilvt.app`.** Native system notifications and the Dock badge require launching from the app. Build in a directory outside `/tmp`; macOS ignores apps under `/tmp`.
 
