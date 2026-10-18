@@ -1,0 +1,42 @@
+# gilvt
+
+> gilvt is a free, open-source (Apache-2.0) native macOS terminal for running and monitoring parallel coding agents. Claude Code and Codex keep their own TUIs; gilvt shows which session needs you, which failed, and which finished, and lets you review each turn in place. It works locally and on remote machines over SSH.
+
+gilvt is first a complete everyday terminal (tabs, splits, true color, the Kitty keyboard protocol, input methods, search, large scrollback), rendered natively with GPU acceleration using gpui and alacritty_terminal. On top of that it understands coding agents:
+
+- A sidebar lists every Claude Code and Codex session, with the ones waiting for approval or input on top; `⌘⇧J` jumps to the next one across tabs and windows.
+- Pane borders and tab dots are colored by state: needs you, error, working, done and unread.
+- The inspector shows each turn's commands, file edits, TODOs, sub-agents and failures as a timeline, with a per-turn diff.
+- Notifications and a Dock badge fire when a session needs you while you are in another app.
+- Session Center (`⌘⇧R`) finds and resumes sessions from days ago; New Agent (`⌘⇧N`) starts an agent in any directory or a fresh git worktree.
+- The Monitor (`⌘⇧O`) shows every session as cards, with optional AI summaries that use your local CLI.
+- Quick Look, `⌘P` file search, rendered Markdown and Mermaid, a built-in editor and 725 themes.
+
+Design principles: agents stay in their native TUI; gilvt observes and never types into an agent; your shell rc files, `~/.claude` and `~/.codex` are not modified unless you run `gilvt integrate install`.
+
+Requirements: macOS 11 or later, Apple silicon or Intel. The app is signed and notarized and updates itself. The interface is available in English and Simplified Chinese.
+
+## Install
+
+- [Download page](https://gilvt.com/install/): the dmg, Homebrew (`brew install --cask gilvt-wtj/gilvt/gilvt`) and first steps
+- [Direct download](https://gilvt.com/download): the latest signed dmg
+
+## Docs
+
+- [User guide](https://gilvt.com/docs/): every feature, keyboard shortcut, setting and troubleshooting step
+- [Features](https://gilvt.com/features/): an illustrated tour
+- [Changelog](https://gilvt.com/changelog/): what changed in each version
+
+## Guides
+
+- [What is an AI agent terminal?](https://gilvt.com/agent-terminal/)
+- [How to manage multiple Claude Code sessions on macOS](https://gilvt.com/guides/manage-multiple-claude-code-sessions/)
+- [How to run Claude Code and Codex in parallel](https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/)
+- [Claude Code integration](https://gilvt.com/integrations/claude-code/)
+- [Codex CLI integration](https://gilvt.com/integrations/codex/)
+- [gilvt vs tmux for coding agents](https://gilvt.com/compare/gilvt-vs-tmux/)
+
+## Optional
+
+- [Source code on GitHub](https://github.com/Gilvt-WTJ/gilvt)
+- [简体中文网站](https://gilvt.com/zh-CN/)

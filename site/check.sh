@@ -42,10 +42,33 @@ for page in $pages; do
   done
 done
 
-if grep -R '{{VERSION}}' "$out" >/dev/null 2>&1; then
-  echo "site/check.sh: unexpanded version placeholder" >&2
+if grep -R -E '\{\{[A-Z]+\}\}' "$out" >/dev/null 2>&1; then
+  echo "site/check.sh: unexpanded placeholder: $(grep -R -l -E '\{\{[A-Z]+\}\}' "$out" | head -1)" >&2
   exit 1
 fi
+
+# /changelog/ lists the version being deployed, so a release cannot ship with a stale page.
+version="$(awk -F'"' '/^version = "/ { print $2; exit }' "$root/Cargo.toml")"
+grep -q "<h2 id=\"v$(echo "$version" | tr . -)\"" "$out/changelog/index.html" || {
+  echo "site/check.sh: /changelog/ has no entry for $version (CHANGELOG.md)" >&2
+  exit 1
+}
+
+# llms.txt points only at pages that exist.
+perl -ne 'while (/\(https:\/\/gilvt\.com(\/[^)]*)\)/g) { print "$1\n" }' "$out/llms.txt" | sort -u | while read -r href; do
+  [ "$href" = "/download" ] && continue
+  case "$href" in
+    */) target="$out${href}index.html" ;;
+    *) target="$out$href" ;;
+  esac
+  [ -e "$target" ] || { echo "site/check.sh: broken link in llms.txt: $href" >&2; exit 1; }
+done
+
+key="$(sed -n 's/^key="\([0-9a-f]*\)"$/\1/p' "$root/site/indexnow.sh")"
+[ -n "$key" ] && [ "$(cat "$out/$key.txt")" = "$key" ] || {
+  echo "site/check.sh: the IndexNow key file does not match site/indexnow.sh" >&2
+  exit 1
+}
 
 for page in $(grep -rl 'application/ld+json' "$out" --include='*.html'); do
   json="$(perl -0777 -ne 'while (/<script type="application\/ld\+json">\s*(.*?)\s*<\/script>/sg) { print "$1\n" }' "$page")"
