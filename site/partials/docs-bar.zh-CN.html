@@ -6,8 +6,8 @@
 .site-bar nav a { color: var(--ink-soft); text-decoration: none; }
 .site-bar nav a:hover, .site-bar nav a[aria-current="page"] { color: var(--ink); }
 .site-bar nav a[aria-current="page"] { font-weight: 600; }
-.site-bar nav .lang { border: 1px solid var(--rule); border-radius: 999px; padding: 4px 10px; }
-@media (max-width: 560px) { .site-bar nav a[href^="https://github"] { display: none; } .site-bar nav { gap: 14px; } }
+.site-bar nav .lang { border: 1px solid var(--rule); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+@media (max-width: 560px) { .site-bar { flex-wrap: wrap; row-gap: 10px; } .site-bar nav a[href^="https://github"] { display: none; } .site-bar nav { gap: 12px; } .site-bar nav .lang { padding: 4px 8px; } }
 </style>
 <header class="site-bar">
   <a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a>

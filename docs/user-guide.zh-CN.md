@@ -75,7 +75,9 @@ gilvt 首先是一个完整、正常可交互的终端，可以当日常终端�
 
 ### 安装与启动
 
-需要 macOS、Rust 1.95（仓库里的 `rust-toolchain.toml` 会自动选中）和 Xcode Command Line Tools，不需要完整的 Xcode。
+从 [gilvt.com/download](https://gilvt.com/download) 下载 gilvt（macOS 11 及以上，Apple 芯片与 Intel，经 Apple 签名与公证），打开磁盘映像，把 Gilvt 拖进「应用程序」；也可以用 Homebrew 安装：`brew install --cask gilvt-wtj/gilvt/gilvt`。然后在 pane 里运行 `claude` 或 `codex` 即可。下面是从源码构建的步骤。
+
+从源码构建需要 macOS、Rust 1.95（仓库里的 `rust-toolchain.toml` 会自动选中）和 Xcode Command Line Tools，不需要完整的 Xcode。
 
 1. **构建并打包成 `Gilvt.app`。** 原生系统通知和 Dock 角标需要从 app 启动。请在 `/tmp` 以外的目录构建，macOS 会忽略 `/tmp` 下的 app。
 

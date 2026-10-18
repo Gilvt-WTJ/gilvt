@@ -356,7 +356,8 @@ html { scroll-behavior: smooth; }
 
 <section id="install">
   <h2>安装与启动</h2>
-  <p>需要 macOS、Rust 1.95（仓库里的 <code>rust-toolchain.toml</code> 会自动选中）和 Xcode Command Line Tools，不需要完整的 Xcode。</p>
+  <p>从 <a href="https://gilvt.com/download">gilvt.com/download</a> 下载 gilvt（macOS 11 及以上，Apple 芯片与 Intel，经 Apple 签名与公证），打开磁盘映像，把 Gilvt 拖进「应用程序」；也可以用 Homebrew 安装：<code>brew install --cask gilvt-wtj/gilvt/gilvt</code>。然后在 pane 里运行 <code>claude</code> 或 <code>codex</code> 即可。下面是从源码构建的步骤。</p>
+  <p>从源码构建需要 macOS、Rust 1.95（仓库里的 <code>rust-toolchain.toml</code> 会自动选中）和 Xcode Command Line Tools，不需要完整的 Xcode。</p>
   <ol class="steps">
     <li><div><strong>构建并打包成 Gilvt.app。</strong>原生系统通知和 Dock 角标需要从 app 启动。请在 <code>/tmp</code> 以外的目录构建，macOS 会忽略 <code>/tmp</code> 下的 app。
 <pre><code>cd gilvt
@@ -638,9 +639,7 @@ exclude_paths = []        # 这些目录下的会话 / 终端不总结，支持 
     <li>已结束的会话显示保存的总结（缓存在 <code>&lt;state&gt;/monitor/summaries/</code>），不能再重新总结；终端的总结只在内存里，重启后消失。</li>
   </ul>
   <div class="note">已知限制：命令输出是去转义后的近似文本；用光标上移画进度条的程序可能出现重复行，不进备用屏幕却整屏重绘的程序可能乱序；终端总结不跨重启。命令输出现在从 PTY 里按 OSC 133 的 C 与 D 之间精确截取，所以终端卡片又能显示失败命令的最后一行输出。</div>
-</section>
 
-<section id="sessions">
   <h3 id="monitor-chat">对话</h3>
   <p>打开监控官并开启 <code>[monitor] enabled</code> 后，「◎ 监控官」标签右侧是对话面板（宽 360 px），用来问「哪些需要我？」「有什么出错了？」这类问题。标签页窄于 760 px 时，面板收成右边缘 26 px 的「◎」竖条（有没读过的回答时带角标），点它展开为盖在卡片墙上的浮层；面板标题栏的「⇥」收起它。未开启监控官（<code>enabled = false</code>）时没有面板、竖条和「◎ 问它」，<kbd>A</kbd> 键也不处理。</p>
   <p><strong>怎么问</strong>：</p>
@@ -671,6 +670,9 @@ exclude_paths = []        # 这些目录下的会话 / 终端不总结，支持 
     <li>所有窗口的命令条和对话面板是同一条对话；展开、收起状态与输入框草稿则每个窗口各自独立。展开命令条不会改变终端大小（浮层盖在 pane 底部，最高 260 px，超出滚动）。</li>
     <li>关闭监控官时命令条不出现，<kbd>⌘⇧M</kbd> 不起作用；运行中关掉监控官，已展开的命令条随之收起。</li>
   </ul>
+</section>
+
+<section id="sessions">
   <h2>恢复与管理会话（<kbd>⌘⇧R</kbd>）</h2>
   <p>「会话」浮层列出本机所有 Claude Code 和 Codex 会话，默认只看当前项目。输入文字时切到「全部项目」，按标题、首条提示词、项目名、目录匹配，也可以输入会话 ID 的开头。</p>
   <p><strong>会话叫什么</strong>：不再只看第一条提示词。Claude 和 Codex 自己给会话起的标题会优先显示（你在 Claude 里改过的标题 &gt; Agent 生成的标题 &gt; 清洗过的第一个有信息量的提示词，「继续」「好的」这类应答会被跳过）；你在 gilvt 里 <kbd>⌘R</kbd> 改的名字永远最高。搜索既能按标题找，也能按当初的原话找。新会话的标题要等下一次刷新（再按一次 <kbd>⌘⇧R</kbd>）才会出现。</p>
