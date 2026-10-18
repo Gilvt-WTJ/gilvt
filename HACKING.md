@@ -130,6 +130,7 @@ cargo test --workspace                                # 单元测试 + PTY / 真
    ```
 
    `--registry` 是因为本机 npm 默认指向另一个镜像源，换一台机器可以去掉。
+   部署后再运行 `sh site/indexnow.sh`，通过 IndexNow 通知 Bing 等搜索引擎重新抓取 sitemap 里的页面（Google 不用 IndexNow，它读 sitemap）。
 4. **推送代码**：网站部署和 `git push` 互相独立，推送不会更新网站，部署也不需要先推送。改完 `site/` 两件事都做，让仓库和线上一致。
 
 **下载地址**：对外（README、文章、帖子）只发布 `https://gilvt.com/download`。安装包放在哪里只由 `site/_redirects` 那一行决定（目标是 `https://release.gilvt.com/Gilvt.dmg`），改它再部署，已经发出去的链接不受影响。

@@ -7,6 +7,14 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Added
+
+- Website: a changelog page in English and Chinese (gilvt.com/changelog/), generated from this file, and an `llms.txt` summary for AI assistants.
+
+### Changed
+
+- Website: the home page demo is a 1.4 MB video instead of a 5.3 MB GIF, so the page loads faster.
+
 ## [0.5.0] - 2026-10-14
 
 ### Added

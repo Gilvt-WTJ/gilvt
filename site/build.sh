@@ -12,9 +12,9 @@ gh="https://github.com/Gilvt-WTJ/gilvt/blob/main"
 rm -rf "$out"
 mkdir -p "$out/images"
 cp -R "$root/site/." "$out/"
-rm -rf "$out/build.sh" "$out/check.sh" "$out/README.md" "$out/wrangler.jsonc" "$out/partials"
+rm -rf "$out/build.sh" "$out/check.sh" "$out/changelog.pl" "$out/indexnow.sh" "$out/README.md" "$out/wrangler.jsonc" "$out/partials"
 cp "$root/assets/icon.svg" "$out/icon.svg"
-cp "$root/docs/images/gilvt-demo.gif" "$root/docs/images/gilvt-light.png" "$root/docs/images/gilvt-dark.png" "$out/images/"
+cp "$root/docs/images/gilvt-light.png" "$root/docs/images/gilvt-dark.png" "$out/images/"
 
 # The user guide: links that are relative in the repository point at the site or at GitHub instead.
 guide() { # $1 source, $2 destination directory, $3 navigation bar, $4 canonical, $5 alternate, $6 alternate language, $7 description
@@ -51,6 +51,12 @@ guide "$root/docs/user-guide.html" "$out/docs" "$root/site/partials/docs-bar.en.
 guide "$root/docs/user-guide.zh-CN.html" "$out/zh-CN/docs" "$root/site/partials/docs-bar.zh-CN.html" \
   "https://gilvt.com/zh-CN/docs/" "https://gilvt.com/docs/" "en" \
   "gilvt 完整产品手册：终端快捷键、Claude Code 与 Codex 会话、review、编辑、监控、设置和故障排查。"
+
+# /changelog/ in both languages: the released versions in CHANGELOG.md, in place of the {{CHANGELOG}} line.
+changelog="$(perl "$root/site/changelog.pl" "$root/CHANGELOG.md")"
+for page in "$out/changelog/index.html" "$out/zh-CN/changelog/index.html"; do
+  CHANGELOG="$changelog" perl -pi -e 's/^\{\{CHANGELOG\}\}\n/$ENV{CHANGELOG}\n/' "$page"
+done
 
 find "$out" -name '*.html' | while read -r page; do
   sed "s/{{VERSION}}/$version/g" "$page" > "$page.tmp" && mv "$page.tmp" "$page"
