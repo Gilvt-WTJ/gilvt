@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Review What Claude Code and Codex Changed, Without an IDE · gilvt</title>
+<meta name="description" content="Review an AI coding agent's changes turn by turn from the terminal: git, Claude Code's /diff and /rewind, Codex's /diff and /review, and how to review many sessions without switching to an IDE.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://gilvt.com/guides/review-claude-code-changes/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/guides/review-claude-code-changes/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/review-claude-code-changes/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/review-claude-code-changes/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/guides/review-claude-code-changes/"><meta property="og:title" content="How to Review What Claude Code and Codex Changed"><meta property="og:description" content="Review agent changes turn by turn, from the terminal."><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"How to Review What Claude Code and Codex Changed, Without an IDE","datePublished":"2026-10-19","dateModified":"2026-10-19","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/"},"mainEntityOfPage":"https://gilvt.com/guides/review-claude-code-changes/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/features/">Features</a><a href="/docs/">Docs</a><a href="/install/">Download</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/zh-CN/guides/review-claude-code-changes/" hreflang="zh-CN" lang="zh-CN">简体中文</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Review guide</span><h1>How to review what Claude Code and Codex changed</h1><p class="lead">When an agent writes the code, your job shifts to reading it. Most of the time you switch to an IDE for that, then back. This guide covers how to review agent changes turn by turn from the terminal, with git, with the agents' own commands and with gilvt.</p><p class="article-meta">Published October 19, 2026 · 7 minute read</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>Short version:</strong> review after every turn, not at the end; start each task from a clean or committed tree so the diff is only the agent's work; use <code>/diff</code> in Claude Code or Codex for the current state and git for history. When you run several sessions, or want to look back at a turn after the session ended, you need per-turn snapshots that are kept for you.</p></div>
+
+    <h2>Review each turn, not the whole branch</h2>
+    <p>An agent can change a dozen files in one turn and build the next turn on top of them. If you only look at the final diff, a wrong assumption from turn two is buried under everything that followed. Reading each turn while it is small is faster, and you can redirect the agent before it builds on a mistake.</p>
+    <p>Each turn, check four things: the commands it ran (and whether any failed), the files it changed, the diff itself, and the result of the verification it claims, such as the test run.</p>
+
+    <h2>With git</h2>
+    <p>Git works with any agent. Start each task from a committed tree, so the working-tree diff contains only the agent's changes:</p>
+    <pre>git status --short          # what changed, including new files
+git diff --stat             # size of the change per file
+git diff                    # the changes to tracked files
+git diff --word-diff        # word-level changes for prose and config
+git add -p                  # accept the turn hunk by hunk</pre>
+    <p>Two habits make this work well. Commit (or stage) what you accept after each turn, so the next <code>git diff</code> is only the new turn. And remember that <code>git diff</code> does not show files that are not tracked yet: new files appear in <code>git status</code>, not in the diff.</p>
+
+    <h2>With the agents' own commands</h2>
+    <table>
+      <thead><tr><th></th><th>Claude Code</th><th>Codex CLI</th></tr></thead>
+      <tbody>
+        <tr><td>See the changes</td><td><code>/diff</code>: the working tree's changes, including Claude's edits so far</td><td><code>/diff</code>: the git diff, including files git isn't tracking yet</td></tr>
+        <tr><td>Have it review</td><td><code>/review</code> (alias of <code>/code-review</code>)</td><td><code>/review</code>, or <code>codex review --uncommitted</code></td></tr>
+        <tr><td>Undo a turn</td><td><code>Esc</code> <code>Esc</code> or <code>/rewind</code>: restore code, conversation or both to a checkpoint</td><td>Use git</td></tr>
+      </tbody>
+    </table>
+    <p>Claude Code's checkpoints are convenient but are not version control: files changed through Bash commands (<code>rm</code>, <code>mv</code>, <code>cp</code>) and edits made outside the session are not restored. Keep committing. See the <a href="https://code.claude.com/docs/en/checkpointing">checkpointing docs</a> and the <a href="https://learn.chatgpt.com/docs/cli/slash-commands">Codex slash commands</a>.</p>
+
+    <h2>Where this gets hard</h2>
+    <ul>
+      <li><strong>Several sessions.</strong> Each agent's <code>/diff</code> lives in its own pane. With four sessions in four worktrees, you review in four places, and you have to remember which ones finished since you last looked.</li>
+      <li><strong>After the session.</strong> Once you have closed a session or started the next task, “what did turn 3 change?” means digging through git history, if you committed in between.</li>
+      <li><strong>Documents.</strong> Agents increasingly write design notes, READMEs and Mermaid diagrams. A raw diff of Markdown is hard to read; you want to see the rendered document with the changed blocks marked.</li>
+      <li><strong>Small fixes.</strong> Fixing one line the agent got wrong usually means opening an editor, which may already be fighting the agent over the same file.</li>
+    </ul>
+
+    <h2>How gilvt does it</h2>
+    <p>gilvt is a macOS terminal that tracks the Claude Code and Codex sessions running in it. At the start and end of every turn it snapshots the working tree in its own directory (it does not touch <code>.git</code>, the index or your commits), so every turn's changes stay available, including new untracked files.</p>
+    <ul>
+      <li><strong>Process timeline</strong> (<kbd>⌥⌘1</kbd>): each turn's commands, edits and failures; failed commands show their key error lines. Click a row to scroll the terminal back to it; ⌘-click a file name to open it.</li>
+      <li><strong>Artifacts</strong> (<kbd>⌥⌘2</kbd>): one card per task with the files it changed and <code>+a −b</code>. Open a file for the diff of <em>this turn</em>, <em>this task</em> or <em>the whole session</em>, with line counts that match the card.</li>
+      <li><strong>Quick Look</strong>: syntax-highlighted, word-level diffs, unified or side by side, <kbd>n</kbd> / <kbd>p</kbd> between hunks. Markdown is shown rendered, with added and changed blocks marked; Mermaid diagrams render offline.</li>
+      <li><strong>From the shell</strong>: <code>gilvt diff</code> steps through every file changed against HEAD (<code>gilvt diff main</code> against a branch), <code>gilvt view file:42</code> opens one, and <kbd>⌘P</kbd> finds any file in the repository.</li>
+      <li><strong>Fix it in place</strong>: press <kbd>E</kbd> in a preview to open the built-in editor next to the terminal. If the agent changes the file while you edit, gilvt shows a reload / compare / overwrite bar instead of silently overwriting either side.</li>
+      <li><strong>To Review</strong> (<kbd>⇧⌘R</kbd> → <kbd>⌘2</kbd>): finished turns from every session go into one queue, failures first. Read the prompts, the agent's final answer and its tool calls without restarting the agent, then mark it reviewed.</li>
+    </ul>
+    <figure><img src="/images/features/artifacts.jpg" width="1600" height="964" loading="lazy" alt="gilvt's Artifacts tab listing the files a turn changed, with that turn's diff of session.rs open in Quick Look."><figcaption>The files a turn changed, and that turn's diff, next to the session that made it.</figcaption></figure>
+    <figure><img src="/images/features/markdown.jpg" width="1600" height="964" loading="lazy" alt="A Markdown design note rendered in gilvt's Quick Look, with a Mermaid architecture diagram."><figcaption>Documents the agent wrote are shown rendered, Mermaid included.</figcaption></figure>
+
+    <h2>When you still want the IDE</h2>
+    <p>gilvt covers reading and small edits. It is not an IDE: the editor has no code completion or go-to-definition and no find and replace yet, and text in Quick Look cannot be selected yet. For a larger rework, <kbd>⌘⌥O</kbd> opens the file at the current line in your external editor (VS Code when <code>code</code> is installed). Per-turn snapshots and the Artifacts tab work in git repositories on your Mac; for sessions on SSH hosts, use <code>gilvt diff</code> in the remote shell.</p>
+
+    <div class="callout"><p><strong>Try it:</strong> <a href="/download">download gilvt</a> (free, macOS 11 or later), run <code>claude</code> or <code>codex</code> in a git repository, and press <kbd>⌥⌘2</kbd> after the first turn.</p></div>
+
+    <section class="related"><h2>Related guides</h2><ul><li><a href="/guides/manage-multiple-claude-code-sessions/">Manage multiple Claude Code sessions</a></li><li><a href="/guides/claude-code-notifications/">Get notified when Claude Code needs your input</a></li><li><a href="/docs/inspector/">The inspector in the gilvt user guide</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/docs/">User guide</a> · <a href="/install/">Download</a></span></div><p>gilvt is an independent project, not affiliated with Anthropic or OpenAI.</p></div></footer>
+</body>
+</html>
