@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Run Claude Code and Codex over SSH on a Remote Server · gilvt</title>
+<meta name="description" content="Run Claude Code or Codex on a Linux server or another Mac over SSH: setup, keeping sessions alive with tmux, resuming after a dropped connection, and seeing remote agents' state from your Mac.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://gilvt.com/guides/claude-code-over-ssh/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/guides/claude-code-over-ssh/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/claude-code-over-ssh/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/claude-code-over-ssh/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/guides/claude-code-over-ssh/"><meta property="og:title" content="How to Run Claude Code and Codex over SSH"><meta property="og:description" content="Remote coding agents without losing track of which one needs you."><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"How to Run Claude Code and Codex over SSH on a Remote Server","datePublished":"2026-10-18","dateModified":"2026-10-18","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/"},"mainEntityOfPage":"https://gilvt.com/guides/claude-code-over-ssh/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/features/">Features</a><a href="/docs/">Docs</a><a href="/install/">Download</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/zh-CN/guides/claude-code-over-ssh/" hreflang="zh-CN" lang="zh-CN">简体中文</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Remote development guide</span><h1>How to run Claude Code and Codex over SSH</h1><p class="lead">Putting the agent next to the code — on a dev box, a GPU server or a build machine — is often faster and safer than syncing everything to your laptop. The hard part is not starting it; it is noticing when a remote session stops to ask you something.</p><p class="article-meta">Published October 18, 2026 · 6 minute read</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>Short version:</strong> install and sign in to <code>claude</code> or <code>codex</code> on the remote host, start it from an SSH session in the project directory, and decide up front whether the process must survive a dropped connection (use tmux) or whether resuming the conversation is enough (<code>claude --resume</code>, <code>codex resume</code>). Then make the remote agents' state visible on your Mac, so you are not polling SSH tabs.</p></div>
+
+    <h2>Why run the agent on the remote machine</h2>
+    <ul>
+      <li><strong>The code and its environment live there.</strong> Builds, tests, databases and GPUs that only exist on the server are available to the agent's tools directly.</li>
+      <li><strong>Isolation.</strong> An agent that runs commands does so on a disposable dev box instead of your laptop.</li>
+      <li><strong>Long jobs.</strong> A test suite that takes twenty minutes does not tie up your machine.</li>
+    </ul>
+    <p>Your Mac stays the place where you read, decide and approve; the server does the work.</p>
+
+    <h2>1. Install and sign in on the remote host</h2>
+    <p>Claude Code and the Codex CLI both run on Linux and macOS. Install them on the remote host the way their documentation describes, then run them once in an SSH session to sign in. On a headless server the sign-in flow gives you a URL to open in your local browser. Do this once per host and user; later sessions reuse the stored credentials.</p>
+    <pre>ssh devbox
+cd ~/src/payments-api
+claude          # or: codex</pre>
+    <p>Start the agent from the project directory: both CLIs scope their session history and project settings to the directory they were started in.</p>
+
+    <h2>2. Decide what should survive a dropped connection</h2>
+    <p>When an SSH connection drops, the processes in that login session normally end with it, including an agent in the middle of a turn. There are two different ways to recover, and they solve different problems:</p>
+    <table>
+      <thead><tr><th></th><th>tmux on the remote host</th><th>Agent resume</th></tr></thead>
+      <tbody>
+        <tr><td>What survives</td><td>The running process: the agent keeps working while you are disconnected</td><td>The conversation: history, context and the session's identity</td></tr>
+        <tr><td>How you get back</td><td><code>ssh devbox</code>, then <code>tmux attach</code></td><td><code>claude --resume</code> or <code>claude --continue</code>; <code>codex resume</code></td></tr>
+        <tr><td>Cost</td><td>Another layer between you and the agent's TUI; mouse, scrollback and key handling go through tmux</td><td>A turn that was cut off has to be asked for again</td></tr>
+      </tbody>
+    </table>
+    <p>For short, interactive sessions on a stable connection, resume is usually enough. For long autonomous turns, or a flaky network, run the agent inside tmux.</p>
+
+    <h2>3. Keep the connection cheap to reopen</h2>
+    <p>If you open several panes to the same host, let them share one SSH connection so new panes start instantly and authenticate once:</p>
+    <pre># ~/.ssh/config
+Host devbox
+  HostName devbox.example.com
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%r@%h:%p
+  ControlPersist 10m
+  ServerAliveInterval 30</pre>
+    <p><code>ServerAliveInterval</code> also makes a dead connection fail fast instead of hanging.</p>
+
+    <h2>4. Don't lose track of remote sessions</h2>
+    <p>The real cost of remote agents is attention. A local agent can at least ring a bell; a remote one sits in an SSH tab waiting for approval, and you find out when you happen to look. With two or three hosts and several sessions each, checking every tab becomes the job.</p>
+    <p>What helps is getting the same signals you would have locally — <em>needs approval</em>, <em>asking a question</em>, <em>failed</em>, <em>done</em> — on your Mac, with a way to jump straight to the pane. You can build part of this with agent hooks that send a message back to your Mac (see <a href="/guides/claude-code-notifications/">getting notified when Claude Code needs you</a>), but the hook runs on the server, so it needs a path back to your Mac.</p>
+
+    <h2>How gilvt handles SSH</h2>
+    <p>In gilvt you keep typing plain <code>ssh</code>. For an interactive login to a Linux host (x86_64 or aarch64) or an Apple Silicon Mac, gilvt treats the pane as remote: the pane and tab show the host, the remote shell gets gilvt's shell integration, and the remote directory is tracked. <code>ssh host command</code>, <code>scp</code> and <code>git push</code> run unchanged.</p>
+    <ol>
+      <li><strong>The first time you connect to a host</strong>, gilvt asks whether to install a small helper there (<code>~/.gilvt-server</code>). <code>Y</code> installs it, <code>n</code> skips it this time, <code>N</code> never asks again for that host. Without it, ssh logs in the plain way.</li>
+      <li><strong>Run <code>claude</code> or <code>codex</code> in the remote shell</strong> as usual. The session appears in gilvt's sidebar next to your local ones, with the same states, notifications, <kbd>⇧⌘J</kbd> jump-to-approval and per-turn inspector timeline.</li>
+      <li><strong>Look at remote files from the remote shell:</strong> <code>gilvt view</code>, <code>gilvt diff</code> and ⌘-click on a path open the host's files in Quick Look, and the built-in editor writes changes back to the host.</li>
+      <li><strong>Resume later:</strong> remote sessions are in the session history (<kbd>⇧⌘R</kbd>), so you can resume one after the connection is gone.</li>
+    </ol>
+    <figure><img src="/images/features/agents.jpg" width="1600" height="964" loading="lazy" alt="gilvt's sidebar listing coding-agent sessions by state, with the ones that need you at the top."><figcaption>Remote sessions are listed alongside local ones; the ones waiting for you rise to the top.</figcaption></figure>
+    <p>To skip gilvt's handling for one connection, run <code>command ssh host</code> or <code>GILVT_SSH=0 ssh host</code>. To remove the helper from a host: <code>pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server</code>.</p>
+
+    <h2>Current limits</h2>
+    <p>SSH support in gilvt is a preview. Be aware of what it does not do yet:</p>
+    <ul>
+      <li>Agents running <strong>inside tmux on the remote host</strong> are not detected yet. If you need tmux for persistence, you keep tmux's benefits but lose the sidebar state for those sessions.</li>
+      <li>Intel Macs as hosts, mosh, and hopping from the remote host on to a third machine are not supported; those connections log in the plain way.</li>
+      <li><kbd>⌘P</kbd> file search, git status and the inspector's Artifacts and Configuration tabs are not available for remote panes yet.</li>
+    </ul>
+    <p>The full list is in the <a href="/docs/ssh-remote/">user guide's SSH section</a>.</p>
+
+    <div class="callout"><p><strong>Try it:</strong> <a href="/download">download gilvt</a> (free, macOS 11 or later), open a pane, <code>ssh</code> to your dev box and start <code>claude</code>. The session shows up in the sidebar as soon as it starts.</p></div>
+
+    <section class="related"><h2>Related guides</h2><ul><li><a href="/guides/claude-code-notifications/">Get notified when Claude Code needs your input</a></li><li><a href="/guides/manage-multiple-claude-code-sessions/">Manage multiple Claude Code sessions</a></li><li><a href="/compare/gilvt-vs-tmux/">gilvt vs tmux for coding agents</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/docs/">User guide</a> · <a href="/install/">Download</a></span></div><p>gilvt is an independent project, not affiliated with Anthropic or OpenAI.</p></div></footer>
+</body>
+</html>

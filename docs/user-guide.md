@@ -526,7 +526,7 @@ theme = "My Theme"                                   # fixed
 
 Run `ssh` to a Linux host or an Apple Silicon Mac in a gilvt pane and gilvt recognizes that the pane is now remote: the pane and tab show the host, the remote shell loads gilvt's shell integration (command marks, current directory), and the remote directory is tracked. Only interactive logins are affected; `ssh host command`, `scp` and `git push` run unchanged.
 
-- **Consent**: the first time you `ssh` to a host, gilvt asks whether to install a small helper (`gilvt-remote`, about 4 MB) on it: `Y` installs, `n` skips this time, `N` never installs on that host (remembered). The choice can be preset per machine with `[remote] install = "ask" | "always" | "never"` in `config.toml` (default `ask`). Without the helper, `ssh` logs in as usual.
+- **Consent**: the first time you `ssh` to a host, gilvt asks whether to install a small helper (`gilvt-remote`; the question shows its size) on it: `Y` installs, `n` skips this time, `N` never installs on that host (remembered). The choice can be preset per machine with `[remote] install = "ask" | "always" | "never"` in `config.toml` (default `ask`). Without the helper, `ssh` logs in as usual.
 - **Updates**: After a gilvt update, the first connection to a host with an older remote helper asks whether to update it (`Y` update, `n` plain login this time, `N` never install; `[remote] install = "always"` updates without asking).
 - **Bypass**: type `command ssh host` or set `GILVT_SSH=0` (for example `GILVT_SSH=0 ssh host`) to skip gilvt entirely.
 - **On the remote**: everything lives in `~/.gilvt-server` and runs one small daemon. To remove it by hand: `pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server`.

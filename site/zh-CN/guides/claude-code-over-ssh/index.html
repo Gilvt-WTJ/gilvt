@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>如何通过 SSH 在远程服务器上运行 Claude Code 和 Codex · gilvt</title>
+<meta name="description" content="通过 SSH 在 Linux 服务器或另一台 Mac 上运行 Claude Code、Codex：安装登录、用 tmux 保活、断线后恢复会话，以及在本机看到远端 Agent 的状态。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://gilvt.com/zh-CN/guides/claude-code-over-ssh/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/guides/claude-code-over-ssh/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/claude-code-over-ssh/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/claude-code-over-ssh/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/zh-CN/guides/claude-code-over-ssh/"><meta property="og:title" content="如何通过 SSH 运行 Claude Code 和 Codex"><meta property="og:description" content="Agent 跑在远端，也不会漏掉哪个会话在等你。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"如何通过 SSH 在远程服务器上运行 Claude Code 和 Codex","datePublished":"2026-10-18","dateModified":"2026-10-18","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/zh-CN/"},"mainEntityOfPage":"https://gilvt.com/zh-CN/guides/claude-code-over-ssh/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/guides/claude-code-over-ssh/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">远程开发指南</span><h1>如何通过 SSH 运行 Claude Code 和 Codex</h1><p class="lead">把 Agent 放在代码旁边——开发机、GPU 服务器或构建机上——往往比把一切同步到笔记本更快，也更安全。难的不是启动它，而是及时发现某个远端会话停下来在等你。</p><p class="article-meta">发布于 2026-10-18 · 阅读约 6 分钟</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>简单说：</strong>在远端装好并登录 <code>claude</code> 或 <code>codex</code>，在项目目录里通过 SSH 启动它；事先想清楚断线时要保住的是进程（用 tmux）还是对话（用 <code>claude --resume</code>、<code>codex resume</code>）；最后让远端 Agent 的状态在本机可见，不必挨个翻 SSH 标签页。</p></div>
+
+    <h2>为什么把 Agent 放在远端跑</h2>
+    <ul>
+      <li><strong>代码和环境都在那里。</strong>只有服务器上才有的构建、测试、数据库和 GPU，Agent 的工具可以直接用。</li>
+      <li><strong>隔离。</strong>会执行命令的 Agent 在一台可以随时重建的开发机上动手，而不是在你的笔记本上。</li>
+      <li><strong>长任务。</strong>跑二十分钟的测试不会占着你的电脑。</li>
+    </ul>
+    <p>Mac 负责阅读、判断和审批，服务器负责干活。</p>
+
+    <h2>1. 在远端安装并登录</h2>
+    <p>Claude Code 和 Codex CLI 都支持 Linux 与 macOS。按各自文档在远端安装，然后在 SSH 会话里运行一次完成登录；无界面的服务器上，登录流程会给出一个链接，在本机浏览器里打开即可。每台主机、每个用户只需做一次，之后的会话沿用已保存的凭据。</p>
+    <pre>ssh devbox
+cd ~/src/payments-api
+claude          # 或者：codex</pre>
+    <p>要在项目目录里启动：两个 CLI 都按启动目录区分会话历史和项目设置。</p>
+
+    <h2>2. 想清楚断线时要保住什么</h2>
+    <p>SSH 断开时，这次登录里的进程通常会跟着结束，包括正在执行一轮任务的 Agent。恢复有两种方式，解决的问题不同：</p>
+    <table>
+      <thead><tr><th></th><th>远端 tmux</th><th>Agent resume</th></tr></thead>
+      <tbody>
+        <tr><td>保住什么</td><td>运行中的进程：断线期间 Agent 继续工作</td><td>对话：历史、上下文和会话本身</td></tr>
+        <tr><td>怎么回去</td><td><code>ssh devbox</code> 后 <code>tmux attach</code></td><td><code>claude --resume</code> 或 <code>claude --continue</code>；<code>codex resume</code></td></tr>
+        <tr><td>代价</td><td>你和 Agent 界面之间多一层；鼠标、回滚和按键都要经过 tmux</td><td>被打断的那一轮要重新提一次</td></tr>
+      </tbody>
+    </table>
+    <p>网络稳定、交互较多的短会话，resume 通常就够了；长时间自主执行的任务或网络不稳时，把 Agent 放进 tmux。</p>
+
+    <h2>3. 让重新连接足够便宜</h2>
+    <p>如果同一台主机要开好几个 pane，让它们共用一条 SSH 连接，新 pane 秒开，也只需认证一次：</p>
+    <pre># ~/.ssh/config
+Host devbox
+  HostName devbox.example.com
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%r@%h:%p
+  ControlPersist 10m
+  ServerAliveInterval 30</pre>
+    <p><code>ServerAliveInterval</code> 还能让断掉的连接尽快报错，而不是一直卡住。</p>
+
+    <h2>4. 别把远端会话跟丢</h2>
+    <p>远端 Agent 真正的成本是注意力。本地 Agent 至少还能响一声；远端的那个停在某个 SSH 标签页里等审批，要等你碰巧切过去才知道。两三台主机、每台几个会话时，逐个检查标签页就成了主要工作。</p>
+    <p>有用的是在 Mac 上拿到和本地一样的信号——<em>等待审批</em>、<em>在问你</em>、<em>出错</em>、<em>完成</em>——并且能一步跳到那个 pane。用 Agent 的 hook 往回发消息可以做到一部分（见<a href="/zh-CN/guides/claude-code-notifications/">Claude Code 需要你时如何收到通知</a>），但 hook 在服务器上执行，需要一条通回你 Mac 的路。</p>
+
+    <h2>gilvt 怎么处理 SSH</h2>
+    <p>在 gilvt 里照常输入 <code>ssh</code>。交互式登录到 Linux（x86_64 或 aarch64）或 Apple 芯片的 Mac 时，gilvt 会把这个 pane 当作远端：pane 和标签显示主机名，远端 shell 加载 gilvt 的 shell 集成，远端目录也会被跟踪。<code>ssh host command</code>、<code>scp</code>、<code>git push</code> 照常执行，不受影响。</p>
+    <ol>
+      <li><strong>第一次连某台主机时</strong>，gilvt 会问要不要在那里装一个小助手（<code>~/.gilvt-server</code>）。<code>Y</code> 安装，<code>n</code> 这次跳过，<code>N</code> 这台主机以后不再问。不装的话，ssh 就按原样登录。</li>
+      <li><strong>在远端 shell 里照常运行 <code>claude</code> 或 <code>codex</code>。</strong>会话出现在 gilvt 左栏，和本地会话放在一起：同样的状态、系统通知、<kbd>⇧⌘J</kbd> 跳到待审批，以及按轮次的检查器时间线。</li>
+      <li><strong>直接看远端文件：</strong>在远端 shell 里用 <code>gilvt view</code>、<code>gilvt diff</code>，或 ⌘-点击路径，在 Quick Look 里打开远端的文件；内置编辑器保存时写回远端。</li>
+      <li><strong>以后再恢复：</strong>远端会话也在会话历史里（<kbd>⇧⌘R</kbd>），连接断了之后仍然可以恢复。</li>
+    </ol>
+    <figure><img src="/images/features/agents.jpg" width="1600" height="964" loading="lazy" alt="gilvt 左栏按状态列出编程 Agent 会话，需要你的排在最上面。"><figcaption>远端会话和本地会话列在一起，在等你的排在最上面。</figcaption></figure>
+    <p>某次连接不想让 gilvt 处理，就用 <code>command ssh host</code> 或 <code>GILVT_SSH=0 ssh host</code>。从主机上移除助手：<code>pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server</code>。</p>
+
+    <h2>目前的限制</h2>
+    <p>gilvt 的 SSH 支持还是预览版，下面这些暂时做不到：</p>
+    <ul>
+      <li><strong>远端 tmux 里的 Agent</strong>暂时识别不到。如果为了保活必须用 tmux，tmux 的好处还在，但这些会话不会出现在左栏。</li>
+      <li>不支持 Intel Mac 作为远端、mosh，以及从远端再跳到第三台机器；这些连接按原样登录。</li>
+      <li>远端 pane 暂时没有 <kbd>⌘P</kbd> 找文件、git 状态，以及检查器的「产物」「配置」页。</li>
+    </ul>
+    <p>完整列表见<a href="/zh-CN/docs/ssh-remote/">产品手册的 SSH 一节</a>。</p>
+
+    <div class="callout"><p><strong>试试看：</strong><a href="/download">下载 gilvt</a>（免费，macOS 11 及以上），开一个 pane，<code>ssh</code> 到你的开发机，启动 <code>claude</code>。会话一开始就会出现在左栏。</p></div>
+
+    <section class="related"><h2>相关指南</h2><ul><li><a href="/zh-CN/guides/claude-code-notifications/">Claude Code 需要你时如何收到通知</a></li><li><a href="/zh-CN/guides/manage-multiple-claude-code-sessions/">管理多个 Claude Code 会话</a></li><li><a href="/zh-CN/compare/gilvt-vs-tmux/">gilvt 与 tmux 对比</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/zh-CN/docs/">产品手册</a> · <a href="/zh-CN/install/">下载</a></span></div><p>gilvt 是独立项目，与 Anthropic、OpenAI 没有关联。</p></div></footer>
+</body>
+</html>

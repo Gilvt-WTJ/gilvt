@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Get Notified When Claude Code Needs Your Input (macOS) · gilvt</title>
+<meta name="description" content="Get a macOS notification when Claude Code waits for approval or finishes a turn: the built-in setting, Notification and Stop hooks, Codex's notify option, and their limits with several sessions.">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://gilvt.com/guides/claude-code-notifications/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/guides/claude-code-notifications/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/claude-code-notifications/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/claude-code-notifications/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/guides/claude-code-notifications/"><meta property="og:title" content="How to Get Notified When Claude Code Needs Your Input"><meta property="og:description" content="Stop checking the tab: notifications for approvals, questions and finished turns."><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"How to Get Notified When Claude Code Needs Your Input (macOS)","datePublished":"2026-10-18","dateModified":"2026-10-18","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/"},"mainEntityOfPage":"https://gilvt.com/guides/claude-code-notifications/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/features/">Features</a><a href="/docs/">Docs</a><a href="/install/">Download</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/zh-CN/guides/claude-code-notifications/" hreflang="zh-CN" lang="zh-CN">简体中文</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Claude Code guide</span><h1>How to get notified when Claude Code needs your input</h1><p class="lead">Claude Code often stops to ask for approval to run a command, and you are in a browser tab when it does. Here are the ways to find out right away on macOS, from a one-line setting to hooks, and where each runs out.</p><p class="article-meta">Published October 18, 2026 · 6 minute read</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>Short version:</strong> in Terminal.app and most other terminals Claude Code shows no desktop notification by default. Set <strong>Local notifications</strong> in <code>/config</code> to the terminal bell, or add a <code>Notification</code> hook (approvals, idle prompts) and a <code>Stop</code> hook (finished turns) that post a macOS notification. For Codex, use <code>[tui] notifications</code> or the <code>notify</code> program. With several sessions, you also need to know <em>which</em> one is asking and get there in one step.</p></div>
+
+    <h2>What is worth a notification</h2>
+    <p>Not every event deserves an interruption. In practice four are worth knowing about while you are in another app:</p>
+    <ul>
+      <li><strong>Waiting for approval or asking a question</strong> — the session is blocked on you. Notify immediately.</li>
+      <li><strong>An error</strong> — an API error or a failed turn. Notify, but quietly.</li>
+      <li><strong>A long turn finished</strong> — useful for a 10-minute refactor, noise for a 5-second answer.</li>
+      <li><strong>The context window is nearly full</strong> — once is enough.</li>
+    </ul>
+
+    <h2>Option 1: Claude Code's built-in setting</h2>
+    <p>Claude Code shows desktop notifications on its own only in iTerm2, Ghostty and Kitty. Everywhere else, open <code>/config</code> in Claude Code and change <strong>Local notifications</strong> (the <code>preferredNotifChannel</code> setting). <code>terminal_bell</code> rings the terminal bell, which most terminals turn into a sound or a bouncing Dock icon. The same setting in <code>~/.claude/settings.json</code>:</p>
+    <pre>{
+  "preferredNotifChannel": "terminal_bell"
+}</pre>
+    <p>The other values are <code>auto</code> (the default), <code>iterm2</code>, <code>iterm2_with_bell</code>, <code>kitty</code>, <code>ghostty</code> and <code>notifications_disabled</code>. A bell tells you <em>something</em> happened, not what or where.</p>
+
+    <h2>Option 2: hooks that post a macOS notification</h2>
+    <p>Claude Code runs <a href="https://code.claude.com/docs/en/hooks">hooks</a> on events. Two matter here:</p>
+    <ul>
+      <li><code>Notification</code> fires when a permission prompt has been waiting for about six seconds, when Claude finished answering about a minute ago and you have not typed since, and for a few other prompts. It fires even when desktop notifications are off.</li>
+      <li><code>Stop</code> fires when Claude finishes responding (not when you interrupt it).</li>
+    </ul>
+    <p>Put them in <code>~/.claude/settings.json</code> to cover every project:</p>
+    <pre>{
+  "hooks": {
+    "Notification": [
+      { "hooks": [ { "type": "command",
+        "command": "osascript -e 'display notification \"Claude Code needs your input\" with title \"Claude Code\" sound name \"Glass\"'" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command",
+        "command": "osascript -e 'display notification \"Claude Code finished\" with title \"Claude Code\"'" } ] }
+    ]
+  }
+}</pre>
+    <p>The <code>matcher</code> field is optional: leaving it out of the <code>Notification</code> group matches every notification type, and <code>Stop</code> ignores it. The hook also receives the event as JSON on standard input, so a small script can put the project directory or the notification type in the message.</p>
+
+    <h2>Codex</h2>
+    <p>The Codex CLI has the equivalent in <code>~/.codex/config.toml</code>. Its TUI can notify you itself, including for approval requests:</p>
+    <pre># ~/.codex/config.toml
+notify = ["python3", "/Users/you/.codex/notify.py"]   # top-level keys come before any [table]
+
+[tui]
+notifications = ["agent-turn-complete", "approval-requested"]</pre>
+    <p>The <code>notify</code> program runs when a turn completes (currently the only event it gets) and receives one JSON argument with fields such as <code>type</code>, <code>cwd</code> and <code>last-assistant-message</code>. See the <a href="https://learn.chatgpt.com/docs/config-file/config-advanced">Codex configuration docs</a> for details.</p>
+
+    <h2>Where do-it-yourself notifications run out</h2>
+    <p>With one session, a hook is all you need. With four, the same notification arrives four times and raises new questions:</p>
+    <ul>
+      <li><strong>Which session is it?</strong> “Claude Code needs your input” does not say which tab, project or task.</li>
+      <li><strong>Clicking does not take you there.</strong> An <code>osascript</code> notification belongs to Script Editor; clicking it does not bring up the terminal pane that is waiting.</li>
+      <li><strong>No running count.</strong> After you come back you still have to look through every tab to see how many are blocked.</li>
+      <li><strong>Remote sessions.</strong> A hook in a session on an SSH host runs on that host, where <code>osascript</code> cannot reach your Mac.</li>
+      <li><strong>Noise.</strong> Without per-session muting or a minimum turn length, finished-turn notifications quickly get ignored.</li>
+    </ul>
+
+    <h2>How gilvt does it</h2>
+    <p>gilvt is a macOS terminal that tracks the state of every Claude Code and Codex session it runs, so it can notify you with the context a hook lacks. Nothing to configure: it injects its hooks when it starts the agent and does not edit <code>~/.claude</code> or <code>~/.codex</code>.</p>
+    <table>
+      <thead><tr><th>State</th><th>When you are notified</th><th>Sound</th></tr></thead>
+      <tbody>
+        <tr><td>Awaiting approval / asking you</td><td>Immediately</td><td>Yes</td></tr>
+        <tr><td>Error</td><td>Immediately</td><td>No</td></tr>
+        <tr><td>Turn completed</td><td>When the turn took 30 seconds or more</td><td>No</td></tr>
+        <tr><td>Context 90% full</td><td>Once per session</td><td>No</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li>Each notification names the agent, the project and the session, and says what it is waiting for. They arrive only when gilvt is in the background or that pane is not visible. <strong>Clicking one jumps to the pane</strong>, with the cursor in the agent's prompt.</li>
+      <li>The <strong>Dock badge</strong> counts the sessions waiting for you, and the Dock icon bounces once when a session starts waiting (<code>[notify] dock_bounce = false</code> turns that off).</li>
+      <li>Back in gilvt, those sessions are at the top of the sidebar; <kbd>⇧⌘J</kbd> goes to the one that has waited longest.</li>
+      <li>Right-click a session in the sidebar to <strong>mute</strong> it.</li>
+      <li>Sessions on <a href="/guides/claude-code-over-ssh/">SSH hosts</a> notify the same way.</li>
+    </ul>
+    <figure><img src="/images/features/agents.jpg" width="1600" height="964" loading="lazy" alt="gilvt's sidebar with the sessions that need you grouped at the top."><figcaption>When you come back, the sessions that notified you are waiting at the top of the sidebar.</figcaption></figure>
+    <p>The first time a session needs you, macOS asks whether gilvt may send notifications; choose Allow. You can change it later in System Settings → Notifications → gilvt.</p>
+
+    <div class="callout"><p><strong>Try it:</strong> <a href="/download">download gilvt</a> (free, macOS 11 or later), run <code>claude</code> in a pane, ask for something that needs approval and switch to another app.</p></div>
+
+    <section class="related"><h2>Related guides</h2><ul><li><a href="/guides/manage-multiple-claude-code-sessions/">Manage multiple Claude Code sessions</a></li><li><a href="/guides/claude-code-over-ssh/">Run Claude Code and Codex over SSH</a></li><li><a href="/docs/notifications/">Notifications in the gilvt user guide</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/docs/">User guide</a> · <a href="/install/">Download</a></span></div><p>gilvt is an independent project, not affiliated with Anthropic or OpenAI.</p></div></footer>
+</body>
+</html>
