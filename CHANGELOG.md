@@ -9,6 +9,7 @@ breaking changes; they are called out under **Changed**.
 
 ### Added
 
+- Website: a guide in English and Chinese, “How to review what Claude Code and Codex changed”; the home page links the newer guides.
 - Website: two guides in English and Chinese, “How to run Claude Code and Codex over SSH” and “How to get notified when Claude Code needs your input”.
 - Website: the user guide has one page per topic (for example gilvt.com/docs/keyboard-shortcuts/), so each can be found and linked on its own; links to the old single page's sections still work.
 - Website: a changelog page in English and Chinese (gilvt.com/changelog/), generated from this file, and an `llms.txt` summary for AI assistants.

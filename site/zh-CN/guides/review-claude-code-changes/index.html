@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>不开 IDE，如何 review Claude Code 和 Codex 改了什么 · gilvt</title>
+<meta name="description" content="在终端里按轮次 review AI 编程 Agent 的改动：git、Claude Code 的 /diff 与 /rewind、Codex 的 /diff 与 /review，以及多个会话时如何不切 IDE 完成 review。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://gilvt.com/zh-CN/guides/review-claude-code-changes/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/guides/review-claude-code-changes/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/review-claude-code-changes/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/review-claude-code-changes/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/zh-CN/guides/review-claude-code-changes/"><meta property="og:title" content="如何 review Claude Code 和 Codex 改了什么"><meta property="og:description" content="在终端里按轮次 review Agent 的改动。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"不开 IDE，如何 review Claude Code 和 Codex 改了什么","datePublished":"2026-10-19","dateModified":"2026-10-19","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/zh-CN/"},"mainEntityOfPage":"https://gilvt.com/zh-CN/guides/review-claude-code-changes/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/guides/review-claude-code-changes/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Review 指南</span><h1>如何 review Claude Code 和 Codex 改了什么</h1><p class="lead">代码由 Agent 来写，你的工作就变成了读代码。大多数人为此要切到 IDE 看一眼再切回来。这篇讲怎么在终端里按轮次 review Agent 的改动：用 git、用 Agent 自带的命令，以及用 gilvt。</p><p class="article-meta">发布于 2026-10-19 · 阅读约 7 分钟</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>简单说：</strong>每轮结束就 review，不要等到最后；每个任务从干净或已提交的工作区开始，这样 diff 里只有 Agent 的改动；当前状态用 Claude Code 或 Codex 的 <code>/diff</code> 看，历史用 git 看。同时跑好几个会话，或者会话结束后还想回看某一轮时，就需要有人替你保存每一轮的快照。</p></div>
+
+    <h2>按轮次 review，而不是等整个分支做完</h2>
+    <p>Agent 一轮可能改十几个文件，下一轮又在这些改动上继续。如果只看最终的 diff，第二轮的一个错误假设会被后面所有改动埋住。趁每一轮还小的时候读，速度更快，也能在 Agent 沿着错误继续之前把它拉回来。</p>
+    <p>每一轮看四件事：执行了哪些命令（有没有失败）、改了哪些文件、diff 本身，以及它声称的验证结果，比如测试有没有真的跑过。</p>
+
+    <h2>用 git</h2>
+    <p>git 适用于任何 Agent。每个任务从已提交的工作区开始，工作区的 diff 就只包含 Agent 的改动：</p>
+    <pre>git status --short          # 改了什么，包括新文件
+git diff --stat             # 每个文件改动的大小
+git diff                    # 已跟踪文件的改动
+git diff --word-diff        # 按词显示改动，适合文档和配置
+git add -p                  # 逐块接受这一轮的改动</pre>
+    <p>有两个习惯很关键：每轮结束后把接受的部分提交（或暂存），下一次 <code>git diff</code> 就只剩新一轮的改动；另外，<code>git diff</code> 不显示还没被跟踪的新文件，新文件要在 <code>git status</code> 里看。</p>
+
+    <h2>用 Agent 自带的命令</h2>
+    <table>
+      <thead><tr><th></th><th>Claude Code</th><th>Codex CLI</th></tr></thead>
+      <tbody>
+        <tr><td>看改动</td><td><code>/diff</code>：工作区的改动，包括 Claude 到目前为止的编辑</td><td><code>/diff</code>：git diff，包括还没被跟踪的文件</td></tr>
+        <tr><td>让它自查</td><td><code>/review</code>（<code>/code-review</code> 的别名）</td><td><code>/review</code>，或 <code>codex review --uncommitted</code></td></tr>
+        <tr><td>撤销一轮</td><td><code>Esc</code> <code>Esc</code> 或 <code>/rewind</code>：把代码、对话或两者恢复到某个检查点</td><td>用 git</td></tr>
+      </tbody>
+    </table>
+    <p>Claude Code 的检查点很方便，但它不是版本控制：通过 Bash 命令（<code>rm</code>、<code>mv</code>、<code>cp</code>）改动的文件，以及会话之外的修改，都不会被恢复。所以还是要常提交。详见 <a href="https://code.claude.com/docs/en/checkpointing">checkpointing 文档</a>和 <a href="https://learn.chatgpt.com/docs/cli/slash-commands">Codex 的斜杠命令</a>。</p>
+
+    <h2>难在哪里</h2>
+    <ul>
+      <li><strong>会话一多。</strong>每个 Agent 的 <code>/diff</code> 都在它自己的 pane 里。四个会话、四个 worktree，就要在四个地方分别 review，还得记住上次看完之后哪些又跑完了。</li>
+      <li><strong>会话结束之后。</strong>关掉会话或者开始下一个任务之后，想知道「第 3 轮改了什么」就只能去翻 git 历史，前提是你中间提交过。</li>
+      <li><strong>文档。</strong>Agent 写的设计文档、README 和 Mermaid 图越来越多。Markdown 的原始 diff 很难读，你想看的是排版后的文档，并标出改了哪几段。</li>
+      <li><strong>顺手改一下。</strong>Agent 有一行写错了，改它通常要打开编辑器，而这个文件 Agent 可能还在改。</li>
+    </ul>
+
+    <h2>gilvt 怎么做</h2>
+    <p>gilvt 是一个 macOS 终端，它跟踪在其中运行的 Claude Code 和 Codex 会话。每一轮开始和结束时，它都会把工作区快照保存到自己的目录里（不碰 <code>.git</code>、暂存区和你的提交），所以每一轮的改动都一直能看，包括还没被跟踪的新文件。</p>
+    <ul>
+      <li><strong>过程时间线</strong>（<kbd>⌥⌘1</kbd>）：每一轮的命令、编辑和失败；失败的命令直接显示关键报错行。点一行，终端滚回那里；⌘-点击文件名直接打开。</li>
+      <li><strong>产物</strong>（<kbd>⌥⌘2</kbd>）：每个任务一张卡片，列出改过的文件和 <code>+a −b</code>。打开文件可以看<em>这一轮</em>、<em>这个任务</em>或<em>整个会话</em>的 diff，行数和卡片上一致。</li>
+      <li><strong>Quick Look</strong>：语法高亮的词级 diff，统一视图或左右对照，<kbd>n</kbd> / <kbd>p</kbd> 在改动块之间跳转。Markdown 直接显示排版后的效果，并标出新增和修改的段落；Mermaid 图离线渲染。</li>
+      <li><strong>在 shell 里</strong>：<code>gilvt diff</code> 逐个查看相对 HEAD 改过的文件（<code>gilvt diff main</code> 对比分支），<code>gilvt view file:42</code> 打开单个文件，<kbd>⌘P</kbd> 在仓库里找任意文件。</li>
+      <li><strong>就地修改</strong>：在预览里按 <kbd>E</kbd>，在终端旁边打开内置编辑器。如果你编辑时 Agent 也改了这个文件，gilvt 会显示「重新载入 / 对比 / 仍然覆盖」的提示条，不会悄悄覆盖任何一方。</li>
+      <li><strong>待 Review</strong>（<kbd>⇧⌘R</kbd> → <kbd>⌘2</kbd>）：所有会话跑完的轮次进同一个队列，失败的排在前面。不用重新启动 Agent，就能看到提示词、Agent 的最终回答和工具调用，看完标记为已 review。</li>
+    </ul>
+    <figure><img src="/images/features/artifacts.jpg" width="1600" height="964" loading="lazy" alt="gilvt 的「产物」标签列出这一轮改动的文件，Quick Look 里打开了 session.rs 的本轮 diff。"><figcaption>这一轮改了哪些文件、diff 是什么，就在产生它的会话旁边。</figcaption></figure>
+    <figure><img src="/images/features/markdown.jpg" width="1600" height="964" loading="lazy" alt="gilvt 的 Quick Look 里排版显示的 Markdown 设计文档，带一张 Mermaid 架构图。"><figcaption>Agent 写的文档直接排版显示，包括 Mermaid 图。</figcaption></figure>
+
+    <h2>什么时候还是要打开 IDE</h2>
+    <p>gilvt 负责阅读和小改动，它不是 IDE：编辑器没有代码补全和跳转定义，也还没有查找替换，Quick Look 里的文字暂时不能选中。要大改时，<kbd>⌘⌥O</kbd> 在外部编辑器里打开当前行（装了 <code>code</code> 命令时用 VS Code）。每轮快照和「产物」页只在你 Mac 上的 git 仓库里生效；SSH 远端的会话，在远端 shell 里用 <code>gilvt diff</code>。</p>
+
+    <div class="callout"><p><strong>试试看：</strong><a href="/download">下载 gilvt</a>（免费，macOS 11 及以上），在一个 git 仓库里运行 <code>claude</code> 或 <code>codex</code>，第一轮结束后按 <kbd>⌥⌘2</kbd>。</p></div>
+
+    <section class="related"><h2>相关指南</h2><ul><li><a href="/zh-CN/guides/manage-multiple-claude-code-sessions/">管理多个 Claude Code 会话</a></li><li><a href="/zh-CN/guides/claude-code-notifications/">Claude Code 需要你时如何收到通知</a></li><li><a href="/zh-CN/docs/inspector/">产品手册：检查器</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/zh-CN/docs/">产品手册</a> · <a href="/zh-CN/install/">下载</a></span></div><p>gilvt 是独立项目，与 Anthropic、OpenAI 没有关联。</p></div></footer>
+</body>
+</html>

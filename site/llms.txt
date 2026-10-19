@@ -40,6 +40,7 @@ Requirements: macOS 11 or later, Apple silicon or Intel. The app is signed and n
 - [How to run Claude Code and Codex in parallel](https://gilvt.com/guides/run-claude-code-and-codex-in-parallel/)
 - [How to run Claude Code and Codex over SSH](https://gilvt.com/guides/claude-code-over-ssh/)
 - [How to get notified when Claude Code needs your input](https://gilvt.com/guides/claude-code-notifications/)
+- [How to review what Claude Code and Codex changed, without an IDE](https://gilvt.com/guides/review-claude-code-changes/)
 - [Claude Code integration](https://gilvt.com/integrations/claude-code/)
 - [Codex CLI integration](https://gilvt.com/integrations/codex/)
 - [gilvt vs tmux for coding agents](https://gilvt.com/compare/gilvt-vs-tmux/)
