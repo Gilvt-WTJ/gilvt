@@ -526,7 +526,7 @@ theme = "My Theme"                                   # 固定
 
 在 gilvt 的 pane 里 `ssh` 到 Linux 或 Apple Silicon Mac 后，gilvt 知道这个 pane 已经在远端：pane 和标签显示主机名，远端 shell 加载 gilvt 的 shell 集成（命令标记、当前目录），并跟踪远端目录。只有交互式登录受影响；`ssh host command`、`scp`、`git push` 原样运行。
 
-- **询问**：第一次 `ssh` 到某台主机时，gilvt 会问要不要在它上面安装一个小程序（`gilvt-remote`，约 4 MB）：`Y` 安装，`n` 这次不用，`N` 这台主机永不安装（会记住）。也可以在 `config.toml` 里用 `[remote] install = "ask" | "always" | "never"` 预设（默认 `ask`）。不安装时 `ssh` 照常登录。
+- **询问**：第一次 `ssh` 到某台主机时，gilvt 会问要不要在它上面安装一个小程序（`gilvt-remote`，询问时会显示它的大小）：`Y` 安装，`n` 这次不用，`N` 这台主机永不安装（会记住）。也可以在 `config.toml` 里用 `[remote] install = "ask" | "always" | "never"` 预设（默认 `ask`）。不安装时 `ssh` 照常登录。
 - **更新**：gilvt 升级后第一次连接装有旧版远端组件的主机时，会先询问是否更新（`Y` 更新，`n` 这次普通登录，`N` 永不安装；`[remote] install = "always"` 则不询问直接更新）。
 - **绕过**：输入 `command ssh host`，或设置 `GILVT_SSH=0`（如 `GILVT_SSH=0 ssh host`），gilvt 完全不介入。
 - **远端目录**：全部在 `~/.gilvt-server`，并常驻一个小 daemon。手动卸载：`pkill -f '[.]gilvt-server/'; rm -rf ~/.gilvt-server`。

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code 需要你时如何收到通知（macOS） · gilvt</title>
+<meta name="description" content="让 Claude Code 在等待审批或完成一轮时发 macOS 通知：内置设置、Notification 与 Stop hook、Codex 的 notify 配置，以及多会话时它们的局限。">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="canonical" href="https://gilvt.com/zh-CN/guides/claude-code-notifications/">
+<link rel="alternate" hreflang="en" href="https://gilvt.com/guides/claude-code-notifications/">
+<link rel="alternate" hreflang="zh-CN" href="https://gilvt.com/zh-CN/guides/claude-code-notifications/">
+<link rel="alternate" hreflang="x-default" href="https://gilvt.com/guides/claude-code-notifications/">
+<link rel="stylesheet" href="/style.css">
+<meta property="og:type" content="article"><meta property="og:url" content="https://gilvt.com/zh-CN/guides/claude-code-notifications/"><meta property="og:title" content="Claude Code 需要你时如何收到通知"><meta property="og:description" content="别再盯着标签页：审批、提问和完成都能及时知道。"><meta property="og:image" content="https://gilvt.com/images/social-preview.png"><meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Claude Code 需要你时如何收到通知（macOS）","datePublished":"2026-10-18","dateModified":"2026-10-18","author":{"@type":"Person","name":"Tongjue Wang"},"publisher":{"@type":"Organization","name":"gilvt","url":"https://gilvt.com/zh-CN/"},"mainEntityOfPage":"https://gilvt.com/zh-CN/guides/claude-code-notifications/"}</script>
+</head>
+<body>
+<header class="wrap top"><a class="brand" href="/zh-CN/"><img src="/icon.svg" alt="">gilvt</a><nav><a href="/zh-CN/features/">功能</a><a href="/zh-CN/docs/">文档</a><a href="/zh-CN/install/">下载</a><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a><a class="lang" href="/guides/claude-code-notifications/" hreflang="en" lang="en">English</a></nav></header>
+<main>
+  <div class="wrap article-head"><span class="kicker">Claude Code 指南</span><h1>Claude Code 需要你时如何收到通知</h1><p class="lead">Claude Code 经常停下来请你批准执行一条命令，而这时你多半在浏览器里。下面是在 macOS 上第一时间知道的几种办法，从改一个设置到写 hook，以及它们各自的局限。</p><p class="article-meta">发布于 2026-10-18 · 阅读约 6 分钟</p></div>
+  <article class="wrap article">
+    <div class="summary"><p><strong>简单说：</strong>在 Terminal.app 等大多数终端里，Claude Code 默认不弹桌面通知。可以在 <code>/config</code> 里把 <strong>Local notifications</strong> 改成终端响铃，或者加一个 <code>Notification</code> hook（审批、等待输入）和一个 <code>Stop</code> hook（一轮完成）来发 macOS 通知。Codex 用 <code>[tui] notifications</code> 或 <code>notify</code> 程序。会话一多，你还需要知道是<em>哪一个</em>在等你，并能一步过去。</p></div>
+
+    <h2>哪些事值得通知</h2>
+    <p>不是每个事件都值得打断你。实际用下来，你在别的应用里时值得知道的有四种：</p>
+    <ul>
+      <li><strong>等待审批或在问你</strong>——会话卡在你这里，应该马上通知。</li>
+      <li><strong>出错</strong>——API 错误或一轮失败。要通知，但不必响。</li>
+      <li><strong>耗时较长的一轮完成了</strong>——十分钟的重构值得提醒，五秒的回答只是噪音。</li>
+      <li><strong>上下文快满了</strong>——提醒一次就够。</li>
+    </ul>
+
+    <h2>办法一：Claude Code 的内置设置</h2>
+    <p>Claude Code 只在 iTerm2、Ghostty、Kitty 里会自己弹桌面通知。其他终端里，在 Claude Code 中打开 <code>/config</code>，修改 <strong>Local notifications</strong>（对应设置项 <code>preferredNotifChannel</code>）。<code>terminal_bell</code> 会让终端响铃，大多数终端会把它变成提示音或 Dock 图标跳动。写在 <code>~/.claude/settings.json</code> 里是这样：</p>
+    <pre>{
+  "preferredNotifChannel": "terminal_bell"
+}</pre>
+    <p>其他取值有 <code>auto</code>（默认）、<code>iterm2</code>、<code>iterm2_with_bell</code>、<code>kitty</code>、<code>ghostty</code> 和 <code>notifications_disabled</code>。响铃只能告诉你「有事」，说不清是什么事、在哪个会话。</p>
+
+    <h2>办法二：用 hook 发 macOS 通知</h2>
+    <p>Claude Code 会在特定事件上执行 <a href="https://code.claude.com/docs/en/hooks">hook</a>，这里用到两个：</p>
+    <ul>
+      <li><code>Notification</code>：权限请求等了大约 6 秒、Claude 回答完大约一分钟你还没输入，以及其他几种提示时触发。即使关掉桌面通知它也会触发。</li>
+      <li><code>Stop</code>：Claude 回答完时触发（你主动打断时不触发）。</li>
+    </ul>
+    <p>写在 <code>~/.claude/settings.json</code> 里，对所有项目生效：</p>
+    <pre>{
+  "hooks": {
+    "Notification": [
+      { "hooks": [ { "type": "command",
+        "command": "osascript -e 'display notification \"Claude Code 在等你\" with title \"Claude Code\" sound name \"Glass\"'" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command",
+        "command": "osascript -e 'display notification \"Claude Code 完成了\" with title \"Claude Code\"'" } ] }
+    ]
+  }
+}</pre>
+    <p><code>matcher</code> 字段可以不写：<code>Notification</code> 不写就匹配所有通知类型，<code>Stop</code> 会忽略它。hook 还会从标准输入收到这次事件的 JSON，写个小脚本就能把项目目录或通知类型放进消息里。</p>
+
+    <h2>Codex</h2>
+    <p>Codex CLI 在 <code>~/.codex/config.toml</code> 里有对应的配置。它的 TUI 自己就能通知你，审批请求也包括在内：</p>
+    <pre># ~/.codex/config.toml
+notify = ["python3", "/Users/you/.codex/notify.py"]   # 顶层键要写在所有 [表] 之前
+
+[tui]
+notifications = ["agent-turn-complete", "approval-requested"]</pre>
+    <p><code>notify</code> 指定的程序在一轮完成时执行（目前只有这一种事件），收到一个 JSON 参数，包含 <code>type</code>、<code>cwd</code>、<code>last-assistant-message</code> 等字段。细节见 <a href="https://learn.chatgpt.com/docs/config-file/config-advanced">Codex 配置文档</a>。</p>
+
+    <h2>自己配的通知，局限在哪里</h2>
+    <p>只有一个会话时，一个 hook 就够了。开到四个时，同一条通知会来四次，新的问题也随之出现：</p>
+    <ul>
+      <li><strong>是哪个会话？</strong>「Claude Code 在等你」说不出是哪个标签页、哪个项目、哪个任务。</li>
+      <li><strong>点了也过不去。</strong><code>osascript</code> 发的通知属于「脚本编辑器」，点击它不会带你到正在等待的终端 pane。</li>
+      <li><strong>没有总数。</strong>回来之后还是得翻遍标签页，才知道有几个卡住了。</li>
+      <li><strong>远端会话。</strong>SSH 主机上会话的 hook 在那台主机上执行，<code>osascript</code> 够不到你的 Mac。</li>
+      <li><strong>噪音。</strong>没有按会话静音、没有最短耗时门槛，「完成」通知很快就会被你无视。</li>
+    </ul>
+
+    <h2>gilvt 怎么做</h2>
+    <p>gilvt 是一个 macOS 终端，它跟踪自己运行的每个 Claude Code、Codex 会话的状态，所以通知能带上 hook 拿不到的上下文。不需要任何配置：它在启动 Agent 时注入自己的 hook，不改 <code>~/.claude</code> 和 <code>~/.codex</code>。</p>
+    <table>
+      <thead><tr><th>状态</th><th>何时通知</th><th>声音</th></tr></thead>
+      <tbody>
+        <tr><td>等待审批 / 在问你</td><td>立即</td><td>有</td></tr>
+        <tr><td>出错</td><td>立即</td><td>无</td></tr>
+        <tr><td>一轮完成</td><td>这一轮用时 30 秒以上时</td><td>无</td></tr>
+        <tr><td>上下文用到 90%</td><td>每个会话一次</td><td>无</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li>每条通知都写明 Agent、项目和会话名，以及它在等什么；只在 gilvt 不在前台或那个 pane 不可见时才发。<strong>点击通知直接跳到那个 pane</strong>，光标就在 Agent 的输入框里。</li>
+      <li><strong>Dock 角标</strong>显示在等你的会话数；有会话开始等你时 Dock 图标跳一下（<code>[notify] dock_bounce = false</code> 可关闭）。</li>
+      <li>回到 gilvt，这些会话排在左栏最上面；<kbd>⇧⌘J</kbd> 跳到等得最久的那个。</li>
+      <li>在左栏右键某个会话可以<strong>静音</strong>。</li>
+      <li><a href="/zh-CN/guides/claude-code-over-ssh/">SSH 主机</a>上的会话也同样会通知。</li>
+    </ul>
+    <figure><img src="/images/features/agents.jpg" width="1600" height="964" loading="lazy" alt="gilvt 左栏把需要你的会话集中排在最上面。"><figcaption>回来时，发过通知的会话就在左栏最上面等你。</figcaption></figure>
+    <p>第一次有会话需要你时，macOS 会询问是否允许 gilvt 发通知，选「允许」即可；之后可以在「系统设置 → 通知 → gilvt」里修改。</p>
+
+    <div class="callout"><p><strong>试试看：</strong><a href="/download">下载 gilvt</a>（免费，macOS 11 及以上），在 pane 里运行 <code>claude</code>，让它做一件需要审批的事，然后切到别的应用。</p></div>
+
+    <section class="related"><h2>相关指南</h2><ul><li><a href="/zh-CN/guides/manage-multiple-claude-code-sessions/">管理多个 Claude Code 会话</a></li><li><a href="/zh-CN/guides/claude-code-over-ssh/">通过 SSH 运行 Claude Code 和 Codex</a></li><li><a href="/zh-CN/docs/notifications/">产品手册：通知与 Dock</a></li></ul></section>
+  </article>
+</main>
+<footer><div class="wrap"><div class="row"><span>© 2026 Tongjue Wang · <a href="https://github.com/Gilvt-WTJ/gilvt/blob/main/LICENSE">Apache-2.0</a></span><span><a href="https://github.com/Gilvt-WTJ/gilvt">GitHub</a> · <a href="/zh-CN/docs/">产品手册</a> · <a href="/zh-CN/install/">下载</a></span></div><p>gilvt 是独立项目，与 Anthropic、OpenAI 没有关联。</p></div></footer>
+</body>
+</html>
