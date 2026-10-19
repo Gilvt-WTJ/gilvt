@@ -27,7 +27,7 @@
 </p>
 
 > [!NOTE]
-> gilvt is an early release (0.1) and runs on macOS only. The interface follows your Mac's preferred
+> gilvt is in early development (before 1.0) and runs on macOS 11 or later only. The interface follows your Mac's preferred
 > language: Simplified Chinese when it is Chinese, English otherwise. Pick one in Settings (`⌘,`) →
 > Language, or set `language = "en"` / `"zh-CN"` in `~/.config/gilvt/config.toml`. The developer docs ([HACKING.md](HACKING.md)) are in Chinese for now.
 
@@ -55,6 +55,8 @@ that it understands what your coding agents are doing:
   summaries and a read-only chat about what is going on (off by default; uses your local CLI).
 - **Quick Look and an editor**: code with syntax highlighting and diffs, rendered Markdown and Mermaid,
   `⌘P` fuzzy file search, and a built-in editor with live preview.
+- **SSH remote** (preview): `ssh` to a Linux host or an Apple Silicon Mac, and the agents you run there show up in
+  the sidebar like local ones; `gilvt view` / `gilvt diff` open the host's files.
 - **725 built-in themes** plus your own; the window chrome follows
   the theme.
 
