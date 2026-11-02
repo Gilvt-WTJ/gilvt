@@ -7,6 +7,8 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-02
+
 ### Added
 
 - Website: a guide in English and Chinese, “How to review what Claude Code and Codex changed”; the home page links the newer guides.
@@ -141,7 +143,8 @@ First public release.
   downloads, and installs when you quit gilvt, so running agents are never interrupted; "Check for
   Updates…" in the app menu, and `[update] mode = "download" | "check" | "off"` in `config.toml`.
 
-[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.5.0...main
+[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.5.1...main
+[0.5.1]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.3.0...v0.4.0
