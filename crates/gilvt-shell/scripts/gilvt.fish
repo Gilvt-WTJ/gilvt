@@ -22,10 +22,10 @@ function __gilvt_prompt --on-event fish_prompt
         end
     end
     printf '\e]7;file://%s%s\e\\' (hostname) (string escape --style=url -- $PWD)
-    # Only the shell reaches its prompt: turn off mouse reporting a program that died without cleaning up
-    # (an ssh that dropped under a full-screen app) left on. fish 4 manages focus reporting and the kitty
-    # keyboard protocol itself, so those stay its own.
-    printf '\e[?1000l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l'
+    # Only the shell reaches its prompt: leave the alternate screen and turn off mouse reporting a program
+    # that died without cleaning up (an ssh that dropped under a full-screen app) left on. fish 4 manages
+    # focus reporting and the kitty keyboard protocol itself, so those stay its own.
+    printf '\e[?1049l\e[?1000l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l'
     printf '\e]133;A\e\\'
 end
 

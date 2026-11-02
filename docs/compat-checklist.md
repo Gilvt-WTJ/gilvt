@@ -627,6 +627,14 @@ pane 的 PATH 最前是 gilvt 的垫片目录（`~/Library/Application Support/g
 | AE8 | `claude_launch = "fakewrap claude"` 后 ⌘⇧N | 预览和输入的命令都是 `fakewrap claude …`；会话经过 fakewrap 启动并完整识别 | [AE8](../tests/gui/cases/AE/AE8.md) |
 | AE9 | 真实 `ttadk claude` | 完整识别；`foreground_via` 为 `{ "descendant": "ttadk" }` | [AE9](../tests/gui/cases/AE/AE9.md) 真实 ttadk（需要本机 ttadk 和 SSO 登录态） |
 
+## AF. 程序异常退出后的终端状态
+
+全屏程序（全屏模式的 Claude Code、vim、断线的 ssh）没有清理就退出时，留下的终端模式由 shell 集成在下一个提示符前关掉：备用屏幕、鼠标上报、焦点上报、kitty 键盘标志（fish 只管前两项）。
+
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| AF1 | `tput smcup; echo …`（命令停在备用屏幕上结束），再回到提示符 | 回到主屏幕：之前的输出重新可见，备用屏幕上的输出消失（之后启动的 `claude` 因此有回滚，滚轮滚动对话而不是翻输入历史） | [AF1](../tests/gui/cases/AF/AF1.md) |
+
 ## 已知限制（M1）
 
 - Kitty 键盘协议只发送按下 / 重复事件，不发送按键抬起事件。

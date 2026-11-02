@@ -20,6 +20,7 @@ breaking changes; they are called out under **Changed**.
 
 ### Fixed
 
+- The mouse wheel in Claude Code scrolled through earlier prompts instead of the conversation after a full-screen program (such as Claude Code in fullscreen mode, vim or a dropped ssh) had exited without leaving the alternate screen. The shell prompt now returns the terminal to the main screen, so the next program has scrollback again.
 - User guide: “Resume and manage sessions” in the contents went to the Monitor's chat section; the chat and command bar sections now belong to the Monitor. The install section starts with the download and Homebrew instead of building from source.
 
 ## [0.5.0] - 2026-10-14

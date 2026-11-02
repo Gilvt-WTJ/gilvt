@@ -55,9 +55,10 @@ _gilvt_precmd() {
   }
   printf '\e]7;file://%s%s\e\\' "$HOST" "$(_gilvt_urlencode "$PWD")"
   # Only the shell reaches its prompt: turn off what a program that died without cleaning up (an ssh that
-  # dropped under a full-screen app) left on, or every mouse move types escape codes here. Mouse reporting
-  # (and its encodings), focus reporting, kitty keyboard flags.
-  printf '\e[?1000l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l\e[?1004l\e[=0;1u'
+  # dropped under a full-screen app) left on, or every mouse move types escape codes here. The alternate
+  # screen (no scrollback there, and the wheel becomes arrow keys), mouse reporting (and its encodings),
+  # focus reporting, kitty keyboard flags.
+  printf '\e[?1049l\e[?1000l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l\e[?1004l\e[=0;1u'
   printf '\e]133;A\e\\'
   [[ -n "${_gilvt_agents_checked-}" ]] || _gilvt_define_agents
   [[ -n "${_gilvt_ssh_checked-}" ]] || _gilvt_define_ssh
