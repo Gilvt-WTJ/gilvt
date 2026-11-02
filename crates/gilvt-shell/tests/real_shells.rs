@@ -692,17 +692,25 @@ fn bash_user_ssh_alias_wins() {
 
 /// A full-screen program that dies without cleaning up (an ssh connection that drops under Claude Code)
 /// leaves mouse / focus reporting and the kitty keyboard protocol on; every mouse move then types escape
-/// codes into the shell. The prompt hook turns them off: only the shell reaches it, so no program needs them.
+/// codes into the shell. It can also leave the alternate screen on: then the prompt and the next program
+/// (Claude Code's default renderer) draw on a screen with no scrollback, and the wheel becomes ↑/↓, which
+/// Claude Code reads as prompt history. The prompt hook turns all of these off: only the shell reaches it,
+/// so no program needs them.
 fn check_modes_reset_at_prompt(shell: &str, rc_file: &str, all: bool) {
     use gilvt_term::TermMode;
     let mut sh = start(shell, rc_file, "");
     sh.wait("first prompt", |ev, _| has(ev, PromptMark::InputStart));
-    let left_on = if all { r"printf '\033[?1000h\033[?1002h\033[?1006h\033[?1004h\033[>1u'" } else { r"printf '\033[?1000h\033[?1002h\033[?1006h'" };
+    let left_on = if all {
+        r"printf '\033[?1049h\033[?1000h\033[?1002h\033[?1006h\033[?1004h\033[>1u'"
+    } else {
+        r"printf '\033[?1049h\033[?1000h\033[?1002h\033[?1006h'"
+    };
     sh.run(left_on);
     sh.wait("next prompt", |ev, _| has(ev, PromptMark::InputStart));
     let mode = *sh.session.term().lock().mode();
     let mouse = TermMode::MOUSE_REPORT_CLICK | TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION | TermMode::SGR_MOUSE;
     assert!(!mode.intersects(mouse), "{shell}: mouse reporting still on at the prompt: {mode:?}");
+    assert!(!mode.contains(TermMode::ALT_SCREEN), "{shell}: alternate screen still on at the prompt: {mode:?}");
     if all {
         assert!(!mode.contains(TermMode::FOCUS_IN_OUT), "{shell}: focus reporting still on: {mode:?}");
         assert!(!mode.contains(TermMode::DISAMBIGUATE_ESC_CODES), "{shell}: kitty keyboard flags still on: {mode:?}");
@@ -720,11 +728,12 @@ fn bash_prompt_turns_off_modes_a_crashed_program_left_on() {
 }
 
 #[test]
-fn fish_prompt_turns_off_mouse_reporting_a_crashed_program_left_on() {
+fn fish_prompt_turns_off_modes_a_crashed_program_left_on() {
     let Some(fish) = find_fish() else {
         eprintln!("fish not installed; skipping");
         return;
     };
-    // fish 4 manages focus reporting and the kitty keyboard protocol itself: only the mouse modes are ours.
+    // fish 4 manages focus reporting and the kitty keyboard protocol itself: only the mouse modes and the
+    // alternate screen are ours.
     check_modes_reset_at_prompt(fish.to_str().unwrap(), ".config/fish/config.fish", false);
 }
