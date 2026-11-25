@@ -47,9 +47,37 @@ pub fn insertion(paths: &[String]) -> String {
     paths.iter().map(|p| shell_escape(p) + " ").collect()
 }
 
+/// A Claude Code file reference (`@path`) for an absolute path: Claude reads the file into the prompt when it is
+/// sent. `@"…"` when the path has whitespace or shell metacharacters (Claude does not undo backslash escapes:
+/// `@/a\ b` is not read). `None` when the path cannot sit inside `@"…"` (a `"`, a backslash, a control or bidi
+/// character); the caller then inserts the escaped path.
+pub fn claude_mention(path: &str) -> Option<String> {
+    if path.is_empty() || path.chars().any(|c| c == '"' || c == '\\' || c.is_control() || is_bidi_control(c)) {
+        return None;
+    }
+    let plain = path.chars().all(|c| !c.is_whitespace() && !SPECIAL.contains(&c) && !SPECIAL_AT_START.contains(&c));
+    Some(if plain { format!("@{path}") } else { format!("@\"{path}\"") })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_mentions() {
+        assert_eq!(claude_mention("/a/b.md").as_deref(), Some("@/a/b.md"));
+        assert_eq!(claude_mention("/a/中文.md").as_deref(), Some("@/a/中文.md"));
+        assert_eq!(claude_mention("/a/my note.md").as_deref(), Some(r#"@"/a/my note.md""#));
+        assert_eq!(claude_mention("/a/p(1).md").as_deref(), Some(r#"@"/a/p(1).md""#));
+        assert_eq!(claude_mention("/a/r'3 & x.md").as_deref(), Some(r#"@"/a/r'3 & x.md""#));
+        assert_eq!(claude_mention("/a/x\u{202f}AM.md").as_deref(), Some("@\"/a/x\u{202f}AM.md\""));
+        // Cannot be put inside @"…" safely: the caller falls back to the escaped path.
+        assert_eq!(claude_mention(r#"/a/say "hi".md"#), None);
+        assert_eq!(claude_mention(r"/a/back\slash.md"), None);
+        assert_eq!(claude_mention("/a/new\nline.md"), None);
+        assert_eq!(claude_mention("/a/\u{202e}evil.md"), None);
+        assert_eq!(claude_mention(""), None);
+    }
 
     #[test]
     fn escapes_metacharacters() {
