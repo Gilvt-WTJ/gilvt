@@ -112,6 +112,8 @@ pane（`panes[]`）：
 | `cwd` | 字符串或 `null` | 工作目录（shell 集成上报的，否则前台进程的） |
 | `screen_tail` | 字符串数组 | 可见区域的最后 `--tail` 个**逻辑行**的纯文本：终端软换行（一行太长折到下一行）的几行拼成一行，所以窄 pane 里折行的命令仍是一个元素；`--tail` 数的是逻辑行。去掉行尾空白（折行处的空格保留），丢掉末尾的空行，宽字符只算一次。只读可见的行：开头已滚出屏幕的逻辑行从屏幕顶上那一截开始。预览 pane 为 `[]` |
 | `marked_text` | 字符串或 `null` | 输入法正在组字、还没上屏的文字（画在光标处，还没写进 shell）；这时按键交给输入法，不进 pty。没有时为 `null` |
+| `marked` | 对象或 `null` | 终端 pane：`marked_text` 画在哪里，`{ "row", "col", "rect" }`（与 `cursor` 同形）：光标所在格；TUI 隐藏光标时是它停放光标的格（与 `cursor` 的 `row` / `col` 相同），`rect` 宽度按字符格数；没有预编辑、隐藏光标且往回滚动（不画）、其他 pane 为 `null` |
+| `agent_kind` | 字符串或 `null` | 终端 pane：拖入文件时交给的 Agent，`"claude"` / `"codex"`：先看绑定在 pane 上的本机会话（hooks），否则看最近一次前台轮询（与侧栏同一套规则，含包装器、`[agent]` 命令名）；ssh 里的 pane、不是 Agent、其他 pane 为 `null`。`claude` 时拖入非图片文件插入 `@` 引用 |
 | `code` | rect 或 `null` | 预览 pane：代码 / diff 文字区域的 rect（Markdown 渲染视图里是整个文档区）；终端 pane、加载前为 `null` |
 | `selection` | 字符串或 `null` | 预览 pane：鼠标选区 `⌘C` 会复制的文字；没有选区、终端 pane 为 `null` |
 | `header` | rect 或 `null` | 预览 / 编辑器 pane：标题栏，拖到 `tab_bar` 上把 pane 移到新标签；终端、监控官 pane 或没画出来时为 `null` |

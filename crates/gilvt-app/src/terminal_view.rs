@@ -733,7 +733,6 @@ impl TerminalView {
 
     /// Where the uncommitted IME text was drawn in the latest frame (`ime_origin`): its viewport cell and its
     /// bounds, sized by its cells; `None` without one or when it is not drawn.
-    #[allow(dead_code)] // used by debug state (Task 6)
     pub(crate) fn debug_marked(&self) -> Option<(usize, usize, Bounds<Pixels>)> {
         let text = self.marked_text.as_ref()?;
         let l = self.layout.as_ref()?;

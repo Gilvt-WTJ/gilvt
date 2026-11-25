@@ -272,6 +272,21 @@ impl Workspace {
             cwd: view.and_then(|v| v.cwd(cx)).map(|p| p.display().to_string()),
             screen_tail,
             marked_text,
+            marked: match view {
+                Some(PaneView::Terminal(t)) => t.read(cx).debug_marked().map(|(row, col, b)| ds::TermCursor {
+                    row,
+                    col,
+                    rect: rects::in_frame(rects::rect_of(b), titlebar),
+                }),
+                _ => None,
+            },
+            agent_kind: match view {
+                Some(PaneView::Terminal(t)) => {
+                    let remote = t.read(cx).remote().is_some();
+                    crate::drop::drop_agent(remote, cx.global::<Agents>().pane_agent(id)).map(|k| k.name())
+                }
+                _ => None,
+            },
             code: rect(RectId::PreviewCode(Some(id))),
             selection: match view {
                 Some(PaneView::Preview(p)) => p.read(cx).selection_text(),

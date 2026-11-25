@@ -765,6 +765,12 @@ pub struct Pane {
     pub screen_tail: Vec<String>,
     /// An input method's uncommitted composition (keys go to the IME, not the pty, while it is set).
     pub marked_text: Option<String>,
+    /// Where `marked_text` is drawn: the viewport cell (the cursor's, or a hidden cursor's position) and its rect;
+    /// null without marked text, while scrolled back with a hidden cursor, and for other panes.
+    pub marked: Option<TermCursor>,
+    /// Terminals: the agent a drop goes to — "claude" | "codex" (hooks, else the foreground poll; null inside an
+    /// ssh link); null otherwise.
+    pub agent_kind: Option<&'static str>,
     /// Previews: where the code / diff text (the rendered document for Markdown) is drawn; null for terminals and before load.
     pub code: Option<Rect4>,
     /// Previews: the text `⌘C` would copy from the mouse selection; null without one and for terminals.
