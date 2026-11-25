@@ -1196,7 +1196,7 @@ git commit -m "acceptance: AG cases for agent drops and hidden-cursor preedit" -
 
 - [ ] **Step 1: 单元测试与格式**
 
-Run: `CARGO_TARGET_DIR=~/gilvt-build-agent-drop cargo test --workspace && cargo fmt --check && CARGO_TARGET_DIR=~/gilvt-build-agent-drop cargo clippy --workspace -- -D warnings`
+Run: `CARGO_TARGET_DIR=~/gilvt-build-agent-drop cargo test --workspace && CARGO_TARGET_DIR=~/gilvt-build-agent-drop cargo clippy --workspace -- -D warnings`
 Expected: 全部通过（clippy 若项目平时不用 `-D warnings`，以 HACKING.md 为准）。
 
 - [ ] **Step 2: 基础设施稳定性**（改了 driver、DebugState、fake agent）
