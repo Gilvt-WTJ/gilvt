@@ -1,6 +1,6 @@
 //! The window's part of `gilvt debug state` (spec §3.2 `windows[]`): gathers the sidebar model, tabs and
 //! panes, the open menu and overlay and the inspector, with the rects recorded in the latest frame, and
-//! hands them to the pure mappers of `debug_state::map`. Read-only: nothing is written to a PTY and no
+//! hands them to the pure mappers of `debug_state::map`. Read-only (except the test hook [`debug_preedit`]): nothing is written to a PTY and no
 //! state changes; it runs on `&Workspace` outside any update, so other windows can be read too.
 
 use std::time::Instant;
@@ -16,6 +16,28 @@ use crate::launcher::Location;
 use crate::pane_tree::PaneId;
 use crate::persist::snapshot::WindowSnap;
 use crate::theme::AppSettings;
+
+/// `gilvt debug preedit`: applies `action` to terminal pane `pane` (None: the focused pane of the first window).
+/// The one place here that changes state (a test hook, refused unless GILVT_DEBUG_STATE=1).
+pub fn debug_preedit(pane: Option<u64>, action: &gilvt_ipc::PreeditAction, cx: &mut App) -> Result<(), String> {
+    for w in workspaces(cx) {
+        let view = w
+            .read(cx)
+            .ok()
+            .and_then(|ws| pane.or_else(|| ws.focused_pane()).and_then(|p| ws.terminal_view(p).cloned()));
+        if let Some(view) = view {
+            view.update(cx, |t, cx| t.preedit_for_test(action, cx));
+            return Ok(());
+        }
+        if pane.is_none() {
+            break;
+        }
+    }
+    Err(match pane {
+        Some(p) => format!("no terminal pane {p}"),
+        None => "the focused pane is not a terminal".into(),
+    })
+}
 
 /// What only the window itself knows (read in a short `update` before the workspace is read).
 pub struct WindowInfo {

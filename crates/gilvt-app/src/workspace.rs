@@ -9,7 +9,7 @@ mod history;
 mod live_preview;
 mod monitor;
 mod inspector;
-mod debug;
+pub(crate) mod debug;
 mod editor;
 pub mod marks;
 mod new_agent;

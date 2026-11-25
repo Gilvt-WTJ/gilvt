@@ -1,12 +1,12 @@
 //! Receives `gilvt` CLI requests on the app's socket and opens previews in the right window; answers
-//! `gilvt debug state` queries on the main thread when gilvt was started with `GILVT_DEBUG_STATE=1`
+//! `gilvt debug state` / `gilvt debug preedit` queries on the main thread when gilvt was started with `GILVT_DEBUG_STATE=1`
 //! (otherwise the socket refuses them without involving the app), and the 监控官's tool calls (`gilvt mcp`) always.
 
 use std::path::PathBuf;
 
 use gilvt_agent::host::HostPath;
 use gpui::{App, Entity};
-use gilvt_ipc::{remove_stale_sockets, socket_path_for, DebugQueries, Query, Request, Server, DEBUG_STATE_DISABLED, QUERY_QUEUE};
+use gilvt_ipc::{remove_stale_sockets, socket_path_for, DebugQueries, Query, Request, Response, Server, DEBUG_STATE_DISABLED, QUERY_QUEUE};
 
 use crate::debug_state;
 use crate::preview_view::{OpenRequest, PreviewView, Source};
@@ -112,6 +112,22 @@ pub fn start(hooks: async_channel::Sender<crate::agents::HookIn>, cx: &mut App) 
                 let mut batch = vec![first];
                 while let Ok(q) = query_rx.try_recv() {
                     batch.push(q);
+                }
+                // `gilvt debug preedit` changes state: applied in order, before the snapshot answers the rest.
+                let (preedits, batch): (Vec<_>, Vec<_>) = batch.into_iter().partition(|q| matches!(q.request, Request::DebugPreedit { .. }));
+                for q in preedits {
+                    if q.expired_at(std::time::Instant::now()) {
+                        continue;
+                    }
+                    let Request::DebugPreedit { pane, action } = &q.request else { unreachable!() };
+                    let (pane, action) = (*pane, action.clone());
+                    let answer = cx
+                        .update(|cx| crate::workspace::debug::debug_preedit(pane, &action, cx))
+                        .unwrap_or_else(|_| Err("gilvt is shutting down".into()));
+                    q.respond(match answer {
+                        Ok(()) => Response::Ok,
+                        Err(message) => Response::Error { message },
+                    });
                 }
                 let batch = debug_state::live_queries(batch, std::time::Instant::now());
                 let Some(tail) = batch.iter().map(|(_, t)| *t).max() else { continue };

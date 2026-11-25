@@ -743,6 +743,37 @@ impl TerminalView {
         Some((row, col, Bounds { origin, size: gpui::size(l.metrics.cell_width * cells as f32, l.metrics.line_height) }))
     }
 
+    /// Text an input method commits: written to the pty like typing.
+    fn commit_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.marked_text = None;
+        if !text.is_empty() {
+            self.session.clear_selection();
+            self.session.write_input(text.as_bytes().to_vec());
+            if let Some(key) = typed_char(text) {
+                cx.emit(TerminalViewEvent::Key(key));
+            }
+        }
+        cx.notify();
+    }
+
+    /// `gilvt debug preedit`: what an input method's setMarkedText / insertText / unmarkText would do.
+    pub(crate) fn preedit_for_test(&mut self, action: &gilvt_ipc::PreeditAction, cx: &mut Context<Self>) {
+        match action {
+            gilvt_ipc::PreeditAction::Set { text } => {
+                self.marked_text = (!text.is_empty()).then(|| text.clone());
+                cx.notify();
+            }
+            gilvt_ipc::PreeditAction::Commit => {
+                let text = self.marked_text.take().unwrap_or_default();
+                self.commit_text(&text, cx);
+            }
+            gilvt_ipc::PreeditAction::Clear => {
+                self.marked_text = None;
+                cx.notify();
+            }
+        }
+    }
+
     /// Moves the cursor of the line being edited to `cell` with arrow keys ([`gilvt_term::click_move`]).
     /// Only while the foreground program reads raw keys: a plain command would echo them.
     fn click_to_move(&mut self, cell: (usize, usize), cx: &mut Context<Self>) {
@@ -939,15 +970,7 @@ impl gpui::EntityInputHandler for TerminalView {
     }
 
     fn replace_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: &mut Window, cx: &mut Context<Self>) {
-        self.marked_text = None;
-        if !text.is_empty() {
-            self.session.clear_selection();
-            self.session.write_input(text.as_bytes().to_vec());
-            if let Some(key) = typed_char(text) {
-                cx.emit(TerminalViewEvent::Key(key));
-            }
-        }
-        cx.notify();
+        self.commit_text(text, cx);
     }
 
     fn replace_and_mark_text_in_range(

@@ -1,4 +1,4 @@
-//! `gilvt debug …`: reads the running app's UI state for GUI acceptance tests.
+//! `gilvt debug …`: reads the running app's UI state for GUI acceptance tests (and, for them, fakes IME input).
 //!
 //! - `gilvt debug state [--pid N] [--tail N]`: prints the state (`Request::DebugState`) as JSON.
 //! - `gilvt debug wait '<cond>' [--pid N] [--tail N] [--timeout 10s] [--interval 100ms]`: polls the
@@ -9,6 +9,10 @@
 //!   utility that talks to no app: evaluates the condition on the state saved in F (exit 0 holds, 1 not),
 //!   or prints the path's candidates as one JSON array. tests/gui/selftest.sh checks with it that
 //!   tests/gui/lib/guilib.py reads paths exactly as `wait` does.
+//! - `gilvt debug preedit (TEXT | --commit | --clear) [--pane N] [--pid N]`: sets, commits or clears the
+//!   uncommitted IME text of a terminal pane (`--pane`, else the focused pane of the first window) as an
+//!   input method would (`Request::DebugPreedit`, for tests). Exit 0 once applied, 1 if refused (no such
+//!   terminal pane, or debug state switched off).
 //!
 //! Exit 2 for bad usage, a bad condition or path, an unreadable state file, or no socket to talk to.
 
@@ -19,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use gilvt_ipc::{Request, Response, DEBUG_STATE_DISABLED, ENV_SOCKET};
+use gilvt_ipc::{PreeditAction, Request, Response, DEBUG_STATE_DISABLED, ENV_SOCKET};
 use serde_json::Value;
 
 use crate::args::USAGE;
@@ -35,6 +39,7 @@ enum DebugCommand {
     State { pid: Option<u32>, tail: u16 },
     Wait { cond: String, pid: Option<u32>, tail: u16, timeout: Duration, interval: Duration },
     Eval { state_file: PathBuf, what: Eval },
+    Preedit { pid: Option<u32>, pane: Option<u64>, action: PreeditAction },
 }
 
 /// What `gilvt debug eval` evaluates.
@@ -83,15 +88,48 @@ fn parse_eval(args: &[String]) -> Result<DebugCommand, String> {
     })
 }
 
+/// `preedit (TEXT | --commit | --clear) [--pane N] [--pid N]`.
+fn parse_preedit(args: &[String]) -> Result<DebugCommand, String> {
+    let (mut pid, mut pane, mut text, mut action) = (None, None, None, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--pid" => {
+                let v = it.next().ok_or("--pid needs a process id")?;
+                pid = Some(v.parse().map_err(|_| format!("--pid needs a process id, got {v:?}"))?);
+            }
+            "--pane" => {
+                let v = it.next().ok_or("--pane needs a pane id")?;
+                pane = Some(v.parse().map_err(|_| format!("--pane needs a pane id, got {v:?}"))?);
+            }
+            "--commit" | "--clear" if action.is_some() => return Err("use one of --commit and --clear".into()),
+            "--commit" => action = Some(PreeditAction::Commit),
+            "--clear" => action = Some(PreeditAction::Clear),
+            s if s.starts_with("--") => return Err(format!("unknown option {s}")),
+            s if text.is_none() => text = Some(s.to_string()),
+            s => return Err(format!("unexpected argument {s:?}")),
+        }
+    }
+    let action = match (text, action) {
+        (Some(text), None) => PreeditAction::Set { text },
+        (None, Some(a)) => a,
+        _ => return Err("gilvt debug preedit needs a text, --commit or --clear".into()),
+    };
+    Ok(DebugCommand::Preedit { pid, pane, action })
+}
+
 fn parse_args(args: &[String]) -> Result<DebugCommand, String> {
     let mut it = args.iter();
     let sub = it.next().map(String::as_str);
     if sub == Some("eval") {
         return parse_eval(&args[1..]);
     }
+    if sub == Some("preedit") {
+        return parse_preedit(&args[1..]);
+    }
     if !matches!(sub, Some("state" | "wait")) {
         return Err(match sub {
-            None => "gilvt debug needs state, wait or eval".into(),
+            None => "gilvt debug needs state, wait, eval or preedit".into(),
             Some(s) => format!("unknown debug command {s}"),
         });
     }
@@ -170,6 +208,18 @@ pub fn run(args: &[String]) -> ExitCode {
             }
         }
         DebugCommand::Eval { state_file, what } => eval(&state_file, &what),
+        DebugCommand::Preedit { pid, pane, action } => {
+            let sock = match socket(pid, std::env::var_os(ENV_SOCKET)) {
+                Ok(s) => s,
+                Err(e) => return fail(2, e),
+            };
+            match gilvt_ipc::send(&sock, &Request::DebugPreedit { pane, action }) {
+                Ok(Response::Ok) => ExitCode::SUCCESS,
+                Ok(Response::Error { message }) => fail(1, message),
+                Ok(other) => fail(1, format!("unexpected reply {other:?}")),
+                Err(e) => fail(1, format!("cannot reach the gilvt app at {} ({e})", sock.display())),
+            }
+        }
         DebugCommand::Wait { cond, pid, tail, timeout, interval } => {
             let parsed = match cond::parse(&cond) {
                 Ok(c) => c,
@@ -306,6 +356,20 @@ mod tests {
         assert!(parse_args(&s(&["eval", "--state-file", "/s.json"])).is_err(), "needs something to evaluate");
         assert!(parse_args(&s(&["eval", "--state-file", "/s.json", "a exists", "--path", "a"])).is_err(), "one of them");
         assert!(parse_args(&s(&["eval", "--state-file", "/s.json", "--pid", "3", "a exists"])).is_err());
+    }
+
+    #[test]
+    fn parses_preedit() {
+        let a = |v: &[&str]| parse_args(&s(v));
+        assert_eq!(a(&["preedit", "你好", "--pid", "5"]).unwrap(), DebugCommand::Preedit { pid: Some(5), pane: None, action: PreeditAction::Set { text: "你好".into() } });
+        assert_eq!(a(&["preedit", "--commit", "--pane", "2"]).unwrap(), DebugCommand::Preedit { pid: None, pane: Some(2), action: PreeditAction::Commit });
+        assert_eq!(a(&["preedit", "--clear"]).unwrap(), DebugCommand::Preedit { pid: None, pane: None, action: PreeditAction::Clear });
+        assert!(a(&["preedit"]).is_err());
+        assert!(a(&["preedit", "x", "--commit"]).is_err());
+        assert!(a(&["preedit", "--commit", "--clear"]).is_err());
+        assert!(a(&["preedit", "x", "y"]).is_err());
+        assert!(a(&["preedit", "x", "--pane", "p"]).is_err());
+        assert!(a(&["preedit", "x", "--tail", "3"]).is_err());
     }
 
     #[test]
