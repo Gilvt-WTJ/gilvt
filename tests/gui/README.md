@@ -170,7 +170,8 @@ finalize 为 `interrupted` / `not_run`，留下可检查的部分报告。
 | `focus <pane>` | 点击 pane 的 rect 中心（已经是当前 pane 时不点） | 是 |
 | `click` / `rclick` / `dclick <点> [修饰键]` | 先用 `mouse move` 把指针移到点上、等 0.15 秒（`DRIVE_HOVER`），再算一次点：位置变了（横幅消失、分组折叠）就跟过去，最多 3 次。然后 `peekaboo click --global --at … --pid … --window-id … --foreground --input-strategy synthOnly`；带修饰键（`cmd`、`shift`、`alt`、`ctrl` 或 `cmd+shift`）时改用 `tools/mouse click X Y cmd,shift [right\|double]`：向 HID 事件口发全局坐标的 mouseMoved + down/up，down/up 带修饰键标志，间隔约 80 ms（双击：点击次数 1 再 2）；它在失败和 SIGINT / SIGTERM 时也先松开修饰键，之后 `drive.sh` 无论成败再发一次 `tools/mouse release-modifiers`。Peekaboo 4.5 的修饰键点击报「Modifier-click cleanup did not fully restore the shared desktop」退出 1，不带 snapshot 的重试又被拒绝，所以不用它 | 是 |
 | `drag <点> <点>` | `peekaboo drag --foreground` | 是 |
-| `drop <文件>… <点>` | `open -R` 在访达里选中文件，`peekaboo see --app Finder` 找到元素，拖到点上 | 是 |
+| `drop <文件>… <点>` | `open -R` 在访达里选中文件，`peekaboo see --app Finder` 找到元素，拖到点上；沙盒里 `~/…` 是沙盒 HOME | 是 |
+| `preedit <文字>\|--commit\|--clear` | `gilvt debug preedit --pid`：像输入法那样给当前 pane 设置 / 上屏 / 清除预编辑文字（不经过系统输入法） | 否 |
 | `scroll up\|down <n> [<点>]` | 先 `peekaboo move` 到点（默认当前 pane 中心），再 `peekaboo scroll` | 是 |
 | `raise [<窗口 id>\|key\|<n>]` | 用辅助功能把 gilvt 的一个窗口提到最前并成为 key window（默认本沙盒的窗口，`<n>` 是 `windows[n]`）：`tools/ax windows` 列出 AXWindow，按 CGWindow id（取不到时按与 `tools/wins` 边界 ±2 pt 唯一匹配）找到它，`AXRaise`、设 `AXMain` / 应用的 `AXFocusedWindow`、激活 gilvt；2 秒内 debug state 里它不是 key window 就退出 1。gilvt 没有 ⌘\` 切窗口，Peekaboo 的 `window focus` 对 gpui 窗口报 axElementNotFound | 是 |
 | `hover <点>` | `peekaboo move`，等 1.5 秒 | 是 |
