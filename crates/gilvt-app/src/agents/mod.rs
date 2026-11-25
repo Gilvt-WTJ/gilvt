@@ -447,6 +447,11 @@ impl Agents {
         }
     }
 
+    /// The agent running in `pane` on this Mac, for drops (see [`Core::pane_agent`]). No process lookup.
+    pub fn pane_agent(&self, pane: PaneId) -> Option<AgentKind> {
+        self.core.pane_agent(pane)
+    }
+
     /// The agent bound to `pane` (live, else waiting to be resumed), for the layout snapshot.
     pub fn agent_snap(&self, pane: PaneId) -> Option<crate::persist::snapshot::AgentSnap> {
         if let Some(s) = self.core.registry.by_pane(pane) {

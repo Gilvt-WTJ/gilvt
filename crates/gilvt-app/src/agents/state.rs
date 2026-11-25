@@ -96,11 +96,23 @@ pub struct Core {
     /// Panes whose approval dialog is in "amend" (Tab): typed text is not an answer, Enter / Esc is. Keyed by
     /// the wait it was pressed in (`waiting_since`), so a later dialog starts afresh.
     amending: HashMap<PaneId, Option<Instant>>,
+    /// The agent each pane's foreground program was in the latest poll (wrappers included); the drop target
+    /// when no hook has bound a session to the pane yet.
+    polled_agents: HashMap<PaneId, AgentKind>,
 }
 
 impl Core {
     pub fn new(store: Store) -> Core {
-        Core { registry: Registry::new(store), tracker: Tracker::default(), modes: HashMap::new(), amending: HashMap::new() }
+        Core { registry: Registry::new(store), tracker: Tracker::default(), modes: HashMap::new(), amending: HashMap::new(), polled_agents: HashMap::new() }
+    }
+
+    /// The agent running in `pane` on this Mac: a live local session bound to it (hooks), else the latest poll.
+    pub fn pane_agent(&self, pane: PaneId) -> Option<AgentKind> {
+        match self.registry.by_pane(pane) {
+            Some(s) if s.key.2 == Host::Local => Some(s.agent()),
+            Some(_) => None,
+            None => self.polled_agents.get(&pane).copied(),
+        }
     }
 
     pub fn hook(&mut self, h: &ParsedHook, visible: impl Fn(PaneId) -> bool, now: Instant) -> Vec<Change> {
@@ -158,6 +170,13 @@ impl Core {
     /// One foreground poll: ends sessions of panes back at the shell (or closed) and returns the
     /// transcript searches for agents that sent no hooks.
     pub fn poll(&mut self, panes: &[(PaneId, Foreground)], now: Instant, wall: SystemTime) -> (Vec<Change>, Vec<Discovery>) {
+        self.polled_agents = panes
+            .iter()
+            .filter_map(|(pane, fg)| match fg {
+                Foreground::Agent { kind, .. } => Some((*pane, *kind)),
+                _ => None,
+            })
+            .collect();
         let registry = &self.registry;
         let actions = self.tracker.observe(panes, |p| registry.by_pane(p).is_some(), now, wall);
         let mut changes = Vec::new();
@@ -275,6 +294,35 @@ mod tests {
     fn hook(core: &mut Core, pane: u64, event: &str, p: serde_json::Value, visible: bool, now: Instant) -> Vec<Change> {
         let h = parse_hook_request(Some(pane), "claude", event, &p).unwrap();
         core.hook(&h, |_| visible, now)
+    }
+
+    #[test]
+    fn pane_agent_prefers_a_local_hook_session_then_the_poll() {
+        let t0 = Instant::now();
+        let mut core = Core::new(Store::in_memory());
+        assert_eq!(core.pane_agent(7), None);
+        let codex = Foreground::Agent { kind: AgentKind::Codex, pid: 9, cwd: None, via: Via::Leader };
+        core.poll(&[(7, codex), (8, Foreground::Shell)], t0, SystemTime::now());
+        assert_eq!(core.pane_agent(7), Some(AgentKind::Codex));
+        assert_eq!(core.pane_agent(8), None);
+        // A Claude hook in pane 7 wins over the poll.
+        hook(&mut core, 7, "SessionStart", payload("s1"), true, t0);
+        assert_eq!(core.pane_agent(7), Some(AgentKind::Claude));
+        // Pane 7 back at the shell: after SHELL_POLLS polls the session ends and the pane is forgotten.
+        for s in 1..=2 {
+            core.poll(&[(7, Foreground::Shell), (8, Foreground::Shell)], t0 + Duration::from_secs(s), SystemTime::now());
+        }
+        assert_eq!(core.pane_agent(7), None);
+    }
+
+    #[test]
+    fn pane_agent_ignores_remote_sessions() {
+        use gilvt_agent::host::HostId;
+        let t0 = Instant::now();
+        let mut core = Core::new(Store::in_memory());
+        let h = parse_hook_request(Some(3), "claude", "SessionStart", &payload("r")).unwrap().with_host(Host::Remote(HostId("dev@h:22".into())));
+        core.hook(&h, |_| true, t0);
+        assert_eq!(core.pane_agent(3), None);
     }
 
     #[test]
