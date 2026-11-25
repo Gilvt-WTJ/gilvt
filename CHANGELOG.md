@@ -7,6 +7,15 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+### Changed
+
+- Dropping a non-image file or a folder onto Claude Code inserts it as an `@` reference (`@/path/to/file`, quoted when the path has spaces), so Claude reads the file when you send the prompt. Images are inserted as before and still become attachments.
+- Drops recognize Claude Code and Codex however they were started (through node, a wrapper such as ttadk, or a command name listed under `[agent]`), the same way the sidebar does; before, only programs named exactly `claude` or `codex` got the path instead of a preview.
+
+### Fixed
+
+- macOS Dictation and input methods showed nothing in Claude Code and Codex until the text was committed: the uncommitted text is now drawn at the agent's input caret even though the agent hides the terminal cursor.
+
 ## [0.5.1] - 2026-11-02
 
 ### Added
