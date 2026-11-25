@@ -1,0 +1,5 @@
+description = "Hides the terminal cursor like Claude Code (it draws its own caret) and waits at the prompt: IME / dictation preedit and drops onto an agent (AG)."
+hide_cursor = true
+
+[[step]]
+idle = true

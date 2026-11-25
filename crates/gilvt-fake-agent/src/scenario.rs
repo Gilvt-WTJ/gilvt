@@ -16,7 +16,7 @@ pub const ENV_SCENARIOS_DIR: &str = "GILVT_FAKE_SCENARIOS_DIR";
 pub const SCENARIO_PREFIX: &str = "@scenario:";
 
 /// The built-in scenarios (`crates/gilvt-fake-agent/scenarios/*.toml`), by name.
-pub const BUILTIN: [(&str, &str); 28] = [
+pub const BUILTIN: [(&str, &str); 29] = [
     ("default", include_str!("../scenarios/default.toml")),
     ("ask-question", include_str!("../scenarios/ask-question.toml")),
     ("approve-bash", include_str!("../scenarios/approve-bash.toml")),
@@ -48,6 +48,8 @@ pub const BUILTIN: [(&str, &str); 28] = [
     ("artifacts-running", include_str!("../scenarios/artifacts-running.toml")),
     // GUI acceptance case N1 (close confirmation).
     ("think-long", include_str!("../scenarios/think-long.toml")),
+    // Hides the terminal cursor like Claude Code: IME / dictation preedit and drops onto an agent.
+    ("hidden-cursor", include_str!("../scenarios/hidden-cursor.toml")),
     // GUI acceptance cases Q5 / Q6 (sidebar overflow).
     ("long-title", include_str!("../scenarios/long-title.toml")),
     // GUI acceptance cases AC21 / AC23 (agents in an ssh shell).
@@ -65,6 +67,9 @@ pub struct Scenario {
     pub lite: bool,
     /// Set the terminal title like Claude Code does (OSC 0).
     pub cwd_title: bool,
+    /// Hide the terminal cursor while running and leave it at the input line, like Claude Code (which draws its
+    /// own caret): `\e[?25l` at start, `\e[?25h` on exit.
+    pub hide_cursor: bool,
     pub steps: Vec<Step>,
 }
 
@@ -127,7 +132,7 @@ impl Step {
     }
 }
 
-const TOP_KEYS: [&str; 6] = ["agent", "session", "lite", "cwd_title", "description", "step"];
+const TOP_KEYS: [&str; 7] = ["agent", "session", "lite", "cwd_title", "hide_cursor", "description", "step"];
 const KINDS: [&str; 11] = ["prompt", "tool", "approve", "ask", "todo", "reply", "thinking", "sleep", "api_error", "idle", "exit"];
 
 /// Keys a step of `kind` may have besides the kind key itself.
@@ -169,6 +174,7 @@ impl Scenario {
             Some(_) => Err(err(format!("{key} must be true or false"))),
         };
         let (lite, cwd_title) = (flag("lite", false)?, flag("cwd_title", true)?);
+        let hide_cursor = flag("hide_cursor", false)?;
         let steps = match doc.get("step") {
             None => Vec::new(),
             Some(Value::Array(steps)) => steps
@@ -178,7 +184,7 @@ impl Scenario {
                 .collect::<Result<Vec<_>, _>>()?,
             Some(_) => return Err(err("`step` must be an array of tables ([[step]])".into())),
         };
-        let scenario = Scenario { name: name.to_string(), agent, session, lite, cwd_title, steps };
+        let scenario = Scenario { name: name.to_string(), agent, session, lite, cwd_title, hide_cursor, steps };
         scenario.check_order().map_err(err)?;
         Ok(scenario)
     }
@@ -441,6 +447,13 @@ idle = true
 [[step]]
 exit = 0
 "#;
+
+    #[test]
+    fn hide_cursor_is_a_top_level_flag() {
+        assert!(!Scenario::parse("x", "[[step]]\nidle = true\n").unwrap().hide_cursor);
+        assert!(Scenario::parse("x", "hide_cursor = true\n[[step]]\nidle = true\n").unwrap().hide_cursor);
+        assert!(Scenario::parse("x", "hide_cursor = 1\n").is_err());
+    }
 
     #[test]
     fn parses_the_spec_example() {

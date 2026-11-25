@@ -121,7 +121,7 @@ fn main() -> ExitCode {
         Ok(h) => h,
         Err(e) => return usage_error(&e),
     };
-    let settings = Settings { agent, cwd: cwd.clone(), initial_prompt: prompt, resumed: args.resume.is_some(), cwd_title: scenario.cwd_title };
+    let settings = Settings { agent, cwd: cwd.clone(), initial_prompt: prompt, resumed: args.resume.is_some(), cwd_title: scenario.cwd_title, hide_cursor: scenario.hide_cursor };
     let io = TermIo { term: Terminal::open() };
     let code = match agent {
         Agent::Claude => {
@@ -160,7 +160,7 @@ fn headless(agent: Agent, args: &Args, scenario: Scenario, prompt: Option<String
     };
     let start = SystemTime::now().checked_sub(age).unwrap_or(UNIX_EPOCH);
     let name = scenario.name.clone();
-    let settings = Settings { agent, cwd: cwd.clone(), initial_prompt: prompt, resumed: false, cwd_title: false };
+    let settings = Settings { agent, cwd: cwd.clone(), initial_prompt: prompt, resumed: false, cwd_title: false, hide_cursor: false };
     let io = ScriptedIo::new(start, Vec::new());
     let may_delete = sandboxed(env(ENV_SANDBOX_HOME).as_deref(), home);
     let refuse = |old: &Path| {

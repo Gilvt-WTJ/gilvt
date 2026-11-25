@@ -99,6 +99,8 @@ pub struct Settings {
     pub resumed: bool,
     /// Set the terminal title (Claude only).
     pub cwd_title: bool,
+    /// Hide the terminal cursor for the session (`\e[?25l`), show it again on exit.
+    pub hide_cursor: bool,
 }
 
 enum Flow {
@@ -130,6 +132,9 @@ impl<R: Recorder, I: Io> Engine<R, I> {
 
     /// Runs the session to its end; returns the exit code.
     pub fn run(&mut self) -> i32 {
+        if self.s.hide_cursor {
+            self.io.write("\x1b[?25l");
+        }
         self.io.write(&tui::welcome(self.s.agent, &self.s.cwd));
         self.set_title(None);
         let now = self.io.now();
@@ -529,6 +534,9 @@ impl<R: Recorder, I: Io> Engine<R, I> {
     }
 
     fn finish(&mut self, code: i32, reason: EndReason) -> i32 {
+        if self.s.hide_cursor {
+            self.io.write("\x1b[?25h");
+        }
         self.io.write(&format!("\n{}\n", self.rec.resume_hint()));
         let now = self.io.now();
         self.rec.session_end(now, reason);
