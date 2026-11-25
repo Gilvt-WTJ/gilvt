@@ -41,7 +41,8 @@
   hook 上报的会话也知道 pane 属于哪个 Agent。两者合成「pane 当前的 Agent 种类」（hook 会话优先，其次 `Foreground::Agent`）。
 - workspace 在轮询结果更新后把种类写进对应 TerminalView 的字段 `agent_kind`；`drag_move` / `drop_paths` 只读这个字段。
   刚启动 Agent、轮询还没跑到的一秒内按非 Agent 处理（预览），可以接受。
-- 远端（SSH）pane 不变：不查本地进程，现有的远端拖入逻辑不动。
+- 远端（SSH）pane 不变：远端 Claude 的 hook 也会关联到本地 pane（`Agents::remote_hook`），但本地路径远端看不到，
+  所以 `self.remote.is_some()` 时 `drop_action` 忽略 `agent_kind`，按现在的逻辑处理（单元测试覆盖）。
 - 已知残留：经包装器启动、既没有 hook 也不能从进程树识别的 Agent（`process.rs` 归为 `Other`）仍按普通程序处理。
 
 删除 `drop::AGENTS`。
@@ -87,7 +88,7 @@
   bidi）；图片扩展名大小写；`hint` 的中英文标签；`ime_origin` 在光标可见 / 隐藏 / 回滚时的结果；hook 会话与轮询结果合成种类的规则。
 - DebugState：pane 增加 `agent_kind`（拖入判断用的种类，`claude` / `codex` / `null`）与 `marked_rect`（预编辑文字画出的
   `rect`，没有预编辑或不画时为 `null`），写进 `docs/debug-state.md`。光标隐藏时 `cursor.rect` 已是 `ime_anchor`，用例可直接比较两者。
-- 预编辑测试钩子：`gilvt debug ime <text>`（只在 `GILVT_DEBUG_STATE=1` 时可用）对焦点 pane 调 `replace_and_mark`，
+- 预编辑测试钩子（debug IPC 新增一个会改状态的请求；未以 `GILVT_DEBUG_STATE=1` 启动时拒绝）：`gilvt debug ime <text>`（只在 `GILVT_DEBUG_STATE=1` 时可用）对焦点 pane 调 `replace_and_mark`，
   `gilvt debug ime --commit` / `--clear` 上屏或清除。没有它就无法自动化预编辑（`tests/gui/cases/V/V4.md` 因此是手动）。
 - fake agent：加一个隐藏光标（`\e[?25l`）、光标停在输入行的剧本或开关，并纳入防脱节测试。
 - `docs/compat-checklist.md` 新增一节「AG. 拖入交给 Agent 与隐藏光标时的预编辑」，每行一个 `tests/gui/cases/AG/<ID>.md`：
