@@ -731,6 +731,19 @@ impl TerminalView {
         Some((row, col, Bounds { origin, size: gpui::size(l.metrics.cell_width, l.metrics.line_height) }))
     }
 
+    /// Where the uncommitted IME text was drawn in the latest frame (`ime_origin`): its viewport cell and its
+    /// bounds, sized by its cells; `None` without one or when it is not drawn.
+    #[allow(dead_code)] // used by debug state (Task 6)
+    pub(crate) fn debug_marked(&self) -> Option<(usize, usize, Bounds<Pixels>)> {
+        let text = self.marked_text.as_ref()?;
+        let l = self.layout.as_ref()?;
+        let s = &l.snapshot;
+        let (row, col) = crate::terminal_element::ime_origin(s.cursor.map(|c| (c.row, c.col)), s.ime_anchor, s.display_offset)?;
+        let cells = unicode_width::UnicodeWidthStr::width(text.as_str()).max(1);
+        let origin = l.bounds.origin + gpui::point(l.metrics.cell_width * col as f32, l.metrics.line_height * row as f32);
+        Some((row, col, Bounds { origin, size: gpui::size(l.metrics.cell_width * cells as f32, l.metrics.line_height) }))
+    }
+
     /// Moves the cursor of the line being edited to `cell` with arrow keys ([`gilvt_term::click_move`]).
     /// Only while the foreground program reads raw keys: a plain command would echo them.
     fn click_to_move(&mut self, cell: (usize, usize), cx: &mut Context<Self>) {

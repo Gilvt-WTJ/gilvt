@@ -225,9 +225,10 @@ impl Element for TerminalElement {
             });
         }
 
-        let ime = match (marked, snapshot.cursor) {
-            (Some(text), Some(c)) => {
-                let at = cell_origin(c.row, c.col);
+        let origin = ime_origin(snapshot.cursor.map(|c| (c.row, c.col)), snapshot.ime_anchor, snapshot.display_offset);
+        let ime = match (marked, origin) {
+            (Some(text), Some((row, col))) => {
+                let at = cell_origin(row, col);
                 let style = CellStyle { underline: true, ..CellStyle::default() };
                 let r = run(text.len(), palette.foreground, style, &settings);
                 let line = window.text_system().shape_line(text.into(), metrics.font_size, &[r], None);
@@ -300,5 +301,30 @@ mod tests {
         cell.search_match = false;
         cell.selected = false;
         assert_eq!(cell_fg(&cell, &p), p.ansi[1]);
+    }
+}
+
+/// Where an input method's uncommitted text is drawn (viewport row, column): at the cursor, or — while a TUI
+/// such as Claude Code hides it — where the TUI parked it (`ime_anchor`, its input caret). `None` while
+/// scrolled back with the cursor hidden: the anchor is clamped into the viewport there and would be a wrong row.
+pub(crate) fn ime_origin(cursor: Option<(usize, usize)>, ime_anchor: (usize, usize), display_offset: usize) -> Option<(usize, usize)> {
+    match cursor {
+        Some(c) => Some(c),
+        None if display_offset == 0 => Some(ime_anchor),
+        None => None,
+    }
+}
+
+#[cfg(test)]
+mod ime_tests {
+    use super::ime_origin;
+
+    #[test]
+    fn preedit_sits_at_the_cursor_or_where_a_tui_parked_it() {
+        assert_eq!(ime_origin(Some((3, 5)), (9, 9), 0), Some((3, 5)));
+        // Hidden cursor (Claude Code): the anchor, i.e. where the TUI left the cursor.
+        assert_eq!(ime_origin(None, (12, 5), 0), Some((12, 5)));
+        // Scrolled back: the anchor was clamped into the viewport, so nothing is drawn.
+        assert_eq!(ime_origin(None, (0, 5), 4), None);
     }
 }
