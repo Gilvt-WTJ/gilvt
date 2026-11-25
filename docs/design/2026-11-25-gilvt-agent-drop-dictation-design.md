@@ -33,12 +33,18 @@
 
 ### 3.1 拖入：识别 Agent
 
-`drop_action` / `hint` 不再自己比进程名，改为接收前台的 Agent 种类（`Option<AgentKind>`）。TerminalView 用
-`agents::process::foreground_of(foreground_pid, claude_cmds, codex_cmds)` 求出种类（`[agent]` 配置的命令名来自设置），
-与侧栏的识别一致，覆盖 node / bun、`codex-*`、包装器启动的 Agent。删除 `drop::AGENTS`。
+`drop_action` / `hint` 不再自己比进程名，改为接收 pane 的 Agent 种类（`Option<AgentKind>`）。种类取侧栏已经知道的结果，
+不在 UI 线程上查进程（`agents/process.rs:1` 要求阻塞调用放在后台线程）：
 
-`foreground_of` 可能遍历进程表，`drag_move` 每次鼠标移动都会触发：每次拖拽只在进入 pane 时求一次，缓存到拖拽结束
-（`drop_hint` 清空时一并清掉）；`drop_paths` 时重新求一次。
+- `Agents` 每秒一次的后台轮询（`agents/mod.rs` 的 `foreground_of_with`，`[agent]` 命令名取自
+  `cx.global::<AppSettings>().0.agent.{claude_commands,codex_commands}`）已经得到每个 pane 的 `Foreground`；
+  hook 上报的会话也知道 pane 属于哪个 Agent。两者合成「pane 当前的 Agent 种类」（hook 会话优先，其次 `Foreground::Agent`）。
+- workspace 在轮询结果更新后把种类写进对应 TerminalView 的字段 `agent_kind`；`drag_move` / `drop_paths` 只读这个字段。
+  刚启动 Agent、轮询还没跑到的一秒内按非 Agent 处理（预览），可以接受。
+- 远端（SSH）pane 不变：不查本地进程，现有的远端拖入逻辑不动。
+- 已知残留：经包装器启动、既没有 hook 也不能从进程树识别的 Agent（`process.rs` 归为 `Other`）仍按普通程序处理。
+
+删除 `drop::AGENTS`。
 
 ### 3.2 拖入：插入什么
 
@@ -48,7 +54,7 @@
 |---|---|---|
 | Claude | 扩展名 png / jpg / jpeg / gif / webp（不区分大小写） | 与现在相同：转义路径 + 空格 |
 | Claude | 其他文件、目录 | `@/abs/path`；路径含空格或 shell 特殊字符时写成 `@"/abs/path"` |
-| Claude | 路径含 `"` 或控制字符（无法放进 `@"…"`） | 回退为转义路径 |
+| Claude | 路径含 `"`、控制字符或 bidi 控制字符（无法安全放进 `@"…"`） | 回退为转义路径 |
 | Codex | 任意 | 与现在相同：转义路径 |
 | shell / 其他程序 | 任意 | 不变（默认预览） |
 
@@ -62,7 +68,11 @@
 ### 3.3 听写 / 输入法预编辑在隐藏光标时也画
 
 `terminal_element.rs` 里预编辑文字的位置改为 `snapshot.cursor` 或（光标隐藏时）`snapshot.ime_anchor`，与
-`bounds_for_range` 已有的取法一致；画预编辑时照旧不画光标。上屏行为不变：只有 `replace_text_in_range` 才写进 pty。
+`bounds_for_range` 已有的取法一致；画预编辑时照旧不画光标。位置抽成纯函数 `ime_origin(cursor, ime_anchor, display_offset)`：
+用户往回滚动（`display_offset > 0`）时返回 `None`，不画（`ime_anchor` 被夹到视口内，画出来会落在错误的行上）。
+
+已验证 Claude 隐藏光标时把它停在输入框插入点后（pty + pyte：输入 `abc` 后光标在 `❯ abc` 之后，`hidden=True`），
+所以 `ime_anchor` 就是 Claude 的插入点。上屏行为不变：只有 `replace_text_in_range` 才写进 pty。
 
 这同时修好：Claude / Codex 里听写实时可见、中文输入法组字可见、其他隐藏光标的全屏程序里组字可见。
 
@@ -73,16 +83,21 @@
 
 ## 4. 测试与验收
 
-- 单元测试（`drop.rs`、`gilvt-finder`）：每种前台 × 文件类型的插入文字；`@"…"` 的引号规则与回退；
-  图片扩展名大小写；`hint` 的中英文标签；`foreground_of` 识别出的种类驱动 `drop_action`。
-- 预编辑位置抽成纯函数（`ime_origin(cursor, ime_anchor)`），单元测试光标隐藏时取 `ime_anchor`。
-- DebugState：pane 增加 `marked_rect`（预编辑文字画出的 `rect`，没有预编辑时为 `null`），写进 `docs/debug-state.md`。
+- 单元测试（`drop.rs`、`gilvt-finder`）：每种 Agent 种类 × 文件类型的插入文字；`@"…"` 的引号规则与回退（`"`、控制字符、
+  bidi）；图片扩展名大小写；`hint` 的中英文标签；`ime_origin` 在光标可见 / 隐藏 / 回滚时的结果；hook 会话与轮询结果合成种类的规则。
+- DebugState：pane 增加 `agent_kind`（拖入判断用的种类，`claude` / `codex` / `null`）与 `marked_rect`（预编辑文字画出的
+  `rect`，没有预编辑或不画时为 `null`），写进 `docs/debug-state.md`。光标隐藏时 `cursor.rect` 已是 `ime_anchor`，用例可直接比较两者。
+- 预编辑测试钩子：`gilvt debug ime <text>`（只在 `GILVT_DEBUG_STATE=1` 时可用）对焦点 pane 调 `replace_and_mark`，
+  `gilvt debug ime --commit` / `--clear` 上屏或清除。没有它就无法自动化预编辑（`tests/gui/cases/V/V4.md` 因此是手动）。
+- fake agent：加一个隐藏光标（`\e[?25l`）、光标停在输入行的剧本或开关，并纳入防脱节测试。
 - `docs/compat-checklist.md` 新增一节「AG. 拖入交给 Agent 与隐藏光标时的预编辑」，每行一个 `tests/gui/cases/AG/<ID>.md`：
-  - 向 fake Claude 拖入 `.md` → 输入行出现 `@/…/x.md`；
+  - 向 fake Claude 拖入 `.md` → 输入行出现 `@/…/x.md`（`drive.sh drop`，需要前台，跑之前征得用户同意）；
   - 拖入 `.png` → 转义路径；拖入带空格的 `.md` → `@"…"`；
-  - 经 node 启动的 fake Codex（或配置的命令名）被识别为 Agent，拖入插入路径而不是预览；
-  - fake Agent 隐藏光标时，`marked_text` 非空且 `marked_rect` 位于 `ime_anchor` 所在格；
-  - 真实听写：`手动（需要麦克风与真实语音）`。
-  拖入在 driver 里需要模拟 Finder 拖放；如果 driver 还不支持，就在实施计划里加上这一步，或说明为什么只能手动。
+  - 以 `[agent] codex_commands` 里配置的名字运行的 fake Codex：`agent_kind == "codex"`，拖入插入路径而不是预览；
+  - fake Agent 隐藏光标时 `gilvt debug ime hello` → `marked_text == "hello"`，`marked_rect` 起点等于 `cursor.rect` 起点；
+    `--commit` 后输入行出现 `hello`；
+  - 真实听写（中文、英文）：`手动（需要麦克风与真实语音）`。
+  - 拖入时按住 ⌥ 的行为沿用已有用例，driver 无法按住 ⌥（见 AC17）。
+- 清单同步：删除「已知限制（M2c）」里「经 node 启动的 Agent 拖入时预览」那条。F11（拖入截图）的预期不变。
 - `CHANGELOG.md` `## [Unreleased]`：Changed（拖入非图片文件给 Claude 改为 `@` 引用；更多方式启动的 Agent 能被识别）、
   Fixed（Agent 里听写 / 输入法组字看不见）。
