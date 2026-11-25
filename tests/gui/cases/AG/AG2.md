@@ -15,7 +15,7 @@ type   'claude @scenario:hidden-cursor\n'
 wait   windows[0].tabs[0].panes[0].agent_kind == "claude" timeout=20s
 wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "Welcome to Claude Code" timeout=10s
 drop   '~/work/ag2/my note.md' 'rect(windows[0].tabs[0].panes[0].rect)'
-wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "❯ @\"/" && windows[0].tabs[0].panes[0].screen_tail[*] contains "/work/ag2/my note.md\" " timeout=10s
+wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "❯ @\"/" && windows[0].tabs[0].panes[0].screen_tail[*] contains "/work/ag2/my note.md\"" timeout=10s
 assert windows[0].overlay == null
 drop   '~/work/ag2/shot.png' 'rect(windows[0].tabs[0].panes[0].rect)'
 wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "/work/ag2/shot.png" timeout=10s
