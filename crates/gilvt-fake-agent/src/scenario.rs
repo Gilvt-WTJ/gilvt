@@ -67,8 +67,8 @@ pub struct Scenario {
     pub lite: bool,
     /// Set the terminal title like Claude Code does (OSC 0).
     pub cwd_title: bool,
-    /// Hide the terminal cursor while running and leave it at the input line, like Claude Code (which draws its
-    /// own caret): `\e[?25l` at start, `\e[?25h` on exit.
+    /// Hide the terminal cursor while running, like Claude Code (which draws its own caret): `\e[?25l` at start,
+    /// `\e[?25h` on exit. Only hides it: the normal echo of typed text leaves the hidden cursor after that text.
     pub hide_cursor: bool,
     pub steps: Vec<Step>,
 }

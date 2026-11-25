@@ -163,6 +163,7 @@ agent = "claude"                 # claude | codex；为空时取 argv[0]
 session = "auto"                 # auto = 新的 UUID；也可以写固定 UUID（恢复类用例要断言它）
 lite = false                     # true = 不发 hooks，只写 transcript（测试精简模式）
 cwd_title = true                 # 按 Claude 的行为设置 OSC 标题
+hide_cursor = false              # true = 隐藏终端光标（像 Claude Code 自己画光标），退出时恢复
 
 [[step]]
 prompt = "问我一个问题"            # user 消息 + UserPromptSubmit
