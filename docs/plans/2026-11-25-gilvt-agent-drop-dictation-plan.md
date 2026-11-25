@@ -8,6 +8,8 @@
 
 **Tech Stack:** Rust（gpui 0.2.2、alacritty_terminal 0.26），bash 3.2（tests/gui），Python 3（tests/gui/lib/guilib.py）。
 
+**任务顺序：** 1 → 3 → 2（含原 Task 4 的调用方改动，一起提交，否则不能编译）→ 5 → 6 → 7 → 8 → 9 → 10 → 11。
+
 **工作目录：** `/Users/bytedance/Workplace/gilvt/.claude/worktrees/drop-dictation`（分支 `feat/agent-drop-dictation`）。所有命令都在这里运行。
 构建用一次性的 `CARGO_TARGET_DIR=~/gilvt-build-agent-drop`，全部完成后删除（CLAUDE.md「测试完成后清理」）。
 
@@ -28,10 +30,10 @@
 | `crates/gilvt-app/src/drop.rs` | 签名改为 `Option<AgentKind>`；按 Agent / 文件类型生成文字；删除 `AGENTS`；新增 `drop_agent(remote, agent)` |
 | `crates/gilvt-app/src/agents/state.rs` | `Core` 记录上次轮询里每个 pane 的 Agent 种类；`Core::pane_agent` |
 | `crates/gilvt-app/src/agents/mod.rs` | `Agents::pane_agent` |
-| `crates/gilvt-app/src/terminal_view.rs` | 存 `pane: PaneId`；`drop_paths` / `drag_move` 用 `pane_agent`；`commit_text`；`set_preedit_for_test`；`debug_marked_rect` |
+| `crates/gilvt-app/src/terminal_view.rs` | 存 `pane: PaneId`；`drop_paths` / `drag_move` 用 `pane_agent`；`commit_text`；`preedit_for_test`；`debug_marked` |
 | `crates/gilvt-app/src/workspace.rs` | `TerminalView::new` 传 pane id |
 | `crates/gilvt-app/src/terminal_element.rs` | `ime_origin` 纯函数及其在绘制里的使用 |
-| `crates/gilvt-app/src/debug_state/mod.rs`、`workspace/debug.rs`、`debug_state/tests.rs` | pane 新字段 `agent_kind`、`marked_rect` |
+| `crates/gilvt-app/src/debug_state/mod.rs`、`workspace/debug.rs`、`debug_state/tests.rs` | pane 新字段 `agent_kind`、`marked` |
 | `docs/debug-state.md` | 两个新字段；新命令 `gilvt debug preedit` |
 | `crates/gilvt-ipc/src/lib.rs` | `Request::DebugPreedit`，与 `DebugState` 走同一个查询通道 |
 | `crates/gilvt-app/src/ipc_bridge.rs`、`debug_state/mod.rs`（`live_queries`） | 处理 `DebugPreedit` |
@@ -230,7 +232,7 @@ pub fn hint(agent: Option<AgentKind>, alt: bool, paths: &[PathBuf]) -> String;
     }
 ```
 
-保留文件里与本改动无关、且仍能编译的已有测试（例如插入多文件的转义测试），把其中的 `Some("claude")` 换成 `Some(Claude)`、`Some("bash")` 换成 `None`。
+旧测试的处理（逐个对照 `drop.rs` 的 `mod tests`）：删除 `agents_insert_and_everything_else_previews`、`alt_picks_the_other_action`、`directories_are_not_previewed`（旧版）、`an_empty_drop_does_nothing`（被 `nothing_dropped_does_nothing` 取代）、`hints_read_in_english`；`inserts_escaped_absolute_paths`、`hints_follow_alt` 这类期望转义路径 /「插入路径」的测试，把 `Some("claude")` 换成 `Some(Codex)`（Codex 的行为与旧 Claude 相同），`Some("bash")` 等换成 `None`；它们解构 `files()` 的地方改成五元组 `(_tmp, a, b, _png, dir)`。
 先确认 `crate::i18n::Language` 的中文变体名（`grep -n "enum Language" -A4 crates/gilvt-app/src/i18n.rs`），与现有的 `hints_read_in_english` 测试保持一致后删除那个旧测试（被 `hints_name_claude` 取代）。
 
 - [ ] **Step 2: 运行，确认失败**
@@ -336,9 +338,7 @@ pub fn hint(agent: Option<AgentKind>, alt: bool, paths: &[PathBuf]) -> String {
 如果 `gilvt_finder` 没有导出 `shell_escape`，在 `crates/gilvt-finder/src/lib.rs` 把它和 `insertion` 一起导出。
 `insertion(None|Codex, …)` 必须与旧的 `gilvt_finder::insertion` 逐字节相同（Codex 测试会检查）。
 
-- [ ] **Step 4: 运行，确认通过**（此时 `terminal_view.rs` 还在用旧签名，先只编译 drop 测试会失败；所以本任务和 Task 4 的调用方改动一起编译。临时做法：本步只跑 `cargo check -p gilvt-app` 看 drop.rs 自身无错，调用处报错留给 Task 4）
-
-为了让每个提交都能编译，**把 Task 4 的 Step 3（调用方改动）提前到本任务一起做**也可以；推荐顺序：先做 Task 3，再把 Task 2 与 Task 4 合并提交。
+- [ ] **Step 4: 不单独运行**：`terminal_view.rs` 还在用旧签名。接着做 Task 4（同一个实施者、同一次提交），在 Task 4 的 Step 3 一起编译、测试。
 
 ---
 
@@ -364,9 +364,9 @@ pub fn hint(agent: Option<AgentKind>, alt: bool, paths: &[PathBuf]) -> String {
         // A Claude hook in pane 7 wins over the poll.
         hook(&mut core, 7, "SessionStart", payload("s1"), true, t0);
         assert_eq!(core.pane_agent(7), Some(AgentKind::Claude));
-        // Back at the shell: the next poll forgets the pane.
-        core.poll(&[(8, Foreground::Shell)], t0 + Duration::from_secs(1), SystemTime::now());
-        assert_eq!(core.pane_agent(8), None);
+        // Pane 7 back at the shell: the poll ends its session and forgets the pane.
+        core.poll(&[(7, Foreground::Shell), (8, Foreground::Shell)], t0 + Duration::from_secs(1), SystemTime::now());
+        assert_eq!(core.pane_agent(7), None);
     }
 
     #[test]
@@ -510,7 +510,7 @@ git commit -m "drop: Claude gets @-references; agents come from the sidebar's de
 
 **Files:**
 - Modify: `crates/gilvt-app/src/terminal_element.rs`（`ime_origin` 与 `let ime = match (marked, snapshot.cursor)` 一段；测试加进该文件，没有测试模块就新建 `#[cfg(test)] mod tests`）
-- Modify: `crates/gilvt-app/src/terminal_view.rs`（`debug_marked_rect`）
+- Modify: `crates/gilvt-app/src/terminal_view.rs`（`debug_marked`）
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -574,16 +574,16 @@ pub(crate) fn ime_origin(cursor: Option<(usize, usize)>, ime_anchor: (usize, usi
 `terminal_view.rs` 加（放在 `debug_cursor` 后面）：
 
 ```rust
-    /// Where the uncommitted IME text was drawn in the latest frame (`ime_origin`), sized by its cells; `None`
-    /// without one or when it is not drawn.
-    pub(crate) fn debug_marked_rect(&self) -> Option<Bounds<Pixels>> {
+    /// Where the uncommitted IME text was drawn in the latest frame (`ime_origin`): its viewport cell and its
+    /// bounds, sized by its cells; `None` without one or when it is not drawn.
+    pub(crate) fn debug_marked(&self) -> Option<(usize, usize, Bounds<Pixels>)> {
         let text = self.marked_text.as_ref()?;
         let l = self.layout.as_ref()?;
         let s = &l.snapshot;
         let (row, col) = crate::terminal_element::ime_origin(s.cursor.map(|c| (c.row, c.col)), s.ime_anchor, s.display_offset)?;
         let cells = unicode_width::UnicodeWidthStr::width(text.as_str()).max(1);
         let origin = l.bounds.origin + gpui::point(l.metrics.cell_width * col as f32, l.metrics.line_height * row as f32);
-        Some(Bounds { origin, size: gpui::size(l.metrics.cell_width * cells as f32, l.metrics.line_height) })
+        Some((row, col, Bounds { origin, size: gpui::size(l.metrics.cell_width * cells as f32, l.metrics.line_height) }))
     }
 ```
 
@@ -603,7 +603,7 @@ git commit -m "terminal: draw IME / dictation preedit where a TUI parked its hid
 
 ---
 
-### Task 6: DebugState 字段 `agent_kind`、`marked_rect`
+### Task 6: DebugState 字段 `agent_kind`、`marked`
 
 **Files:**
 - Modify: `crates/gilvt-app/src/debug_state/mod.rs`（`Pane` 结构体，`marked_text` 之后）
@@ -611,7 +611,7 @@ git commit -m "terminal: draw IME / dictation preedit where a TUI parked its hid
 - Modify: `crates/gilvt-app/src/debug_state/tests.rs`（构造 `Pane` 的地方、JSON 期望）
 - Modify: `docs/debug-state.md`（pane 字段表，`marked_text` 行后）
 
-- [ ] **Step 1: 改测试里的期望**：`tests.rs:83` 一带构造 `Pane` 处加 `agent_kind: None, marked_rect: None,`；`tests.rs:281` 一带的 JSON 期望加 `"agent_kind": null, "marked_rect": null`（键的位置按 serde 输出顺序，紧跟 `marked_text`）。
+- [ ] **Step 1: 改测试里的期望**：`tests.rs:83` 一带构造 `Pane` 处加 `marked: None, agent_kind: None,`；`tests.rs:281` 一带的 JSON 期望加 `"marked": null, "agent_kind": null`（键的位置按 serde 输出顺序，紧跟 `marked_text`）。
 
 - [ ] **Step 2: 运行，确认失败**
 
@@ -623,9 +623,9 @@ Expected: 编译失败（`Pane` 没有这些字段）。
 `debug_state/mod.rs` 的 `Pane`，`marked_text` 之后：
 
 ```rust
-    /// Where `marked_text` is drawn: at the cursor, or at a hidden cursor's position; null without marked text,
-    /// while scrolled back with a hidden cursor, and for other panes.
-    pub marked_rect: Option<Rect4>,
+    /// Where `marked_text` is drawn: the viewport cell (the cursor's, or a hidden cursor's position) and its rect;
+    /// null without marked text, while scrolled back with a hidden cursor, and for other panes.
+    pub marked: Option<TermCursor>,
     /// Terminals: the agent a drop goes to — "claude" | "codex" (hooks, else the foreground poll; null inside an
     /// ssh link); null otherwise.
     pub agent_kind: Option<&'static str>,
@@ -634,8 +634,12 @@ Expected: 编译失败（`Pane` 没有这些字段）。
 `workspace/debug.rs` 的 `ds::Pane { … }` 里 `marked_text,` 之后：
 
 ```rust
-            marked_rect: match view {
-                Some(PaneView::Terminal(t)) => t.read(cx).debug_marked_rect().map(|b| rects::in_frame(rects::rect_of(b), titlebar)),
+            marked: match view {
+                Some(PaneView::Terminal(t)) => t.read(cx).debug_marked().map(|(row, col, b)| ds::TermCursor {
+                    row,
+                    col,
+                    rect: rects::in_frame(rects::rect_of(b), titlebar),
+                }),
                 _ => None,
             },
             agent_kind: match view {
@@ -652,7 +656,7 @@ Expected: 编译失败（`Pane` 没有这些字段）。
 `docs/debug-state.md`，`marked_text` 行之后加两行：
 
 ```markdown
-| `marked_rect` | rect 或 `null` | 终端 pane：`marked_text` 画出的区域（起点是光标所在格；TUI 隐藏光标时是它停放光标的格，即 `cursor.rect` 的起点），宽度按字符格数；没有预编辑、隐藏光标且往回滚动（不画）、其他 pane 为 `null` |
+| `marked` | 对象或 `null` | 终端 pane：`marked_text` 画在哪里，`{ "row", "col", "rect" }`（与 `cursor` 同形）：光标所在格；TUI 隐藏光标时是它停放光标的格（与 `cursor` 的 `row` / `col` 相同），`rect` 宽度按字符格数；没有预编辑、隐藏光标且往回滚动（不画）、其他 pane 为 `null` |
 | `agent_kind` | 字符串或 `null` | 终端 pane：拖入文件时交给的 Agent，`"claude"` / `"codex"`：先看绑定在 pane 上的本机会话（hooks），否则看最近一次前台轮询（与侧栏同一套规则，含包装器、`[agent]` 命令名）；ssh 里的 pane、不是 Agent、其他 pane 为 `null`。`claude` 时拖入非图片文件插入 `@` 引用 |
 ```
 
@@ -665,7 +669,7 @@ Expected: PASS（`untranslated` 测试：`agent_kind` 的值是 ASCII，不需�
 
 ```bash
 git add crates/gilvt-app docs/debug-state.md
-git commit -m "debug state: panes report agent_kind and marked_rect" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "debug state: panes report agent_kind and where the preedit is drawn" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -811,7 +815,7 @@ pub fn debug_preedit(pane: Option<u64>, action: &gilvt_ipc::PreeditAction, cx: &
                 }
 ```
 
-（`Response` 需要引入；`debug_preedit` 的模块路径按实际可见性调整，必要时在 `workspace/mod` 里 `pub use`。）
+（`Response` 需要引入。`workspace.rs:12` 的 `mod debug` 是私有的：改成 `pub(crate) mod debug`，调用写 `crate::workspace::debug::debug_preedit`。）
 
 - [ ] **Step 6: CLI 的失败测试**（`gilvt-cli/src/debug/mod.rs` 若有 `parse_args` 的测试模块就加进去，没有就新建）
 
@@ -854,7 +858,7 @@ Run: `cargo test -p gilvt-cli parses_preedit` → 编译失败。
     }
 ```
 
-错误提示 `gilvt debug needs state, wait or eval` 改为 `state, wait, eval or preedit`。`run` 里：
+文件头 `use gilvt_ipc::{…}` 加上 `PreeditAction`。错误提示 `gilvt debug needs state, wait or eval` 改为 `state, wait, eval or preedit`。`run` 里：
 
 ```rust
         DebugCommand::Preedit { pid, pane, action } => {
@@ -920,7 +924,7 @@ Run: `cargo test -p gilvt-fake-agent hide_cursor` → 编译失败。
     pub hide_cursor: bool,
 ```
 
-`TOP_KEYS` 加 `"hide_cursor"`（数组长度 +1）；`let (lite, cwd_title) = …` 后加 `let hide_cursor = flag("hide_cursor", false)?;`，构造时带上。
+`TOP_KEYS` 加 `"hide_cursor"`（数组长度 6 → 7）；`let (lite, cwd_title) = …` 后加 `let hide_cursor = flag("hide_cursor", false)?;`，构造时带上。
 其他构造 `Scenario { … }` 的地方（`grep -rn "Scenario {" crates/gilvt-fake-agent`）补 `hide_cursor: false`。
 
 - [ ] **Step 3: engine**：`Settings` 加 `pub hide_cursor: bool`；`run` 开头（`welcome` 之前）：
@@ -939,7 +943,8 @@ Run: `cargo test -p gilvt-fake-agent hide_cursor` → 编译失败。
         }
 ```
 
-`main.rs:124` 传 `hide_cursor: scenario.hide_cursor`，`main.rs:163`（headless seed）传 `hide_cursor: false`。其他构造 `Settings {` 的地方（测试里）补 `hide_cursor: false`。
+`main.rs:124` 传 `hide_cursor: scenario.hide_cursor`，`main.rs:163`（headless seed）传 `hide_cursor: false`。
+测试辅助 `crates/gilvt-fake-agent/tests/common/mod.rs:121` 的 `Settings { … }` 传 **`hide_cursor: scenario.hide_cursor`**（不是 false，否则新测试看不到 `\e[?25l`）。其他构造 `Settings {` 的地方补 `hide_cursor: false`。
 
 - [ ] **Step 4: 剧本**
 
@@ -957,7 +962,8 @@ idle = true
 ln -s ../../../crates/gilvt-fake-agent/scenarios/hidden-cursor.toml tests/gui/scenarios/hidden-cursor.toml
 ```
 
-若 `BUILTIN`（`scenario.rs`）是手写列表，把 `hidden-cursor` 加进去（`one_source_of_truth_for_scenarios` 会检查）。
+`BUILTIN`（`scenario.rs:19`）是定长数组 `[(&str, &str); 28]`：改成 29，并加一项
+`("hidden-cursor", include_str!("../scenarios/hidden-cursor.toml")),`（`one_source_of_truth_for_scenarios` 会检查）。
 
 - [ ] **Step 5: 防脱节测试**（`tests/gui_scenarios.rs`，仿照文件里用 `Scripted` 与按键运行的测试；`common::run` / `Opts` 的用法照现有测试）
 
@@ -966,8 +972,8 @@ ln -s ../../../crates/gilvt-fake-agent/scenarios/hidden-cursor.toml tests/gui/sc
 fn hidden_cursor_hides_then_restores_the_cursor() {
     let s = builtin("hidden-cursor");
     assert!(s.hide_cursor);
-    let r = run(&s, Opts { keys: Scripted::new(vec![Key::Paste("@/tmp/x.md ".into()), Key::Char('/'), Key::Char('e'), Key::Char('x'), Key::Char('i'), Key::Char('t'), Key::Enter]), ..Opts::default() });
-    let out = r.output();
+    let r = run(&s, common::keys([Key::Paste("@/tmp/x.md ".into()), Key::Char('/'), Key::Char('e'), Key::Char('x'), Key::Char('i'), Key::Char('t'), Key::Enter]), Opts::default());
+    let out = &r.screen;
     let hide = out.find("\x1b[?25l").expect("hides the cursor");
     let show = out.rfind("\x1b[?25h").expect("shows it again on exit");
     assert!(hide < out.find("@/tmp/x.md").unwrap() && out.find("@/tmp/x.md").unwrap() < show, "{out:?}");
@@ -975,7 +981,7 @@ fn hidden_cursor_hides_then_restores_the_cursor() {
 }
 ```
 
-（`Opts` 的按键字段名、`Run` 取终端输出的方法名以 `tests/common/mod.rs` 为准；`ends_idle` 若不适用于 `/exit` 结束，换成检查 `r.statuses()` 最后是 `"ended"`。）
+（`r.screen` 是终端原始输出；`/tmp/x.md ` 之后输入 `/exit`，所以 `@/tmp/x.md /exit` 是一行，`/exit` 仍然生效与否以 engine 的 `read_line` 为准——若粘贴后的 `/exit` 不会退出，就先 `Key::CtrlU` 清行再输 `/exit`。`ends_idle` 若不适用，换成检查 `r.statuses()` 最后是 `"ended"`。）
 
 - [ ] **Step 6: 运行**
 
@@ -1038,11 +1044,12 @@ git commit -m "fake agent: hide_cursor, and the hidden-cursor scenario" -m "Co-A
 - [ ] **Step 3: selftest**：在 `drive.sh (stubs)` 一节（`:657` 之后）仿照已有 stub 检查加：
 
 ```bash
-check "drive: preedit passes the text to gilvt debug preedit" "debug preedit 你好 --pid" stub_drive preedit 你好
-check_rc "drive: preedit needs one argument" 2 stub_drive preedit
+reset
+drv preedit 你好 >/dev/null 2>&1
+if logged "debug preedit 你好 --pid"; then ok; else bad "preedit: $(cat "$LOG")"; fi
 ```
 
-（`stub_drive` / stub gilvt 的记录格式按该节现有写法改名对齐；目标是检查 stub gilvt 收到的参数。）以及 `step-args` 的一条：`check "step: preedit" "[preedit] [--commit]" sa 'preedit --commit'`（照 `:293` 的 `sa` 写法）。
+（照 `:799-801` 的 `reset` / `drv` / `logged` 写法；`logged` 的字符串要与 stub gilvt 记进 `$LOG` 的格式一致，先看 stub gilvt 怎么记录 `debug state` 调用。）以及 `step-args` 的一条：`check "step: preedit" '[preedit][--commit]' sa 'preedit --commit'`（`sa` 输出的方括号之间没有空格）。
 
 - [ ] **Step 4: 运行**
 
@@ -1065,18 +1072,18 @@ git commit -m "gui driver: drop takes sandbox paths; preedit action" -m "Co-Auth
 - Create: `tests/gui/cases/AG/AG1.md` … `AG6.md`
 - Modify: `CHANGELOG.md`
 
-- [ ] **Step 1: 清单**（列与 AE 节相同：`| ID | 操作 | 预期 | 用例 |`；先 `sed -n 614,630p docs/compat-checklist.md` 看 AE 节的表头照抄）
+- [ ] **Step 1: 清单**（与 AE 节同格式：表头 `| # | 操作 | 期望 | 用例 |`，用例列是链接 `[AG1](../tests/gui/cases/AG/AG1.md)`，`selftest.sh` 按这个格式检查）
 
 ```markdown
 ## AG. 拖入交给 Agent 与隐藏光标时的预编辑
 
-| ID | 操作 | 预期 | 用例 |
-|---|---|---|---|
-| AG1 | 从访达把一个 `.md` 拖到运行 `claude` 的 pane | 输入行出现 `@/…/note.md `（Claude 发送时读入文件），不打开预览；拖动提示为「松开：附加给 Claude · 按住 ⌥ 预览」 | `tests/gui/cases/AG/AG1.md` |
-| AG2 | 拖入文件名带空格的 `.md`，以及一张 `.png` | `.md` 插入为 `@"/…/my note.md"`；`.png` 插入为转义路径（`/…/shot.png`），Claude 会把它变成 `[Image#N]` | `tests/gui/cases/AG/AG2.md` |
-| AG3 | `[agent] codex_commands` 加上 `mycodex`，在 pane 里运行 `mycodex`，拖入 `.md` | `agent_kind` 为 `codex`；插入转义路径，不打开预览 | `tests/gui/cases/AG/AG3.md` |
-| AG4 | 隐藏光标的 Agent（如 Claude Code）里，输入法 / 听写正在组字 | 预编辑文字带下划线画在 Agent 的插入点（隐藏光标所在格），上屏后写入 Agent 的输入行 | `tests/gui/cases/AG/AG4.md` |
-| AG5 | 在 ssh 里运行的 Claude 上拖入 `.md` | 不插入 `@` 引用（本地路径远端看不到）：与 ssh 里其他程序相同 | `tests/gui/cases/AG/AG5.md` |
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| AG1 | 从访达把一个 `.md` 拖到运行 `claude` 的 pane | 输入行出现 `@/…/note.md `（Claude 发送时读入文件），不打开预览；`agent_kind` 为 `claude` | [AG1](../tests/gui/cases/AG/AG1.md) |
+| AG2 | 拖入文件名带空格的 `.md`，以及一张 `.png` | `.md` 插入为 `@"/…/my note.md"`；`.png` 插入为转义路径（`/…/shot.png`），Claude 会把它变成 `[Image#N]` | [AG2](../tests/gui/cases/AG/AG2.md) |
+| AG3 | `[agent] codex_commands` 加上 `mycodex`，在 pane 里运行 `mycodex`，拖入 `.md` | `agent_kind` 为 `codex`；插入转义路径，不打开预览 | [AG3](../tests/gui/cases/AG/AG3.md) |
+| AG4 | 隐藏光标的 Agent（如 Claude Code）里，输入法 / 听写正在组字 | 预编辑文字带下划线画在 Agent 的插入点（隐藏光标所在格），上屏后写入 Agent 的输入行 | [AG4](../tests/gui/cases/AG/AG4.md) |
+| AG5 | 在 ssh 里运行的 Claude 上拖入 `.md` | 不插入 `@` 引用（本地路径远端看不到）：与 ssh 里其他程序相同 | [AG5](../tests/gui/cases/AG/AG5.md) |
 | AG6 | 在 Claude Code 里用 macOS 听写（中文、英文各一句） | 说话时文字实时出现在 Claude 的输入框（预编辑），停下后上屏 | 手动（需要麦克风与真实语音） |
 ```
 
@@ -1103,24 +1110,22 @@ type   'claude @scenario:hidden-cursor\n'
 wait   windows[0].tabs[0].panes[0].agent_kind == "claude" timeout=20s
 drop   ~/work/ag1/note.md 'rect(windows[0].tabs[0].panes[0].rect)'
 wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "@/" && windows[0].tabs[0].panes[0].screen_tail[*] contains "/work/ag1/note.md"
-assert windows[0].tabs[0].panes[0].screen_tail[*] contains "@/" 
-assert windows[0].previews exists count=0
+assert windows[0].overlay == null
 shot   ag1-dropped
-type   '\x15'
-key    ctrl+c
-key    ctrl+c
+key    ctrl+u
+type   "/exit\n"
 wait   windows[0].tabs[0].panes[0].foreground == "shell" timeout=15s
 ```
 
 ## judge
-- `ag1-dropped`：Claude 的输入行是 `❯ @/…/work/ag1/note.md`，没有 Quick Look 浮层。
+- `ag1-dropped`：Claude 的输入行是 `❯ @/…/work/ag1/note.md`，没有 Quick Look 浮层。（拖动提示「松开：附加给 Claude · 按住 ⌥ 预览」不在 DebugState 里、截图时已消失：跑用例时人工看一眼即可。）
 ````
 
-（`windows[0].previews` 的实际路径、清空输入行的按键写法以 `docs/debug-state.md` 与其他用例为准；`selftest.sh` 会检查路径能解析。不能用 `type '\x15'` 时改成 `key ctrl+u`。）
+（`type` 只认 `\n`、`\t`、`\\` 三种转义；fake agent 的输入行有字时第一次 ctrl+c 只清行，所以用 `key ctrl+u` 清行再 `/exit`。）
 
 AG2：同样的开头，`sh "mkdir -p ~/work/ag2 && echo hi > '~/work/ag2/my note.md'"`（注意引号：用 `cd ~/work/ag2 && echo hi > 'my note.md'`），再 `sh "cp <一张小 png> ~/work/ag2/shot.png"`（用 `printf` 写 8 字节 PNG 头即可：Claude 只在 fake agent 里，内容不重要），两次 `drop`，断言 `screen_tail[*] contains "@\"/"` 与 `contains "/work/ag2/shot.png"` 且不含 `@/…shot.png`。
 
-AG3：`restart --set 'agent.codex_commands=["codex","mycodex"]'`；`sh "cp \"$(command -v codex)\" ~/bin/mycodex"`——沙盒 PATH 里 fake 的位置以 `sandbox.sh` 为准（`$bin/codex`，`bin` 在 `PATH` 里；`sh` 动作在沙盒环境运行，`command -v codex` 可用；目标放在同一个 `bin` 目录：`cp "$(command -v codex)" "$(dirname "$(command -v codex)")/mycodex"`）；剧本用 `codex-basic`（`agent = "codex"`，确认该剧本等在提示符；不等的话新建一个 `agent = "codex"` + `idle` 的剧本并加入 Task 8 的防脱节测试）；运行 `mycodex @scenario:codex-basic`；`wait …agent_kind == "codex" timeout=20s`（轮询每秒一次）；`drop`；断言插入的是不带 `@` 的转义路径。
+AG3：`restart --set 'agent.codex_commands=["codex","mycodex"]'`；`sh "cp \"$(command -v codex)\" ~/bin/mycodex"`——沙盒 PATH 里 fake 的位置以 `sandbox.sh` 为准（`$bin/codex`，`bin` 在 `PATH` 里；`sh` 动作在沙盒环境运行，`command -v codex` 可用；目标放在同一个 `bin` 目录：`cp "$(command -v codex)" "$(dirname "$(command -v codex)")/mycodex"`）；剧本用 `codex-basic`（`agent = "codex"`，确认该剧本等在提示符；不等的话新建一个 `agent = "codex"` + `idle` 的剧本并加入 Task 8 的防脱节测试）；运行 `GILVT_FAKE_AGENT=codex mycodex @scenario:codex-basic`（fake agent 按自己的名字选 persona，`mycodex` 不是 `codex*`，所以用环境变量指定；改名成 `codex-x` 没用，gilvt 不看配置也认得 `codex*`）。在用例说明里记下：若 codex 的 hooks 在沙盒里也绑定了会话，`agent_kind` 来自 hooks 而不是轮询——用 `assert …foreground == "agent:codex"` 额外确认前台识别走了 `codex_commands`；`wait …agent_kind == "codex" timeout=20s`（轮询每秒一次）；`drop`；断言插入的是不带 `@` 的转义路径。
 
 AG4：
 
@@ -1139,15 +1144,16 @@ type   'abc'
 wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "❯ abc"
 preedit 你好
 wait   windows[0].tabs[0].panes[0].marked_text == "你好"
-assert windows[0].tabs[0].panes[0].marked_rect != null
-assert windows[0].tabs[0].panes[0].marked_rect.x == windows[0].tabs[0].panes[0].cursor.rect.x
-assert windows[0].tabs[0].panes[0].marked_rect.y == windows[0].tabs[0].panes[0].cursor.rect.y
+assert windows[0].tabs[0].panes[0].cursor.col == 5
+assert windows[0].tabs[0].panes[0].marked.col == 5
+assert windows[0].tabs[0].panes[0].marked.row exists count=1
 shot   ag4-preedit
 preedit --commit
 wait   windows[0].tabs[0].panes[0].screen_tail[*] contains "❯ abc你好"
 assert windows[0].tabs[0].panes[0].marked_text == null
-key    ctrl+c
-key    ctrl+c
+assert windows[0].tabs[0].panes[0].marked == null
+key    ctrl+u
+type   "/exit\n"
 wait   windows[0].tabs[0].panes[0].foreground == "shell" timeout=15s
 ```
 
@@ -1155,7 +1161,7 @@ wait   windows[0].tabs[0].panes[0].foreground == "shell" timeout=15s
 - `ag4-preedit`：「你好」带下划线紧跟在 `❯ abc` 之后，不在屏幕别处。
 ````
 
-（条件语法若不支持两个路径相等比较，就先 `state` 取 `cursor.rect`，或改为断言 `marked_rect.x > 0` 并在 judge 里人工核对位置；以 `crates/gilvt-cli/src/debug/cond.rs` 支持的语法为准。）
+（条件只能拿路径和字面量比较：`❯ abc` 之后插入点在第 5 列（`❯`、空格、a、b、c 占 0–4 列），所以 `cursor.col` 与 `marked.col` 都断言 5；`marked.row` 与 `cursor.row` 相同由 judge 截图核对。条件语法以 `crates/gilvt-cli/src/debug/cond.rs` 为准。）
 
 AG5：`requires: remote`，照 AC 节远端用例的开头（`remote-test`、`ssh …` 登录）；在远端运行 fake claude（AC 节的远端 fake agent 用法照抄），`assert …agent_kind == null`；`drop` 一个本地 `.md`，断言 `screen_tail` 不含 `@/`。若远端用例的准备太重，可写 `手动（需要远端）` 并保留用例文件说明步骤（CLAUDE.md 允许，但要写原因）。
 

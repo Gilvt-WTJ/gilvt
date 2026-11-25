@@ -39,10 +39,10 @@
 - `Agents` 每秒一次的后台轮询（`agents/mod.rs` 的 `foreground_of_with`，`[agent]` 命令名取自
   `cx.global::<AppSettings>().0.agent.{claude_commands,codex_commands}`）已经得到每个 pane 的 `Foreground`；
   hook 上报的会话也知道 pane 属于哪个 Agent。两者合成「pane 当前的 Agent 种类」（hook 会话优先，其次 `Foreground::Agent`）。
-- workspace 在轮询结果更新后把种类写进对应 TerminalView 的字段 `agent_kind`；`drag_move` / `drop_paths` 只读这个字段。
+- TerminalView 记住自己的 pane id，`drag_move` / `drop_paths` 时读全局 `Agents::pane_agent(pane)`（只读内存里的状态，不查进程）。
   刚启动 Agent、轮询还没跑到的一秒内按非 Agent 处理（预览），可以接受。
 - 远端（SSH）pane 不变：远端 Claude 的 hook 也会关联到本地 pane（`Agents::remote_hook`），但本地路径远端看不到，
-  所以 `self.remote.is_some()` 时 `drop_action` 忽略 `agent_kind`，按现在的逻辑处理（单元测试覆盖）。
+  所以 `self.remote.is_some()` 时 `drop_action` 忽略 Agent 种类，按现在的逻辑处理（单元测试覆盖）。
 - 已知残留：经包装器启动、既没有 hook 也不能从进程树识别的 Agent（`process.rs` 归为 `Other`）仍按普通程序处理。
 
 删除 `drop::AGENTS`。
@@ -86,16 +86,16 @@
 
 - 单元测试（`drop.rs`、`gilvt-finder`）：每种 Agent 种类 × 文件类型的插入文字；`@"…"` 的引号规则与回退（`"`、控制字符、
   bidi）；图片扩展名大小写；`hint` 的中英文标签；`ime_origin` 在光标可见 / 隐藏 / 回滚时的结果；hook 会话与轮询结果合成种类的规则。
-- DebugState：pane 增加 `agent_kind`（拖入判断用的种类，`claude` / `codex` / `null`）与 `marked_rect`（预编辑文字画出的
+- DebugState：pane 增加 `agent_kind`（拖入判断用的种类，`claude` / `codex` / `null`）与 `marked`（`{ row, col, rect }`，预编辑文字画出的
   `rect`，没有预编辑或不画时为 `null`），写进 `docs/debug-state.md`。光标隐藏时 `cursor.rect` 已是 `ime_anchor`，用例可直接比较两者。
-- 预编辑测试钩子（debug IPC 新增一个会改状态的请求；未以 `GILVT_DEBUG_STATE=1` 启动时拒绝）：`gilvt debug ime <text>`（只在 `GILVT_DEBUG_STATE=1` 时可用）对焦点 pane 调 `replace_and_mark`，
-  `gilvt debug ime --commit` / `--clear` 上屏或清除。没有它就无法自动化预编辑（`tests/gui/cases/V/V4.md` 因此是手动）。
+- 预编辑测试钩子（debug IPC 新增一个会改状态的请求；未以 `GILVT_DEBUG_STATE=1` 启动时拒绝）：`gilvt debug preedit <text>`（只在 `GILVT_DEBUG_STATE=1` 时可用）对焦点 pane 调 `replace_and_mark`，
+  `gilvt debug preedit --commit` / `--clear` 上屏或清除。没有它就无法自动化预编辑（`tests/gui/cases/V/V4.md` 因此是手动）。
 - fake agent：加一个隐藏光标（`\e[?25l`）、光标停在输入行的剧本或开关，并纳入防脱节测试。
 - `docs/compat-checklist.md` 新增一节「AG. 拖入交给 Agent 与隐藏光标时的预编辑」，每行一个 `tests/gui/cases/AG/<ID>.md`：
   - 向 fake Claude 拖入 `.md` → 输入行出现 `@/…/x.md`（`drive.sh drop`，需要前台，跑之前征得用户同意）；
   - 拖入 `.png` → 转义路径；拖入带空格的 `.md` → `@"…"`；
   - 以 `[agent] codex_commands` 里配置的名字运行的 fake Codex：`agent_kind == "codex"`，拖入插入路径而不是预览；
-  - fake Agent 隐藏光标时 `gilvt debug ime hello` → `marked_text == "hello"`，`marked_rect` 起点等于 `cursor.rect` 起点；
+  - fake Agent 隐藏光标时 `gilvt debug preedit hello` → `marked_text == "hello"`，`marked.col` 等于 `cursor.col`（输入行 `❯ abc` 后为 5）；
     `--commit` 后输入行出现 `hello`；
   - 真实听写（中文、英文）：`手动（需要麦克风与真实语音）`。
   - 拖入时按住 ⌥ 的行为沿用已有用例，driver 无法按住 ⌥（见 AC17）。
