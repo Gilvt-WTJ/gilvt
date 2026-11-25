@@ -101,6 +101,8 @@ pub struct TerminalView {
     commands: CommandLog,
     /// What releasing the files dragged over this pane would do.
     drop_hint: Option<String>,
+    /// This view's pane: its agent decides what a drop inserts.
+    pane: PaneId,
     /// The pane's hitbox in the last frame: not hovered while an overlay (Quick Look, the palette)
     /// covers the pointer, so no hint shows for a drop that would land there.
     hitbox: Rc<Cell<Option<HitboxId>>>,
@@ -163,7 +165,7 @@ pub fn spawn_session(settings: &Settings, env: &ShellEnv, pane: PaneId, cwd: Opt
 }
 
 impl TerminalView {
-    pub fn new(session: TermSession, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(pane: PaneId, session: TermSession, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let events = session.events();
         let event_task = cx.spawn_in(window, async move |this, cx| {
             while let Ok(event) = events.recv().await {
@@ -199,6 +201,7 @@ impl TerminalView {
             link_recheck: false,
             commands: CommandLog::default(),
             drop_hint: None,
+            pane,
             hitbox: Rc::new(Cell::new(None)),
             launch_queue: Queue::default(),
             _event_task: event_task,
@@ -776,6 +779,12 @@ impl TerminalView {
         }
     }
 
+    /// The agent a drop on this pane goes to (none inside an ssh link). Reads the agents' state; no process lookup.
+    fn drop_target(&self, cx: &gpui::App) -> Option<gilvt_agent::AgentKind> {
+        let agent = cx.try_global::<crate::agents::Agents>().and_then(|a| a.pane_agent(self.pane));
+        crate::drop::drop_agent(self.remote.is_some(), agent)
+    }
+
     fn drop_paths(&mut self, paths: &ExternalPaths, _: &mut Window, cx: &mut Context<Self>) {
         self.drop_hint = None;
         if self.remote.is_some() && crate::drop::alt_held() {
@@ -783,8 +792,7 @@ impl TerminalView {
             cx.notify();
             return;
         }
-        let foreground = self.session.foreground_name();
-        match drop_action(foreground.as_deref(), crate::drop::alt_held(), paths.paths()) {
+        match drop_action(self.drop_target(cx), crate::drop::alt_held(), paths.paths()) {
             Some(DropAction::Insert(text)) => self.paste_text(&text),
             Some(DropAction::Preview(files)) => cx.emit(TerminalViewEvent::Preview(files)),
             None => {}
@@ -799,10 +807,8 @@ impl TerminalView {
             Some(hitbox) => hitbox.is_hovered(window),
             None => event.bounds.contains(&event.event.position),
         };
-        let next = over.then(|| {
-            let foreground = self.session.foreground_name();
-            crate::drop::hint(foreground.as_deref(), crate::drop::alt_held(), event.drag(cx).paths())
-        });
+        let agent = self.drop_target(cx);
+        let next = over.then(|| crate::drop::hint(agent, crate::drop::alt_held(), event.drag(cx).paths()));
         if next != self.drop_hint {
             self.drop_hint = next;
             cx.notify();

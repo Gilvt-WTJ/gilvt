@@ -1,10 +1,10 @@
 //! Files dropped from Finder onto a terminal: insert their paths or preview them, depending on the
-//! pane's foreground program; ⌥ picks the other one.
+//! pane's agent; ⌥ picks the other one. Claude gets `@` references for everything but images, which it
+//! turns into attachments from a pasted path.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-/// Foreground programs that take dropped files as paths on their input line (compared without `.exe`).
-pub const AGENTS: [&str; 2] = ["claude", "codex"];
+use gilvt_agent::AgentKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropKind {
@@ -20,14 +20,25 @@ pub enum DropAction {
     Preview(Vec<PathBuf>),
 }
 
+/// Image types Claude Code attaches from a pasted path (`[Image#N]`).
+const IMAGE_EXTENSIONS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
+
+pub(crate) fn is_image(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGE_EXTENSIONS.iter().any(|i| e.eq_ignore_ascii_case(i)))
+}
+
+/// The agent a drop goes to: none in a pane inside an ssh link, whose agent cannot see this Mac's paths.
+pub fn drop_agent(remote: bool, agent: Option<AgentKind>) -> Option<AgentKind> {
+    agent.filter(|_| !remote)
+}
+
 /// What a release does now, and what holding (or letting go of) ⌥ would do instead; `None` when
 /// only directories are dragged, which can only be inserted.
-fn kinds(foreground: Option<&str>, alt: bool, paths: &[PathBuf]) -> (DropKind, Option<DropKind>) {
+fn kinds(agent: Option<AgentKind>, alt: bool, paths: &[PathBuf]) -> (DropKind, Option<DropKind>) {
     if preview_files(paths).is_empty() {
         return (DropKind::Insert, None);
     }
-    let agent = foreground.is_some_and(|name| AGENTS.contains(&gilvt_agent::process_basename(name)));
-    let (default, other) = if agent { (DropKind::Insert, DropKind::Preview) } else { (DropKind::Preview, DropKind::Insert) };
+    let (default, other) = if agent.is_some() { (DropKind::Insert, DropKind::Preview) } else { (DropKind::Preview, DropKind::Insert) };
     if alt { (other, Some(default)) } else { (default, Some(other)) }
 }
 
@@ -36,30 +47,40 @@ pub fn preview_files(paths: &[PathBuf]) -> Vec<PathBuf> {
     paths.iter().filter(|p| !p.is_dir()).cloned().collect()
 }
 
-/// What dropping `paths` on a terminal whose foreground program is `foreground` does; nothing for
-/// no paths.
-pub fn drop_action(foreground: Option<&str>, alt: bool, paths: &[PathBuf]) -> Option<DropAction> {
+/// The inserted text: one word per path, each followed by a space. Claude: `@path` (images: the escaped path,
+/// which Claude attaches); everything else: escaped paths.
+fn insertion(agent: Option<AgentKind>, paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|p| {
+            let s = p.to_string_lossy();
+            let mention = (agent == Some(AgentKind::Claude) && !is_image(p)).then(|| gilvt_finder::claude_mention(&s)).flatten();
+            mention.unwrap_or_else(|| gilvt_finder::shell_escape(&s)) + " "
+        })
+        .collect()
+}
+
+/// What dropping `paths` on a terminal whose agent is `agent` does; nothing for no paths.
+pub fn drop_action(agent: Option<AgentKind>, alt: bool, paths: &[PathBuf]) -> Option<DropAction> {
     if paths.is_empty() {
         return None;
     }
-    Some(match kinds(foreground, alt, paths).0 {
+    Some(match kinds(agent, alt, paths).0 {
         DropKind::Preview => DropAction::Preview(preview_files(paths)),
-        DropKind::Insert => {
-            let words: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-            DropAction::Insert(gilvt_finder::insertion(&words))
-        }
+        DropKind::Insert => DropAction::Insert(insertion(agent, paths)),
     })
 }
 
 /// The drag-over hint: what releasing does, and how ⌥ changes it.
-pub fn hint(foreground: Option<&str>, alt: bool, paths: &[PathBuf]) -> String {
+pub fn hint(agent: Option<AgentKind>, alt: bool, paths: &[PathBuf]) -> String {
     let t = crate::i18n::text;
     let label = |kind| match kind {
+        DropKind::Insert if agent == Some(AgentKind::Claude) => t("附加给 Claude", "attach to Claude"),
         DropKind::Insert => t("插入路径", "insert path"),
         DropKind::Preview => t("预览", "preview"),
     };
     let release = t("松开：", "Release: ");
-    match kinds(foreground, alt, paths) {
+    match kinds(agent, alt, paths) {
         (now, None) => format!("{release}{}", label(now)),
         (now, Some(other)) => {
             let modifier = if alt { t("放开", "release") } else { t("按住", "hold") };
@@ -79,50 +100,71 @@ pub fn alt_held() -> bool {
 mod tests {
     use std::path::Path;
 
+    use gilvt_agent::AgentKind::{Claude, Codex};
+
     use super::*;
 
-    fn files() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+    fn files() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf, PathBuf) {
         let tmp = tempfile::tempdir().unwrap();
         let a = tmp.path().join("a b.md");
         let b = tmp.path().join("中文.rs");
+        let png = tmp.path().join("Shot.PNG");
         let dir = tmp.path().join("dir");
         std::fs::write(&a, "a").unwrap();
         std::fs::write(&b, "b").unwrap();
+        std::fs::write(&png, "p").unwrap();
         std::fs::create_dir(&dir).unwrap();
-        (tmp, a, b, dir)
+        (tmp, a, b, png, dir)
+    }
+
+    fn s(p: &Path) -> String {
+        p.to_string_lossy().into_owned()
     }
 
     #[test]
-    fn agents_insert_and_everything_else_previews() {
-        let (_tmp, a, _, _) = files();
-        let insert = Some(DropAction::Insert(gilvt_finder::insertion(&[a.to_string_lossy().into_owned()])));
-        let preview = Some(DropAction::Preview(vec![a.clone()]));
-        assert_eq!(drop_action(Some("claude"), false, &[a.clone()]), insert);
-        assert_eq!(drop_action(Some("codex"), false, &[a.clone()]), insert);
-        assert_eq!(drop_action(Some("claude.exe"), false, &[a.clone()]), insert);
-        assert_eq!(hint(Some("claude.exe"), false, &[a.clone()]), hint(Some("claude"), false, &[a.clone()]));
-        assert_eq!(drop_action(Some("zsh"), false, &[a.clone()]), preview);
-        assert_eq!(drop_action(Some("vim"), false, &[a.clone()]), preview);
-        assert_eq!(drop_action(None, false, &[a.clone()]), preview);
-        // Only the exact program name counts.
-        assert_eq!(drop_action(Some("claude-helper"), false, &[a.clone()]), preview);
+    fn claude_gets_mentions_except_for_images() {
+        let (_tmp, a, b, png, dir) = files();
+        let Some(DropAction::Insert(text)) = drop_action(Some(Claude), false, &[a.clone(), png.clone(), b.clone(), dir.clone()]) else { panic!() };
+        let want = format!(
+            "{} {} {} {} ",
+            gilvt_finder::claude_mention(&s(&a)).unwrap(),
+            gilvt_finder::shell_escape(&s(&png)),
+            gilvt_finder::claude_mention(&s(&b)).unwrap(),
+            gilvt_finder::claude_mention(&s(&dir)).unwrap(),
+        );
+        assert_eq!(text, want);
+        assert!(text.starts_with("@\""), "{text}");
     }
 
     #[test]
-    fn alt_picks_the_other_action() {
-        let (_tmp, a, _, _) = files();
-        assert_eq!(drop_action(Some("claude"), true, &[a.clone()]), Some(DropAction::Preview(vec![a.clone()])));
-        assert!(matches!(drop_action(Some("bash"), true, &[a.clone()]), Some(DropAction::Insert(_))));
+    fn claude_falls_back_to_the_escaped_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let q = tmp.path().join("say \"hi\".md");
+        std::fs::write(&q, "q").unwrap();
+        assert_eq!(drop_action(Some(Claude), false, &[q.clone()]), Some(DropAction::Insert(gilvt_finder::insertion(&[s(&q)]))));
+    }
+
+    #[test]
+    fn codex_gets_escaped_paths() {
+        let (_tmp, a, _, png, _) = files();
+        let words = [s(&a), s(&png)];
+        assert_eq!(drop_action(Some(Codex), false, &[a, png]), Some(DropAction::Insert(gilvt_finder::insertion(&words))));
+    }
+
+    #[test]
+    fn no_agent_previews_and_alt_picks_the_other_action() {
+        let (_tmp, a, _, _, _) = files();
+        assert_eq!(drop_action(None, false, &[a.clone()]), Some(DropAction::Preview(vec![a.clone()])));
+        assert_eq!(drop_action(None, true, &[a.clone()]), Some(DropAction::Insert(gilvt_finder::insertion(&[s(&a)]))));
+        assert_eq!(drop_action(Some(Claude), true, &[a.clone()]), Some(DropAction::Preview(vec![a.clone()])));
     }
 
     #[test]
     fn directories_are_not_previewed() {
-        let (_tmp, a, b, dir) = files();
-        let all = [a.clone(), dir.clone(), b.clone()];
-        assert_eq!(drop_action(Some("bash"), false, &all), Some(DropAction::Preview(vec![a.clone(), b.clone()])));
-        // Only directories: inserted whatever the program and ⌥.
-        for (fg, alt) in [(Some("bash"), false), (Some("bash"), true), (Some("claude"), true)] {
-            assert!(matches!(drop_action(fg, alt, &[dir.clone()]), Some(DropAction::Insert(_))), "{fg:?} {alt}");
+        let (_tmp, a, b, _, dir) = files();
+        assert_eq!(drop_action(None, false, &[a.clone(), dir.clone(), b.clone()]), Some(DropAction::Preview(vec![a, b])));
+        for (agent, alt) in [(None, false), (None, true), (Some(Claude), true)] {
+            assert!(matches!(drop_action(agent, alt, &[dir.clone()]), Some(DropAction::Insert(_))), "{agent:?} {alt}");
         }
         // A path that does not exist (yet) is not a directory: previewing shows its error.
         let missing = PathBuf::from("/nonexistent/x.md");
@@ -130,16 +172,30 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_drop_does_nothing() {
-        for (fg, alt) in [(Some("bash"), false), (Some("bash"), true), (Some("claude"), false), (None, false)] {
-            assert_eq!(drop_action(fg, alt, &[]), None, "{fg:?} {alt}");
+    fn nothing_dropped_does_nothing() {
+        for (agent, alt) in [(None, false), (Some(Claude), false), (Some(Codex), true)] {
+            assert_eq!(drop_action(agent, alt, &[]), None, "{agent:?} {alt}");
+        }
+    }
+
+    #[test]
+    fn remote_panes_ignore_the_agent() {
+        assert_eq!(drop_agent(true, Some(Claude)), None);
+        assert_eq!(drop_agent(false, Some(Claude)), Some(Claude));
+        assert_eq!(drop_agent(false, None), None);
+    }
+
+    #[test]
+    fn images_by_extension_in_any_case() {
+        for (name, image) in [("x.png", true), ("x.JPG", true), ("x.jpeg", true), ("x.gif", true), ("x.WebP", true), ("x.heic", false), ("x.pdf", false), ("png", false)] {
+            assert_eq!(is_image(Path::new(name)), image, "{name}");
         }
     }
 
     #[test]
     fn inserts_escaped_absolute_paths() {
-        let (_tmp, a, b, dir) = files();
-        let Some(DropAction::Insert(text)) = drop_action(Some("claude"), false, &[a.clone(), b.clone(), dir.clone()]) else { panic!() };
+        let (_tmp, a, b, _png, dir) = files();
+        let Some(DropAction::Insert(text)) = drop_action(Some(Codex), false, &[a.clone(), b.clone(), dir.clone()]) else { panic!() };
         let esc = |p: &Path| gilvt_finder::shell_escape(&p.to_string_lossy());
         assert_eq!(text, format!("{} {} {} ", esc(&a), esc(&b), esc(&dir)));
         assert!(text.contains(r"a\ b.md ") && text.contains("中文.rs "));
@@ -147,24 +203,28 @@ mod tests {
 
     #[test]
     fn hints_follow_alt() {
-        let (_tmp, a, _, dir) = files();
+        let (_tmp, a, _b, _png, dir) = files();
         let one = [a];
-        assert_eq!(hint(Some("zsh"), false, &one), "松开：预览 · 按住 ⌥ 插入路径");
-        assert_eq!(hint(Some("claude"), false, &one), "松开：插入路径 · 按住 ⌥ 预览");
-        assert_eq!(hint(Some("zsh"), true, &one), "松开：插入路径 · 放开 ⌥ 预览");
-        assert_eq!(hint(Some("claude"), true, &one), "松开：预览 · 放开 ⌥ 插入路径");
-        assert_eq!(hint(Some("zsh"), false, &[dir.clone()]), "松开：插入路径");
-        assert_eq!(hint(Some("zsh"), true, &[dir]), "松开：插入路径");
+        assert_eq!(hint(None, false, &one), "松开：预览 · 按住 ⌥ 插入路径");
+        assert_eq!(hint(Some(Codex), false, &one), "松开：插入路径 · 按住 ⌥ 预览");
+        assert_eq!(hint(None, true, &one), "松开：插入路径 · 放开 ⌥ 预览");
+        assert_eq!(hint(Some(Codex), true, &one), "松开：预览 · 放开 ⌥ 插入路径");
+        assert_eq!(hint(None, false, &[dir.clone()]), "松开：插入路径");
+        assert_eq!(hint(None, true, &[dir]), "松开：插入路径");
     }
 
     #[test]
-    fn hints_read_in_english() {
-        let (_tmp, a, _, dir) = files();
-        let one = [a];
+    fn hints_name_claude() {
+        let (_tmp, a, _, _, dir) = files();
         crate::i18n::with_language(crate::i18n::Language::English, || {
-            assert_eq!(hint(Some("zsh"), false, &one), "Release: preview · hold ⌥ insert path");
-            assert_eq!(hint(Some("claude"), true, &one), "Release: preview · release ⌥ insert path");
-            assert_eq!(hint(Some("zsh"), false, &[dir]), "Release: insert path");
+            assert_eq!(hint(Some(Claude), false, &[a.clone()]), "Release: attach to Claude · hold ⌥ preview");
+            assert_eq!(hint(Some(Codex), false, &[a.clone()]), "Release: insert path · hold ⌥ preview");
+            assert_eq!(hint(None, false, &[a.clone()]), "Release: preview · hold ⌥ insert path");
+            assert_eq!(hint(Some(Claude), true, &[a.clone()]), "Release: preview · release ⌥ attach to Claude");
+            assert_eq!(hint(Some(Claude), false, &[dir.clone()]), "Release: attach to Claude");
+        });
+        crate::i18n::with_language(crate::i18n::Language::Chinese, || {
+            assert_eq!(hint(Some(Claude), false, &[a.clone()]), "松开：附加给 Claude · 按住 ⌥ 预览");
         });
     }
 }
