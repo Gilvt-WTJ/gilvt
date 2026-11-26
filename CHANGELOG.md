@@ -7,6 +7,8 @@ breaking changes; they are called out under **Changed**.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-25
+
 ### Changed
 
 - Dropping a non-image file or a folder onto Claude Code inserts it as an `@` reference (`@/path/to/file`, quoted when the path has spaces), so Claude reads the file when you send the prompt. Images are inserted as before and still become attachments.
@@ -152,7 +154,8 @@ First public release.
   downloads, and installs when you quit gilvt, so running agents are never interrupted; "Check for
   Updates…" in the app menu, and `[update] mode = "download" | "check" | "off"` in `config.toml`.
 
-[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.5.1...main
+[Unreleased]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.6.0...main
+[0.6.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/Gilvt-WTJ/gilvt/compare/v0.4.0...v0.4.1
