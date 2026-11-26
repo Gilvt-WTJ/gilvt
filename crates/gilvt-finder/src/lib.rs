@@ -13,4 +13,4 @@ mod testutil;
 pub use list::{list, Listing, MAX_FILES};
 pub use rank::{Context, Finder, Hit};
 pub use root::{relative_to, search_root, Root};
-pub use shell::{insertion, shell_escape};
+pub use shell::{claude_mention, insertion, shell_escape};

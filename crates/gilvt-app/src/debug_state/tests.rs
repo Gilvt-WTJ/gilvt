@@ -81,6 +81,8 @@ fn window() -> WindowState {
                 cwd: Some("/tmp/gilvt-lab".into()),
                 screen_tail: vec!["❯ 1. Cats".into(), "  2. Dogs".into()],
                 marked_text: None,
+                marked: None,
+                agent_kind: None,
                 code: None,
                 selection: None,
                 header: None,
@@ -278,7 +280,7 @@ fn window_json_shape() {
             "panes": [{
                 "id": 3, "kind": "terminal", "focused": true, "rect": [240.0, 40.0, 357.5, 608.0],
                 "foreground": "agent:claude", "session": "claude:fcfe2a39", "border": "amber", "cwd": "/tmp/gilvt-lab",
-                "screen_tail": ["❯ 1. Cats", "  2. Dogs"], "marked_text": null, "code": null, "selection": null, "header": null,
+                "screen_tail": ["❯ 1. Cats", "  2. Dogs"], "marked_text": null, "marked": null, "agent_kind": null, "code": null, "selection": null, "header": null,
                 "cursor": {"row": 1, "col": 2, "rect": [10.0, 50.0, 7.5, 16.0]},
                 "commands": [], "running_command": null, "foreground_via": {"descendant": "ttadk"}, "agent_hint": null, "host": "local", "remote": null, "loading": false, "size": null
             }],

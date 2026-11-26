@@ -9,7 +9,7 @@ mod history;
 mod live_preview;
 mod monitor;
 mod inspector;
-mod debug;
+pub(crate) mod debug;
 mod editor;
 pub mod marks;
 mod new_agent;
@@ -481,7 +481,7 @@ impl Workspace {
                 return None;
             }
         };
-        let view = cx.new(|cx| TerminalView::new(session, window, cx));
+        let view = cx.new(|cx| TerminalView::new(id, session, window, cx));
         let sub = cx.subscribe_in(&view, window, move |ws, _, event, window, cx| match event {
             TerminalViewEvent::TitleChanged => {
                 ws.sync_title(window, cx);

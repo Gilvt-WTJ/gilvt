@@ -327,3 +327,17 @@ fn remote_approval_waits_for_an_answer_then_ends_the_turn() {
     let no = run(&builtin("remote-approval"), common::keys([Key::Esc]), Opts::default());
     assert_eq!(no.timeline().turns()[0].outcome, TurnOutcome::Interrupted);
 }
+
+#[test]
+fn hidden_cursor_hides_then_restores_the_cursor() {
+    let s = builtin("hidden-cursor");
+    assert!(s.hide_cursor);
+    let typed = [Key::Paste("@/tmp/x.md ".into()), Key::CtrlU, Key::Char('/'), Key::Char('e'), Key::Char('x'), Key::Char('i'), Key::Char('t'), Key::Enter];
+    let r = run(&s, common::keys(typed), Opts::default());
+    let out = &r.screen;
+    let hide = out.find("\x1b[?25l").expect("hides the cursor");
+    let show = out.rfind("\x1b[?25h").expect("shows it again on exit");
+    assert!(hide < show, "{out:?}");
+    assert!(out.find("@/tmp/x.md").map_or(true, |p| hide < p && p < show), "{out:?}");
+    ends_idle(&r);
+}

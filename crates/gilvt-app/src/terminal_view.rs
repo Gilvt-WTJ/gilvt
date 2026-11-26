@@ -101,6 +101,8 @@ pub struct TerminalView {
     commands: CommandLog,
     /// What releasing the files dragged over this pane would do.
     drop_hint: Option<String>,
+    /// This view's pane: its agent decides what a drop inserts.
+    pane: PaneId,
     /// The pane's hitbox in the last frame: not hovered while an overlay (Quick Look, the palette)
     /// covers the pointer, so no hint shows for a drop that would land there.
     hitbox: Rc<Cell<Option<HitboxId>>>,
@@ -163,7 +165,7 @@ pub fn spawn_session(settings: &Settings, env: &ShellEnv, pane: PaneId, cwd: Opt
 }
 
 impl TerminalView {
-    pub fn new(session: TermSession, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(pane: PaneId, session: TermSession, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let events = session.events();
         let event_task = cx.spawn_in(window, async move |this, cx| {
             while let Ok(event) = events.recv().await {
@@ -199,6 +201,7 @@ impl TerminalView {
             link_recheck: false,
             commands: CommandLog::default(),
             drop_hint: None,
+            pane,
             hitbox: Rc::new(Cell::new(None)),
             launch_queue: Queue::default(),
             _event_task: event_task,
@@ -728,6 +731,49 @@ impl TerminalView {
         Some((row, col, Bounds { origin, size: gpui::size(l.metrics.cell_width, l.metrics.line_height) }))
     }
 
+    /// Where the uncommitted IME text was drawn in the latest frame (`ime_origin`): its viewport cell and its
+    /// bounds, sized by its cells; `None` without one or when it is not drawn.
+    pub(crate) fn debug_marked(&self) -> Option<(usize, usize, Bounds<Pixels>)> {
+        let text = self.marked_text.as_ref()?;
+        let l = self.layout.as_ref()?;
+        let s = &l.snapshot;
+        let (row, col) = crate::terminal_element::ime_origin(s.cursor.map(|c| (c.row, c.col)), s.ime_anchor, s.display_offset)?;
+        let cells = unicode_width::UnicodeWidthStr::width(text.as_str()).max(1);
+        let origin = l.bounds.origin + gpui::point(l.metrics.cell_width * col as f32, l.metrics.line_height * row as f32);
+        Some((row, col, Bounds { origin, size: gpui::size(l.metrics.cell_width * cells as f32, l.metrics.line_height) }))
+    }
+
+    /// Text an input method commits: written to the pty like typing.
+    fn commit_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.marked_text = None;
+        if !text.is_empty() {
+            self.session.clear_selection();
+            self.session.write_input(text.as_bytes().to_vec());
+            if let Some(key) = typed_char(text) {
+                cx.emit(TerminalViewEvent::Key(key));
+            }
+        }
+        cx.notify();
+    }
+
+    /// `gilvt debug preedit`: what an input method's setMarkedText / insertText / unmarkText would do.
+    pub(crate) fn preedit_for_test(&mut self, action: &gilvt_ipc::PreeditAction, cx: &mut Context<Self>) {
+        match action {
+            gilvt_ipc::PreeditAction::Set { text } => {
+                self.marked_text = (!text.is_empty()).then(|| text.clone());
+                cx.notify();
+            }
+            gilvt_ipc::PreeditAction::Commit => {
+                let text = self.marked_text.take().unwrap_or_default();
+                self.commit_text(&text, cx);
+            }
+            gilvt_ipc::PreeditAction::Clear => {
+                self.marked_text = None;
+                cx.notify();
+            }
+        }
+    }
+
     /// Moves the cursor of the line being edited to `cell` with arrow keys ([`gilvt_term::click_move`]).
     /// Only while the foreground program reads raw keys: a plain command would echo them.
     fn click_to_move(&mut self, cell: (usize, usize), cx: &mut Context<Self>) {
@@ -776,6 +822,12 @@ impl TerminalView {
         }
     }
 
+    /// The agent a drop on this pane goes to (none inside an ssh link). Reads the agents' state; no process lookup.
+    fn drop_target(&self, cx: &gpui::App) -> Option<gilvt_agent::AgentKind> {
+        let agent = cx.try_global::<crate::agents::Agents>().and_then(|a| a.pane_agent(self.pane));
+        crate::drop::drop_agent(self.remote.is_some(), agent)
+    }
+
     fn drop_paths(&mut self, paths: &ExternalPaths, _: &mut Window, cx: &mut Context<Self>) {
         self.drop_hint = None;
         if self.remote.is_some() && crate::drop::alt_held() {
@@ -783,8 +835,7 @@ impl TerminalView {
             cx.notify();
             return;
         }
-        let foreground = self.session.foreground_name();
-        match drop_action(foreground.as_deref(), crate::drop::alt_held(), paths.paths()) {
+        match drop_action(self.drop_target(cx), crate::drop::alt_held(), paths.paths()) {
             Some(DropAction::Insert(text)) => self.paste_text(&text),
             Some(DropAction::Preview(files)) => cx.emit(TerminalViewEvent::Preview(files)),
             None => {}
@@ -799,10 +850,8 @@ impl TerminalView {
             Some(hitbox) => hitbox.is_hovered(window),
             None => event.bounds.contains(&event.event.position),
         };
-        let next = over.then(|| {
-            let foreground = self.session.foreground_name();
-            crate::drop::hint(foreground.as_deref(), crate::drop::alt_held(), event.drag(cx).paths())
-        });
+        let agent = self.drop_target(cx);
+        let next = over.then(|| crate::drop::hint(agent, crate::drop::alt_held(), event.drag(cx).paths()));
         if next != self.drop_hint {
             self.drop_hint = next;
             cx.notify();
@@ -921,15 +970,7 @@ impl gpui::EntityInputHandler for TerminalView {
     }
 
     fn replace_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: &mut Window, cx: &mut Context<Self>) {
-        self.marked_text = None;
-        if !text.is_empty() {
-            self.session.clear_selection();
-            self.session.write_input(text.as_bytes().to_vec());
-            if let Some(key) = typed_char(text) {
-                cx.emit(TerminalViewEvent::Key(key));
-            }
-        }
-        cx.notify();
+        self.commit_text(text, cx);
     }
 
     fn replace_and_mark_text_in_range(

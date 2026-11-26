@@ -7,7 +7,8 @@
 #   focus <pane>                  foreground click on the pane's centre (skipped when already focused)
 #   click|rclick|dclick <point> [mods]   foreground clicks; mods: cmd, shift, alt, ctrl or e.g. cmd+shift
 #   drag <point> <point>          foreground drag inside the window
-#   drop <file>... <point>        reveal the files in Finder and drag them onto the point
+#   drop <file>... <point>        reveal the files in Finder and drag them onto the point (in a sandbox ~/x is the sandbox HOME)
+#   preedit <text>|--commit|--clear  an input method's uncommitted text in the focused pane (gilvt debug preedit; no foreground)
 #   scroll up|down <n> [<point>]  foreground wheel ticks (default point: the focused pane's centre)
 #   hover <point>                 move the pointer there and wait for a tooltip
 #   raise [<window id>|key|<n>]   bring a gilvt window to the front as the key window (default: the
@@ -65,7 +66,7 @@ echo_polls="${DRIVE_ECHO_POLLS:-20}"
 
 say() { echo "drive: $*" >&2; }
 usage() {
-  sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 env_fail() { say "$*"; exit 3; }
@@ -847,7 +848,11 @@ case "$action" in
 
   drop)
     [ $# -ge 2 ] || usage
-    files=("${@:1:$(($# - 1))}")
+    files=()
+    for f in "${@:1:$(($# - 1))}"; do
+      if [ "$MODE" = sandbox ] && [ -n "$HOME_DIR" ]; then f="$(sandbox_path "$f")" || exit $?; fi
+      files+=("$f")
+    done
     point="${!#}"
     for f in "${files[@]}"; do [ -e "$f" ] || { say "drop: no such file $f"; exit 2; }; done
     to="$(local_point "$point")" || exit $?
@@ -912,6 +917,12 @@ case "$action" in
     fi
     [ -s "$out" ] || { say "no screenshot written"; exit 1; }
     echo "$out"
+    ;;
+
+  preedit)
+    # preedit <text> | --commit | --clear: an input method's uncommitted text in the focused pane (gilvt debug preedit).
+    [ $# -eq 1 ] || usage
+    "$GILVT_CLI" debug preedit "$1" --pid "$PID" || { say "preedit $1 failed"; exit 1; }
     ;;
 
   state)

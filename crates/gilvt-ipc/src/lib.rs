@@ -10,6 +10,16 @@ use serde::{Deserialize, Serialize};
 
 pub mod remote;
 
+/// What [`Request::DebugPreedit`] does to a pane's IME composition: `setMarkedText`, `insertText` of the marked
+/// text, or `unmarkText` without inserting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "do", rename_all = "snake_case")]
+pub enum PreeditAction {
+    Set { text: String },
+    Commit,
+    Clear,
+}
+
 /// Largest request accepted (stdin content for `gilvt view -` is capped at 10 MB by the client).
 pub const MAX_MESSAGE_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_CONTENT_BYTES: usize = 10 * 1024 * 1024;
@@ -66,6 +76,10 @@ pub enum Request {
     /// A snapshot of the app's UI state for tests (`gilvt debug state`), with the last `tail_lines`
     /// visible lines of each pane. Answered by the app's main thread (see [`Query`]).
     DebugState { tail_lines: u16 },
+    /// Test hook (`gilvt debug preedit`): sets, commits or clears the uncommitted IME text of a terminal pane as an
+    /// input method would. Answered like DebugState (refused unless GILVT_DEBUG_STATE=1). `pane`: None = the focused
+    /// pane of the first window. Answer: Ok, or Error.
+    DebugPreedit { pane: Option<u64>, action: PreeditAction },
     /// A 监控官 tool call from `gilvt mcp` (S2 §6.1): answered by the app's main thread, always (debug state or not),
     /// and only for the token the app gave its current chat process. See [`Server::start_with_monitor`].
     Monitor { token: String, tool: String, args: serde_json::Value },
@@ -134,7 +148,7 @@ pub const QUERY_QUEUE: usize = 8;
 /// The answer to a query while the app has query answering switched off (see [`Server::start_refusing_queries`]).
 pub const DEBUG_STATE_DISABLED: &str = "debug state is disabled (start gilvt with GILVT_DEBUG_STATE=1)";
 
-/// A request only the app can answer (today: [`Request::DebugState`]). The connection thread waits
+/// A request only the app can answer (e.g. [`Request::DebugState`]). The connection thread waits
 /// until [`Query::deadline`] for [`Query::respond`]; dropping the query answers `Error`.
 #[derive(Debug)]
 pub struct Query {
@@ -327,7 +341,7 @@ fn serve(mut stream: UnixStream, requests: &async_channel::Sender<Request>, quer
             let _ = requests.try_send(req);
             return;
         }
-        Ok(req @ Request::DebugState { .. }) => ask(req, queries, query_timeout),
+        Ok(req @ (Request::DebugState { .. } | Request::DebugPreedit { .. })) => ask(req, queries, query_timeout),
         Ok(req @ Request::Monitor { .. }) => ask(req, monitor, query_timeout),
         Ok(req @ Request::RemoteBegin { .. }) => ask(req, remote, query_timeout),
         Ok(req) => match requests.try_send(req) {
@@ -585,6 +599,36 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         assert_eq!(json, r#"{"type":"debug_state","state":{"version":1}}"#);
         assert_eq!(serde_json::from_str::<Response>(&json).unwrap(), resp);
+    }
+
+    #[test]
+    fn preedit_requests_are_queries() {
+        let req = Request::DebugPreedit { pane: Some(3), action: PreeditAction::Set { text: "你好".into() } };
+        let line = serde_json::to_string(&req).unwrap();
+        assert_eq!(line, r#"{"type":"debug_preedit","pane":3,"action":{"do":"set","text":"你好"}}"#);
+        assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), req);
+        let commit = Request::DebugPreedit { pane: None, action: PreeditAction::Commit };
+        assert_eq!(serde_json::to_string(&commit).unwrap(), r#"{"type":"debug_preedit","pane":null,"action":{"do":"commit"}}"#);
+        // Refused like debug state when queries are off.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("p.sock");
+        let (tx, rx) = async_channel::unbounded();
+        let _server = Server::start_with_monitor(&path, tx, DebugQueries::Refused(DEBUG_STATE_DISABLED), async_channel::bounded(QUERY_QUEUE).0, async_channel::bounded(QUERY_QUEUE).0).unwrap();
+        assert_eq!(send(&path, &req).unwrap(), Response::Error { message: DEBUG_STATE_DISABLED.into() });
+        assert!(rx.try_recv().is_err(), "a refused preedit never reaches the request channel");
+        // Answered by the app through the query channel when queries are on.
+        let path = dir.path().join("q.sock");
+        let (tx, rx) = async_channel::unbounded();
+        let (qtx, qrx) = async_channel::unbounded::<Query>();
+        let _server = Server::start_with_queries(&path, tx, qtx).unwrap();
+        let app = std::thread::spawn(move || {
+            let q = qrx.recv_blocking().unwrap();
+            assert!(matches!(q.request, Request::DebugPreedit { pane: None, action: PreeditAction::Commit }), "{:?}", q.request);
+            q.respond(Response::Ok);
+        });
+        assert_eq!(send(&path, &commit).unwrap(), Response::Ok);
+        app.join().unwrap();
+        assert!(rx.try_recv().is_err(), "queries do not go to the request channel");
     }
 
     #[test]

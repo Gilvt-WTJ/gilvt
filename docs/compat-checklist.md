@@ -635,6 +635,19 @@ pane 的 PATH 最前是 gilvt 的垫片目录（`~/Library/Application Support/g
 |---|------|------|------|
 | AF1 | `tput smcup; echo …`（命令停在备用屏幕上结束），再回到提示符 | 回到主屏幕：之前的输出重新可见，备用屏幕上的输出消失（之后启动的 `claude` 因此有回滚，滚轮滚动对话而不是翻输入历史） | [AF1](../tests/gui/cases/AF/AF1.md) |
 
+## AG. 拖入交给 Agent 与隐藏光标时的预编辑
+
+拖入文件时交给哪个 Agent，与侧栏用同一套识别结果（hooks 绑定的会话优先，其次每秒一次的前台轮询，含包装器和 `[agent]` 命令名），pane 的 `agent_kind` 就是这个结果；ssh 里的 pane 总是 `null`。Claude 的非图片文件插入为 `@` 引用，图片与 Codex 插入转义路径。Agent 隐藏终端光标时，输入法 / 听写的预编辑文字画在它停放光标的格（`marked`）。用例里的预编辑由 `drive.sh preedit`（`gilvt debug preedit`）设置，不经过系统输入法。
+
+| # | 操作 | 期望 | 用例 |
+|---|------|------|------|
+| AG1 | 从访达把一个 `.md` 拖到运行 `claude` 的 pane | 输入行出现 `@/…/note.md `（Claude 发送时读入文件），不打开预览；`agent_kind` 为 `claude` | [AG1](../tests/gui/cases/AG/AG1.md) |
+| AG2 | 拖入文件名带空格的 `.md`，以及一张 `.png` | `.md` 插入为 `@"/…/my note.md"`；`.png` 插入为转义路径（`/…/shot.png`），Claude 会把它变成 `[Image#N]` | [AG2](../tests/gui/cases/AG/AG2.md) |
+| AG3 | `[agent] codex_commands` 加上 `mycodex`，在 pane 里运行 `mycodex`，拖入 `.md` | `agent_kind` 为 `codex`；插入转义路径，不打开预览 | [AG3](../tests/gui/cases/AG/AG3.md) |
+| AG4 | 隐藏光标的 Agent（如 Claude Code）里，输入法 / 听写正在组字 | 预编辑文字带下划线画在 Agent 的插入点（隐藏光标所在格），上屏后写入 Agent 的输入行 | [AG4](../tests/gui/cases/AG/AG4.md) |
+| AG5 | 在 ssh 里运行的 Claude 上拖入 `.md` | 不插入 `@` 引用（本地路径远端看不到）：与 ssh 里其他程序相同 | [AG5](../tests/gui/cases/AG/AG5.md) |
+| AG6 | 在 Claude Code 里用 macOS 听写（中文、英文各一句） | 说话时文字实时出现在 Claude 的输入框（预编辑），停下后上屏 | 手动（需要麦克风与真实语音） |
+
 ## 已知限制（M1）
 
 - Kitty 键盘协议只发送按下 / 重复事件，不发送按键抬起事件。
@@ -669,7 +682,6 @@ pane 的 PATH 最前是 gilvt 的垫片目录（`~/Library/Application Support/g
 ## 已知限制（M2c）
 
 - `⌘P` 搜索框只能在末尾输入和删除，不能移动光标或选中文字；面板覆盖整个 pane 区域，而不只是发起它的 pane。
-- 通过 node 等启动器运行的 Agent，前台进程名可能不是 `claude` / `codex`，此时拖入默认为预览（按住 `⌥` 插入）。
 - 拖动提示画在终端上，Quick Look 浮层覆盖时可能只露出边缘；固定预览 pane 上没有提示。
 - 在大仓库中首次按 `⌘P`（无缓存）需要约 0.1–0.3 秒列出文件，之后使用缓存。
 - 主目录和根目录 `/` 不搜索（即使主目录是 git 仓库）；目录遍历不跨越到其他文件系统（如 `/Volumes` 下的挂载），并跳过 `~/Library`。

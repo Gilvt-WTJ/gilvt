@@ -845,7 +845,7 @@ def case_steps(path):
 
 ACTIONS = ("type", "key", "focus", "click", "rclick", "dclick", "drag", "drop", "scroll", "hover", "shot",
            "state", "wait", "assert", "row", "menu", "pane", "trashed", "note-trashed", "seed", "sh", "clipboard",
-           "sleep", "restart", "raise")
+           "sleep", "restart", "raise", "preedit")
 
 
 POINTER_ACTIONS = ("click", "rclick", "dclick", "drag", "drop", "scroll", "hover")

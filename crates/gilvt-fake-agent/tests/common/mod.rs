@@ -124,6 +124,7 @@ pub fn run_in(setup: Setup, scenario: &Scenario, keys: Vec<Scripted>, opts: Opts
         initial_prompt: opts.prompt.clone(),
         resumed: opts.resume.is_some(),
         cwd_title: scenario.cwd_title,
+        hide_cursor: scenario.hide_cursor,
     };
     let io = ScriptedIo::new(t0(), keys);
     let steps = scenario.steps.clone();

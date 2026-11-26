@@ -303,6 +303,7 @@ check "step: wait without timeout" '[wait][windows[0].overlay == null]' sa 'wait
 check "step: timeout= inside the condition is not split off" '[wait][a == "x timeout=1s"]' sa 'wait a == "x timeout=1s"'
 check "step: assert" '[assert][windows[0].tabs[*] exists count=1]' sa 'assert windows[0].tabs[*] exists count=1'
 check "step: state" '[state]' sa 'state'
+check "step: preedit" '[preedit][--commit]' sa 'preedit --commit'
 check "step: state path" '[state][windows[0].sidebar]' sa 'state windows[0].sidebar'
 check "step: quoted type text keeps \n" '[type][mkdir -p ~/work/h17 && cd -P ~/work/h17 && clear\n]' \
   sa 'type   "mkdir -p ~/work/h17 && cd -P ~/work/h17 && clear\n"'
@@ -881,6 +882,23 @@ echo png >"$T/drop-me.png"
 drv drop "$T/drop-me.png" 10,20 >/dev/null 2>&1
 if logged "open -R $T/drop-me.png" && logged "peekaboo drag --snapshot snap-123 --from elem_7 --to 110,70.5"; then ok; else bad "drop: $(cat "$LOG")"; fi
 check_rc "drop missing file" 2 drv drop "$T/nope.png" 10,20
+# In a sandbox (HOME_DIR set) a file argument goes through sandbox_path: ~/x is the sandbox HOME.
+mkdir -p "$T/sbx/home"
+echo png >"$T/sbx/home/dm.png"
+mkdir -p "$T/session-home"
+{ cat "$T/session/session.env"; echo "HOME_DIR='$T/sbx/home'"; } >"$T/session-home/session.env"
+reset
+GILVT_GUI_SESSION="$T/session-home" PATH="$stub:$PATH" DRIVE_SETTLE=0 DRIVE_HOVER=0 "$here/drive.sh" drop '~/dm.png' 10,20 >/dev/null 2>&1
+if logged "open -R $T/sbx/home/dm.png"; then ok; else bad "drop ~ in a sandbox: $(cat "$LOG")"; fi
+
+# drive.sh preedit: gilvt debug preedit with the session's pid, no foreground.
+reset
+drv preedit 你好 >/dev/null 2>&1
+if logged "gilvt debug preedit 你好 --pid $$"; then ok; else bad "preedit: $(cat "$LOG")"; fi
+reset
+drv preedit --commit >/dev/null 2>&1
+if logged "gilvt debug preedit --commit --pid $$"; then ok; else bad "preedit --commit: $(cat "$LOG")"; fi
+check_rc "preedit without argument" 2 drv preedit
 
 reset
 check "shot" "$T/sbx/shots/s0.png" drv shot s0

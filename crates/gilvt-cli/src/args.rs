@@ -13,6 +13,8 @@ usage:
   gilvt debug wait COND [--pid N] [--tail N] [--timeout 10s] [--interval 100ms]
                                                      wait until COND holds, e.g. 'front == true && dock_badge == null'
   gilvt debug eval --state-file F (COND | --path PATH)  evaluate on a saved state (test utility)
+  gilvt debug preedit (TEXT | --commit | --clear) [--pane N] [--pid N]
+                                                     set / commit / clear a pane's IME composition (for tests)
   gilvt ssh [ssh 参数…]   在 ssh 里启用 gilvt 的远端功能（由 shell 集成的 ssh 函数调用）
-The app answers debug state only when started with GILVT_DEBUG_STATE=1.
+The app answers debug state and preedit only when started with GILVT_DEBUG_STATE=1.
 ";

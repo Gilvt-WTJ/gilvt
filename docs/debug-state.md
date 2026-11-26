@@ -112,6 +112,8 @@ pane（`panes[]`）：
 | `cwd` | 字符串或 `null` | 工作目录（shell 集成上报的，否则前台进程的） |
 | `screen_tail` | 字符串数组 | 可见区域的最后 `--tail` 个**逻辑行**的纯文本：终端软换行（一行太长折到下一行）的几行拼成一行，所以窄 pane 里折行的命令仍是一个元素；`--tail` 数的是逻辑行。去掉行尾空白（折行处的空格保留），丢掉末尾的空行，宽字符只算一次。只读可见的行：开头已滚出屏幕的逻辑行从屏幕顶上那一截开始。预览 pane 为 `[]` |
 | `marked_text` | 字符串或 `null` | 输入法正在组字、还没上屏的文字（画在光标处，还没写进 shell）；这时按键交给输入法，不进 pty。没有时为 `null` |
+| `marked` | 对象或 `null` | 终端 pane：`marked_text` 画在哪里，`{ "row", "col", "rect" }`（与 `cursor` 同形）：光标所在格；TUI 隐藏光标时是它停放光标的格（与 `cursor` 的 `row` / `col` 相同），`rect` 宽度按字符格数；没有预编辑、隐藏光标且往回滚动（不画）、其他 pane 为 `null` |
+| `agent_kind` | 字符串或 `null` | 终端 pane：拖入文件时交给的 Agent，`"claude"` / `"codex"`：先看绑定在 pane 上的本机会话（hooks），否则看最近一次前台轮询（与侧栏同一套规则，含包装器、`[agent]` 命令名）；ssh 里的 pane、不是 Agent、其他 pane 为 `null`。`claude` 时拖入非图片文件插入 `@` 引用 |
 | `code` | rect 或 `null` | 预览 pane：代码 / diff 文字区域的 rect（Markdown 渲染视图里是整个文档区）；终端 pane、加载前为 `null` |
 | `selection` | 字符串或 `null` | 预览 pane：鼠标选区 `⌘C` 会复制的文字；没有选区、终端 pane 为 `null` |
 | `header` | rect 或 `null` | 预览 / 编辑器 pane：标题栏，拖到 `tab_bar` 上把 pane 移到新标签；终端、监控官 pane 或没画出来时为 `null` |
@@ -612,6 +614,7 @@ gilvt debug state [--pid N] [--tail N]      # 打印 JSON；--tail 默认 20，�
 gilvt debug wait '<条件>' [--pid N] [--tail N] [--timeout 10s] [--interval 100ms]
 gilvt debug eval --state-file F '<条件>'     # 测试工具：在保存的状态上求值，成立退出 0，否则 1
 gilvt debug eval --state-file F --path '<路径>'   # 打印路径得到的所有候选值（一个 JSON 数组）
+gilvt debug preedit (文字 | --commit | --clear) [--pane N] [--pid N]   # 测试钩子：像输入法那样组字 / 上屏 / 清除
 ```
 
 - 在 gilvt 的 pane 里默认用 `$GILVT_SOCKET`；在外部必须给 `--pid`。
@@ -620,6 +623,12 @@ gilvt debug eval --state-file F --path '<路径>'   # 打印路径得到的所�
 - `eval` 不连接任何 gilvt，只读 `--state-file`（如 `drive.sh state` 保存的 JSON）。`tests/gui/selftest.sh` 用它
   确认 `tests/gui/lib/guilib.py` 解析路径、比较值的方式与 `wait` 完全一致。
 - 用法错误、条件或路径写错、状态文件读不了、找不到 socket：退出 2。
+- `preedit`：**唯一会改状态的 debug 命令**，只在以 `GILVT_DEBUG_STATE=1` 启动的 gilvt 里可用（走同一个查询通道，
+  未开启时同样被拒绝、退出 1）。作用于 `--pane` 指定的终端 pane（id 即 `tabs[].panes[].id`），不给时是第一个窗口的焦点 pane。
+  `preedit 文字` 相当于输入法的 setMarkedText：设置 `marked_text`（空字符串等于清除），不写 pty；`--commit` 把当前的
+  `marked_text` 像输入法上屏一样写进 pty 并清除（没有时什么也不写）；`--clear` 只清除，不写 pty。成功退出 0（不输出）；
+  pane 不存在或不是终端、未开启 debug state：stderr 打印原因，退出 1。之后用 `wait` 断言 `marked_text` / `marked` 或屏幕。
+  例：`gilvt debug preedit hello --pid $PID && gilvt debug wait 'windows[0].tabs[0].panes[0].marked_text == "hello"' --pid $PID`。
 
 ## 条件语法
 
